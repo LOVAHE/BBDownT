@@ -1,5 +1,5 @@
 <!-- 提问前请确认你的版本是最新版 不要拿一个过时的版本来咨询为什么某某功能失效 -->
-#### 1. 你使用的BBDown版本是什么？（指明 Release / Actions / DotnetTool）
+#### 1. 你使用的BBDownT版本是什么？（指明 Release / Actions / DotnetTool）
 。。。
 
 #### 2. 你在什么系统使用本软件？（Win/Linux/Mac）
@@ -7,7 +7,7 @@
 
 #### 3. 你使用的完整命令是什么？
 ```
-BBDown ...
+BBDownT ...
 ```
 #### 4. 遇到了什么问题？
 xxx

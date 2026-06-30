@@ -370,7 +370,7 @@ FodyWeavers.xsd
 # debug log
 debug_*.json
 
-# dotnet run in `BBDown/` sub folder
-/BBDown/*.mp4
-/BBDown/*.xml
-/BBDown/*.ass
+# dotnet run in `BBDownT/` sub folder
+/BBDownT/*.mp4
+/BBDownT/*.xml
+/BBDownT/*.ass

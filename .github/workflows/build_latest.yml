@@ -33,27 +33,27 @@ jobs:
 
       - name: Publish [win]
         run: |
-          dotnet publish BBDown -r win-x64 -c Release -o artifact
-          dotnet publish BBDown -r win-arm64 -c Release -o artifact-arm64
+          dotnet publish BBDownT -r win-x64 -c Release -o artifact
+          dotnet publish BBDownT -r win-arm64 -c Release -o artifact-arm64
 
       - name: Package [win]
         run: |
           cd artifact
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_win-x64.zip BBDown.exe
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_win-x64.zip BBDownT.exe
           cd ../artifact-arm64
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_win-arm64.zip BBDown.exe
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_win-arm64.zip BBDownT.exe
 
       - name: Upload Artifact [win-x64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_win-x64
-          path: BBDown_${{ needs.set-date.outputs.date }}_win-x64.zip
+          name: BBDownT_win-x64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_win-x64.zip
 
       - name: Upload Artifact [win-arm64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_win-arm64
-          path: BBDown_${{ needs.set-date.outputs.date }}_win-arm64.zip
+          name: BBDownT_win-arm64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_win-arm64.zip
 
   build-linux-x64-arm64:
     runs-on: ubuntu-latest
@@ -85,7 +85,7 @@ jobs:
               export PATH=\"/opt/dotnet:\$PATH\"
   
               # 编译 Native AOT 输出到挂载的 artifact 目录
-              dotnet publish BBDown -r linux-x64 -c Release -o /workspace/artifact
+              dotnet publish BBDownT -r linux-x64 -c Release -o /workspace/artifact
             "
       
       - name: Build arm64 in Ubuntu 18.04 container (for glibc 2.27 compatibility)
@@ -107,27 +107,27 @@ jobs:
               export PATH=\"/opt/dotnet:\$PATH\"
   
               # 编译 Native AOT 输出到挂载的 artifact 目录
-              dotnet publish BBDown -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
+              dotnet publish BBDownT -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
             "
 
       - name: Package [linux]
         run: |
           cd artifact
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_linux-x64.zip BBDown
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_linux-x64.zip BBDownT
           cd ../artifact-arm64
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_linux-arm64.zip BBDown
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_linux-arm64.zip BBDownT
 
       - name: Upload Artifact [linux-x64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_linux-x64
-          path: BBDown_${{ needs.set-date.outputs.date }}_linux-x64.zip
+          name: BBDownT_linux-x64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_linux-x64.zip
 
       - name: Upload Artifact[linux-arm64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_linux-arm64
-          path: BBDown_${{ needs.set-date.outputs.date }}_linux-arm64.zip
+          name: BBDownT_linux-arm64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_linux-arm64.zip
 
   build-mac-x64-arm64:
     runs-on: macos-latest
@@ -143,24 +143,24 @@ jobs:
 
       - name: Publish [osx]
         run: |
-          dotnet publish BBDown -r osx-x64 -c Release -o artifact
-          dotnet publish BBDown -r osx-arm64 -c Release -o artifact-arm64
+          dotnet publish BBDownT -r osx-x64 -c Release -o artifact
+          dotnet publish BBDownT -r osx-arm64 -c Release -o artifact-arm64
 
       - name: Package [osx]
         run: |
           cd artifact
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_osx-x64.zip BBDown
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_osx-x64.zip BBDownT
           cd ../artifact-arm64
-          zip ../BBDown_${{ needs.set-date.outputs.date }}_osx-arm64.zip BBDown
+          zip ../BBDownT_${{ needs.set-date.outputs.date }}_osx-arm64.zip BBDownT
 
       - name: Upload Artifact [osx-x64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_osx-x64
-          path: BBDown_${{ needs.set-date.outputs.date }}_osx-x64.zip
+          name: BBDownT_osx-x64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_osx-x64.zip
 
       - name: Upload Artifact [osx-arm64]
         uses: actions/upload-artifact@v4
         with:
-          name: BBDown_osx-arm64
-          path: BBDown_${{ needs.set-date.outputs.date }}_osx-arm64.zip
+          name: BBDownT_osx-arm64
+          path: BBDownT_${{ needs.set-date.outputs.date }}_osx-arm64.zip

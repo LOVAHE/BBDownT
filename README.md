@@ -1,9 +1,11 @@
-[![img](https://img.shields.io/github/stars/nilaoda/BBDown?label=%E7%82%B9%E8%B5%9E)](https://github.com/nilaoda/BBDown)  [![img](https://img.shields.io/github/last-commit/nilaoda/BBDown?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/nilaoda/BBDown)  [![img](https://img.shields.io/github/release/nilaoda/BBDown?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/nilaoda/BBDown/releases)  [![img](https://img.shields.io/github/license/nilaoda/BBDown?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/nilaoda/BBDown)  [![Build Latest](https://github.com/nilaoda/BBDown/actions/workflows/build_latest.yml/badge.svg)](https://github.com/nilaoda/BBDown/actions/workflows/build_latest.yml)
+[![img](https://img.shields.io/github/stars/LOVAHE/BBDownT?label=%E7%82%B9%E8%B5%9E)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/last-commit/LOVAHE/BBDownT?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/release/LOVAHE/BBDownT?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/LOVAHE/BBDownT/releases)  [![img](https://img.shields.io/github/license/LOVAHE/BBDownT?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/LOVAHE/BBDownT)  [![Build Latest](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml/badge.svg)](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)
 
 > 本项目仅供个人学习、研究和非商业性用途。使用本工具时，需自行确保遵守相关法律法规，特别是与版权相关的法律条款。开发者不对因使用本工具而产生的任何版权纠纷或法律责任承担责任。请谨慎使用，并仅在有合法授权的情况下使用相关内容。
 
-# BBDown
+# BBDownT
 一个命令行式哔哩哔哩下载器. Bilibili Downloader.
+
+本项目由 BBDownT 接手维护，后续项目名称、命令和文档均以 BBDownT 为准。
 
 # 注意
 本软件混流时需要外部程序：
@@ -12,31 +14,31 @@
 * 杜比视界：ffmpeg5.0以上或新版mp4box.
 
 # 快速开始
-本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/BBDown/) 形式发布  
+本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/BBDownT/) 形式发布  
 
 如果你本地有dotnet环境，使用如下命令即可安装使用
 ```
-dotnet tool install --global BBDown
+dotnet tool install --global BBDownT
 ```
 
-如果需要更新bbdown，使用如下命令
+如果需要更新BBDownT，使用如下命令
 ```
-dotnet tool update --global BBDown
+dotnet tool update --global BBDownT
 ```
 
 # 下载
-Release版本：https://github.com/nilaoda/BBDown/releases
+Release版本：https://github.com/LOVAHE/BBDownT/releases
 
-自动构建的测试版本：https://github.com/nilaoda/BBDown/actions
+自动构建的测试版本：https://github.com/LOVAHE/BBDownT/actions
 
 # 开始使用
 目前命令行参数支持情况
 ```
 Description:
-  BBDown是一个免费且便捷高效的哔哩哔哩下载/解析软件.
+  BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.
 
 Usage:
-  BBDown <url> [command] [options]
+  BBDownT <url> [command] [options]
 
 Arguments:
   <url>  视频地址 或 av|bv|BV|ep|ss
@@ -113,7 +115,7 @@ Options:
   --ep-host <ep-host>                            指定BiliPlus EP host(用于代理api.bilibili.com/pgc/view/web/season, 大部分解析服务器不支持代理该接口)
   --tv-host <tv-host>                            自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
   --area <area>                                  (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
-  --config-file <config-file>                    读取指定的BBDown本地配置文件(默认为: BBDown.config)
+  --config-file <config-file>                    读取指定的BBDownT本地配置文件(默认为: BBDownT.config)
   --version                                      Show version information
   -?, -h, --help                                 Show help and usage information
 
@@ -153,13 +155,13 @@ Commands:
 
 ---
 
-在`1.4.9`或更高版本中，BBDown支持读取本地配置文件以简化命令行的手动输入。
+在`1.4.9`或更高版本中，BBDownT支持读取本地配置文件以简化命令行的手动输入。
 
-如果没有指定`--config-file`，则默认读取程序同目录下的`BBDown.config`文件；若指定该参数，则读取对应文件。
+如果没有指定`--config-file`，则默认读取程序同目录下的`BBDownT.config`文件；若指定该参数，则读取对应文件。
 
 一个典型的配置文件:
 ```config
-#本文件是BBDown程序的配置文件
+#本文件是BBDownT程序的配置文件
 #以#开头的都会被程序忽略
 #然后剩余非空白内容程序逐行读取，对于一个选项，其参数应当在下一行出现
 
@@ -185,7 +187,7 @@ Commands:
 
 ---
 
-在`1.4.9`或更高版本中，BBDown支持自定义合并时的文件名组成。
+在`1.4.9`或更高版本中，BBDownT支持自定义合并时的文件名组成。
 |  代码   | 含义  |
 |  ----  | ----  |
 `<videoTitle>`|视频主标题
@@ -216,25 +218,25 @@ Commands:
   
 扫码登录网页账号：
 ```
-BBDown login
+BBDownT login
 ```
 然后按照提示操作
 
 扫码登录云视听小电视账号：
 ```
-BBDown logintv
+BBDownT logintv
 ```
 然后按照提示操作
  
-*PS: 如果登录报错`The type initializer for 'Gdip' threw an exception`，请参考 [#37](https://github.com/nilaoda/BBDown/issues/37) 解决*
+*PS: 如果登录报错`The type initializer for 'Gdip' threw an exception`，请参考 [#37](https://github.com/LOVAHE/BBDownT/issues/37) 解决*
 
 手动加载网页cookie：
 ```
-BBDown -c "SESSDATA=******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+BBDownT -c "SESSDATA=******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 手动加载云视听小电视token：
 ```
-BBDown -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+BBDownT -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 </details>
@@ -244,16 +246,16 @@ BBDown -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 
 ---
 
-> 根据 [#123](https://github.com/nilaoda/BBDown/issues/123#issuecomment-877583825) ，可以填写TV登录产生的`access_token`来给APP接口使用。可复制`BBDownTV.data`到`BBDownApp.data`使程序自动读取.
+> 根据 [#123](https://github.com/LOVAHE/BBDownT/issues/123#issuecomment-877583825) ，可以填写TV登录产生的`access_token`来给APP接口使用。可复制`BBDownTTV.data`到`BBDownTApp.data`使程序自动读取.
 
 目前程序无法自动获取鉴权信息，推荐通过**抓包**来获取.
 
 在请求Header中寻找键为`authorization`的项，其值形为`identify_v1 5227************1`，其中的`5227************1`就是token(access_key)
 
-获取后手动通过`-token`命令加载, 或写入`BBDownApp.data`使程序自动读取.
+获取后手动通过`-token`命令加载, 或写入`BBDownTApp.data`使程序自动读取.
   
 ```
-BBDown -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+BBDownT -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 </details>
@@ -265,33 +267,33 @@ BBDown -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 
 下载普通视频：
 ```
-BBDown "https://www.bilibili.com/video/BV1qt4y1X7TW"
+BBDownT "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 使用TV接口下载(粉丝量大的UP主基本上是无水印片源)：
 ```
-BBDown -tv "https://www.bilibili.com/video/BV1qt4y1X7TW"
+BBDownT -tv "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 当分P过多时，默认会隐藏展示全部的分P信息，你可以使用如下命令来显示所有每一个分P。
 ```
-BBDown --show-all "https://www.bilibili.com/video/BV1At41167aj"
+BBDownT --show-all "https://www.bilibili.com/video/BV1At41167aj"
 ```
 选择下载某些分P的三种情况：
 * 单个分P：10
 ```
-BBDown "https://www.bilibili.com/video/BV1At41167aj?p=10"
-BBDown -p 10 "https://www.bilibili.com/video/BV1At41167aj"
+BBDownT "https://www.bilibili.com/video/BV1At41167aj?p=10"
+BBDownT -p 10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 * 多个分P：1,2,10
 ```
-BBDown -p 1,2,10 "https://www.bilibili.com/video/BV1At41167aj"
+BBDownT -p 1,2,10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 * 范围分P：1-10
 ```
-BBDown -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
+BBDownT -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 下载番剧全集：
 ```
-BBDown -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
+BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 ```
 
 </details>
@@ -299,10 +301,65 @@ BBDown -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 <details>
 <summary>API服务器</summary>
 
-启动服务器（自定义监听地址和端口）：
+启动服务器：
 
 ```shell
-BBDown serve -l http://0.0.0.0:12450
+BBDownT serve
+BBDownT serve -l http://127.0.0.1:12450
+BBDownT serve -l http://0.0.0.0:12450
+```
+
+默认监听 `http://127.0.0.1:23333`，仅本机访问时不强制鉴权。如果监听 `0.0.0.0` 或其他非本机地址，API会启用Token鉴权；可以通过 `--api-token` 或 `BBDownT.config` 配置固定Token，未配置时启动会自动生成随机Token。请求时可使用 `Authorization: Bearer <token>` 或 `X-BBDownT-Token: <token>`。
+
+```shell
+BBDownT serve -l http://0.0.0.0:12450 --api-token your-token
+```
+
+服务器模式默认按安全配置运行：
+
+* `/add-task` 只负责加入内存队列，成功入队返回 `202 Accepted`；队列满返回 `429 Too Many Requests`。
+* 默认单任务执行，最多排队100个任务，避免短时间大量请求同时启动下载进程。
+* 默认不允许远程任务传入 `Aria2cArgs`，避免对外开放服务时把aria2c附加参数暴露给远程调用方。
+* 默认不允许远程任务自定义 `WorkDir`，也不允许绝对路径或包含 `..` 的输出路径。
+* 默认只向B站相关域名发送Cookie，避免跳转或自定义地址把Cookie带到其他域名。
+* 默认校验TLS证书；如需抓包代理或调试自签证书，需要显式关闭。
+
+需要兼容旧行为时，可以按需显式开启：
+
+```shell
+BBDownT serve --server-allow-aria2c-args --server-allow-custom-output
+```
+
+常用服务器安全配置：
+
+| 配置 | 默认值 | 说明 |
+| ---- | ---- | ---- |
+| `--api-token <token>` | 本机监听为空；非本机监听自动生成 | 固定API访问Token，可写入配置文件 |
+| `--server-max-queue <num>` | `100` | 最大排队任务数 |
+| `--server-download-root <path>` | 当前工作目录 | 默认下载根目录 |
+| `--server-allow-aria2c-args` | 关闭 | 允许API请求传入 `Aria2cArgs`，只建议在可信网络使用 |
+| `--server-allow-custom-output` | 关闭 | 允许API请求自定义 `WorkDir`、绝对路径或上级目录输出 |
+| `--cookie-allowed-domains <domains>` | `bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn` | 允许发送Cookie的域名，支持子域名 |
+| `--allow-insecure-tls` | 关闭 | 关闭TLS证书校验，仅建议调试代理时使用 |
+| `--max-grpc-message-mb <num>` | `64` | 限制gRPC/gzip消息解包后的最大大小 |
+
+这些配置都可以写进 `BBDownT.config`。带参数的选项按“选项一行、值一行”写入；布尔开关单独一行即可：
+
+```config
+--api-token
+your-token
+
+--server-max-queue
+100
+
+--server-download-root
+./downloads
+
+--cookie-allowed-domains
+bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn
+
+--max-grpc-message-mb
+64
 ```
 
 API服务器不支持HTTPS配置，如果有需要请自行使用nginx等反向代理进行配置

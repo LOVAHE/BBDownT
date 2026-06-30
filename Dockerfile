@@ -10,13 +10,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0
 
 WORKDIR /app
 
-COPY --from=builder /app/BBDown/bin/Release/net9.0 .
+COPY --from=builder /app/BBDownT/bin/Release/net9.0 .
 
 EXPOSE 23333
 
 # install ffmpeg
 RUN apt-get update && \
     apt-get install -y ffmpeg && \
-    chmod +x /app/BBDown
+    chmod +x /app/BBDownT
 
-ENTRYPOINT ["/app/BBDown", "serve", "-l", "http://0.0.0.0:23333"]
+ENTRYPOINT ["/app/BBDownT", "serve", "-l", "http://0.0.0.0:23333"]
