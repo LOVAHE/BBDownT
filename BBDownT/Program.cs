@@ -88,6 +88,9 @@ partial class Program
         var serverAllowCustomOutputOpt = new Option<bool>(
             ["--server-allow-custom-output"],
             description: "允许服务器任务自定义工作目录和绝对/上级输出路径");
+        var serverAllowCustomNetworkHostsOpt = new Option<bool>(
+            ["--server-allow-custom-network-hosts"],
+            description: "允许服务器任务自定义解析和下载相关Host");
         var serverDownloadRootOpt = new Option<string>(
             ["--server-download-root"],
             description: "服务器下载根目录，默认使用当前工作目录");
@@ -107,12 +110,13 @@ partial class Program
         Command runAsServerCommand = new(
                 "serve",
                 "以服务器模式运行")
-            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverDownloadRootOpt, serverMaxQueueOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
+            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverDownloadRootOpt, serverMaxQueueOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
         runAsServerCommand.SetHandler(context => StartServer(
             context.ParseResult.GetValueForOption(serverUrlOpt),
             context.ParseResult.GetValueForOption(serverTokenOpt),
             context.ParseResult.GetValueForOption(serverAllowAria2cArgsOpt),
             context.ParseResult.GetValueForOption(serverAllowCustomOutputOpt),
+            context.ParseResult.GetValueForOption(serverAllowCustomNetworkHostsOpt),
             context.ParseResult.GetValueForOption(serverDownloadRootOpt),
             context.ParseResult.GetValueForOption(serverMaxQueueOpt),
             context.ParseResult.GetValueForOption(allowInsecureTlsOpt),
@@ -210,6 +214,7 @@ partial class Program
         string? apiToken,
         bool allowAria2cArgs,
         bool allowCustomOutput,
+        bool allowCustomNetworkHosts,
         string? downloadRoot,
         int maxQueueLength,
         bool allowInsecureTls,
@@ -223,6 +228,7 @@ partial class Program
         {
             AllowAria2cArgs = allowAria2cArgs,
             AllowCustomOutput = allowCustomOutput,
+            AllowCustomNetworkHosts = allowCustomNetworkHosts,
             DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? Environment.CurrentDirectory : downloadRoot,
             MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : 100
         };
@@ -286,10 +292,41 @@ partial class Program
         Config.AREA = myOption.Area;
         Config.COOKIE = myOption.Cookie;
         Config.TOKEN = myOption.AccessToken.Replace("access_token=", "");
+        TrustConfiguredCookieHosts(myOption);
 
         LogDebug("AppDirectory: {0}", APP_DIR);
         LogDebug("运行参数：{0}", JsonSerializer.Serialize(myOption, MyOptionJsonContext.Default.MyOption));
         return (encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats, input, savePathFormat, lang, aidOri, delay);
+    }
+
+    private static void TrustConfiguredCookieHosts(MyOption myOption)
+    {
+        var configuredHosts = new[] { myOption.Host, myOption.EpHost, myOption.TvHost, myOption.UposHost }
+            .Select(NormalizeCookieAllowedDomain)
+            .Where(host => !string.IsNullOrWhiteSpace(host))
+            .Select(host => host!);
+
+        Config.COOKIE_ALLOWED_DOMAINS = Config.COOKIE_ALLOWED_DOMAINS
+            .Concat(configuredHosts)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string? NormalizeCookieAllowedDomain(string hostOrUrl)
+    {
+        if (string.IsNullOrWhiteSpace(hostOrUrl))
+        {
+            return null;
+        }
+
+        var value = hostOrUrl.Trim();
+        var uriValue = value.Contains("://", StringComparison.Ordinal) ? value : "https://" + value;
+        if (!Uri.TryCreate(uriValue, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return null;
+        }
+
+        return uri.Host.Trim('.');
     }
 
     public static async Task<(string fetchedAid, VInfo vInfo, string apiType)> GetVideoInfoAsync(MyOption myOption, string aidOri, string input)

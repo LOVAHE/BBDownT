@@ -5,7 +5,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageId>BBDownT</PackageId>
-    <Version>2.0.0</Version>
+    <Version>2.0.1</Version>
     <Authors>LOVAHE</Authors>
     <Description>BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.</Description>
     <PackageProjectUrl>https://github.com/LOVAHE/BBDownT</PackageProjectUrl>

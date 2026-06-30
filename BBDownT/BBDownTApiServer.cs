@@ -203,6 +203,11 @@ public class BBDownTApiServer
             return "服务器默认不允许传入Aria2cArgs，如确需使用请启动时配置 --server-allow-aria2c-args";
         }
 
+        if (!serverOptions.AllowCustomNetworkHosts && HasCustomNetworkHost(req))
+        {
+            return "服务器默认不允许任务自定义解析或下载Host，如确需使用请启动时配置 --server-allow-custom-network-hosts";
+        }
+
         if (serverOptions.AllowCustomOutput)
         {
             return null;
@@ -220,6 +225,20 @@ public class BBDownTApiServer
 
         req.WorkDir = Path.GetFullPath(serverOptions.DownloadRoot);
         return null;
+    }
+
+    private static bool HasCustomNetworkHost(ServeRequestOptions req)
+    {
+        return !IsDefaultHost(req.Host, "api.bilibili.com")
+            || !IsDefaultHost(req.EpHost, "api.bilibili.com")
+            || !IsDefaultHost(req.TvHost, "api.snm0516.aisee.tv")
+            || !string.IsNullOrWhiteSpace(req.UposHost)
+            || req.AllowPcdn;
+    }
+
+    private static bool IsDefaultHost(string? actual, string expected)
+    {
+        return string.Equals(actual?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasUnsafeOutputPattern(string? pattern)

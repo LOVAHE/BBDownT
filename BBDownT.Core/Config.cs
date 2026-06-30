@@ -29,7 +29,9 @@ public static class Config
         "bilibili.tv",
         "biliintl.com",
         "bilivideo.com",
-        "bilivideo.cn"
+        "bilivideo.cn",
+        "hdslb.com",
+        "biliapi.net"
     ];
 
     public static readonly Dictionary<string, string> qualitys = new() {
