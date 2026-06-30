@@ -1,11 +1,11 @@
-[![img](https://img.shields.io/github/stars/LOVAHE/BBDownT?label=%E7%82%B9%E8%B5%9E)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/last-commit/LOVAHE/BBDownT?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/release/LOVAHE/BBDownT?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/LOVAHE/BBDownT/releases)  [![img](https://img.shields.io/github/license/LOVAHE/BBDownT?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/LOVAHE/BBDownT)  [![Build Latest](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml/badge.svg)](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)
+[![img](https://img.shields.io/github/stars/LOVAHE/BBDownT?label=%E7%82%B9%E8%B5%9E)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/last-commit/LOVAHE/BBDownT?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/LOVAHE/BBDownT/commits)  [![img](https://img.shields.io/github/release/LOVAHE/BBDownT?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/LOVAHE/BBDownT/releases)  [![img](https://img.shields.io/github/license/LOVAHE/BBDownT?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/LOVAHE/BBDownT)  [![Build Latest](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml/badge.svg)](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)
 
 > 本项目仅供个人学习、研究和非商业性用途。使用本工具时，需自行确保遵守相关法律法规，特别是与版权相关的法律条款。开发者不对因使用本工具而产生的任何版权纠纷或法律责任承担责任。请谨慎使用，并仅在有合法授权的情况下使用相关内容。
 
 # BBDownT
 一个命令行式哔哩哔哩下载器. Bilibili Downloader.
 
-本项目由 BBDownT 接手维护，后续项目名称、命令和文档均以 BBDownT 为准。
+本项目接手自 [BBDown](https://github.com/nilaoda/BBDown)，后续项目名称、命令和文档均以 `BBDownT` 为准。
 
 # 注意
 本软件混流时需要外部程序：
@@ -14,7 +14,7 @@
 * 杜比视界：ffmpeg5.0以上或新版mp4box.
 
 # 快速开始
-本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/BBDownT/) 形式发布  
+本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/BBDownT/) 形式发布。
 
 如果你本地有dotnet环境，使用如下命令即可安装使用
 ```
@@ -27,9 +27,11 @@ dotnet tool update --global BBDownT
 ```
 
 # 下载
-Release版本：https://github.com/LOVAHE/BBDownT/releases
+自动构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
 
-自动构建的测试版本：https://github.com/LOVAHE/BBDownT/actions
+Release页面：https://github.com/LOVAHE/BBDownT/releases
+
+如果Release页面暂无对应版本，请以 Build Latest 工作流产物为准。
 
 # 开始使用
 目前命令行参数支持情况
@@ -48,7 +50,7 @@ Options:
   -app, --use-app-api                            使用APP端解析模式
   -intl, --use-intl-api                          使用国际版(东南亚视频)解析模式
   --use-mp4box                                   使用MP4Box来混流
-  -e, --encoding-priority <encoding-priority>    视频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc"
+  -e, --encoding-priority <encoding-priority>    视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"
   -q, --dfn-priority <dfn-priority>              画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"
   -info, --only-show-info                        仅解析而不进行下载
   --show-all                                     展示所有分P标题
@@ -67,6 +69,7 @@ Options:
   --skip-cover                                   跳过封面下载
   --force-http                                   下载音视频时强制使用HTTP协议替换HTTPS(默认开启)
   -dd, --download-danmaku                        下载弹幕
+  -ddf, --download-danmaku-formats <formats>     指定需下载的弹幕格式, 用逗号分隔, 可选 xml/ass, 默认: "xml,ass"
   --skip-ai                                      跳过AI字幕下载(默认开启)
   --video-ascending                              视频升序(最小体积优先)
   --audio-ascending                              音频升序(最小体积优先)
@@ -116,6 +119,7 @@ Options:
   --tv-host <tv-host>                            自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
   --area <area>                                  (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
   --config-file <config-file>                    读取指定的BBDownT本地配置文件(默认为: BBDownT.config)
+  --api-token <api-token>                        服务器API鉴权Token，监听非本机地址且未配置时会自动生成
   --version                                      Show version information
   -?, -h, --help                                 Show help and usage information
 
@@ -228,7 +232,7 @@ BBDownT logintv
 ```
 然后按照提示操作
  
-*PS: 如果登录报错`The type initializer for 'Gdip' threw an exception`，请参考 [#37](https://github.com/LOVAHE/BBDownT/issues/37) 解决*
+*PS: 如果登录报错`The type initializer for 'Gdip' threw an exception`，通常是运行环境缺少图形或二维码相关依赖，请按当前系统补齐依赖后重试*
 
 手动加载网页cookie：
 ```
@@ -246,7 +250,7 @@ BBDownT -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 
 ---
 
-> 根据 [#123](https://github.com/LOVAHE/BBDownT/issues/123#issuecomment-877583825) ，可以填写TV登录产生的`access_token`来给APP接口使用。可复制`BBDownTTV.data`到`BBDownTApp.data`使程序自动读取.
+> TV登录产生的`access_token`也可以给APP接口使用。可复制`BBDownTTV.data`到`BBDownTApp.data`使程序自动读取.
 
 目前程序无法自动获取鉴权信息，推荐通过**抓包**来获取.
 

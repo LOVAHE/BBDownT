@@ -4,9 +4,14 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageId>BBDownT</PackageId>
     <Version>1.6.3</Version>
+    <Authors>LOVAHE</Authors>
     <Description>BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.</Description>
     <PackageProjectUrl>https://github.com/LOVAHE/BBDownT</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/LOVAHE/BBDownT</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IsPackable>true</IsPackable>
     <StartupObject></StartupObject>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>BBDownT</ToolCommandName>
@@ -22,6 +27,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BBDownT.Core\BBDownT.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
