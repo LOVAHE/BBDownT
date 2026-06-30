@@ -4,7 +4,7 @@ namespace BBDownT.Core.Entity;
 
 public class ParsedResult
 {
-    public string WebJsonString { get; set; }
+    public string WebJsonString { get; set; } = string.Empty;
     public List<Video> VideoTracks { get; set; } = new();
     public List<Audio> AudioTracks { get; set; } = new();
     public List<Audio> BackgroundAudioTracks { get; set; } = new();

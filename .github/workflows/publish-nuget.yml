@@ -1,6 +1,9 @@
 name: Publish NuGet
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -9,6 +12,7 @@ permissions:
 
 env:
   DOTNET_SDK_VERSION: "9.0.306"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   publish:
@@ -17,14 +21,19 @@ jobs:
     environment: nuget
 
     steps:
-      - name: Ensure v2 branch
-        run: test "$GITHUB_REF" = "refs/heads/v2"
+      - name: Ensure release tag
+        run: |
+          test "$GITHUB_REF_TYPE" = "tag"
+          case "$GITHUB_REF_NAME" in
+            v*) ;;
+            *) exit 1 ;;
+          esac
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up dotnet
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 

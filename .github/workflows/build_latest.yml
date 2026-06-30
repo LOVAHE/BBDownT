@@ -1,10 +1,14 @@
 name: Build Latest
 
-on: [push,workflow_dispatch]
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 env:
   DOTNET_SDK_VERSION: "9.0.306"
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   set-date:
@@ -12,6 +16,14 @@ jobs:
     outputs:
       date: ${{ steps.get_date.outputs.date }}
     steps:
+      - name: Ensure release tag
+        run: |
+          test "$GITHUB_REF_TYPE" = "tag"
+          case "$GITHUB_REF_NAME" in
+            v*) ;;
+            *) exit 1 ;;
+          esac
+
       - name: Get Date in UTC+8
         id: get_date
         run: echo "date=$(date -u -d '8 hours' +'%Y%m%d')" >> "$GITHUB_OUTPUT"
@@ -21,10 +33,10 @@ jobs:
     needs: set-date
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v7
 
       - name: Set up dotnet
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
@@ -44,13 +56,13 @@ jobs:
           zip ../BBDownT_${{ needs.set-date.outputs.date }}_win-arm64.zip BBDownT.exe
 
       - name: Upload Artifact [win-x64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_win-x64
           path: BBDownT_${{ needs.set-date.outputs.date }}_win-x64.zip
 
       - name: Upload Artifact [win-arm64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_win-arm64
           path: BBDownT_${{ needs.set-date.outputs.date }}_win-arm64.zip
@@ -60,7 +72,7 @@ jobs:
     needs: set-date
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v7
       
       - name: Build x64 in Ubuntu 18.04 container (for glibc 2.27 compatibility)
         run: |
@@ -118,26 +130,26 @@ jobs:
           zip ../BBDownT_${{ needs.set-date.outputs.date }}_linux-arm64.zip BBDownT
 
       - name: Upload Artifact [linux-x64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_linux-x64
           path: BBDownT_${{ needs.set-date.outputs.date }}_linux-x64.zip
 
       - name: Upload Artifact[linux-arm64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_linux-arm64
           path: BBDownT_${{ needs.set-date.outputs.date }}_linux-arm64.zip
 
   build-mac-x64-arm64:
-    runs-on: macos-latest
+    runs-on: macos-15
     needs: set-date
 
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v7
 
       - name: Set up dotnet
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
@@ -154,13 +166,13 @@ jobs:
           zip ../BBDownT_${{ needs.set-date.outputs.date }}_osx-arm64.zip BBDownT
 
       - name: Upload Artifact [osx-x64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_osx-x64
           path: BBDownT_${{ needs.set-date.outputs.date }}_osx-x64.zip
 
       - name: Upload Artifact [osx-arm64]
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: BBDownT_osx-arm64
           path: BBDownT_${{ needs.set-date.outputs.date }}_osx-arm64.zip

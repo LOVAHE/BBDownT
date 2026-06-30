@@ -11,6 +11,7 @@ public static class HTTPUtil
     {
         AllowAutoRedirect = true,
         AutomaticDecompression = DecompressionMethods.All,
+        MaxConnectionsPerServer = 2048,
         ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
             Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
     })

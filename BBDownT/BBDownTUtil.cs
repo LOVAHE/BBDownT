@@ -596,7 +596,10 @@ static partial class BBDownTUtil
             var json = JsonDocument.Parse(source).RootElement;
             var is_login = json.GetProperty("data").GetProperty("isLogin").GetBoolean();
             var wbi_img = json.GetProperty("data").GetProperty("wbi_img");
-            Core.Config.WBI = GetMixinKey(RSubString(wbi_img.GetProperty("img_url").GetString()) + RSubString(wbi_img.GetProperty("sub_url").GetString()));
+            var imgUrl = wbi_img.GetProperty("img_url").GetString();
+            var subUrl = wbi_img.GetProperty("sub_url").GetString();
+            if (imgUrl is null || subUrl is null) return false;
+            Core.Config.WBI = GetMixinKey(RSubString(imgUrl) + RSubString(subUrl));
             LogDebug("wbi: {0}", Core.Config.WBI);
             return is_login;
         }

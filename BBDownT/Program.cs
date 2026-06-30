@@ -65,7 +65,6 @@ partial class Program
     public static async Task<int> Main(params string[] args)
     {
         Console.CancelKeyPress += Console_CancelKeyPress;
-        ServicePointManager.DefaultConnectionLimit = 2048;
 
         var rootCommand = CommandLineInvoker.GetRootCommand(RunApp);
         Command loginCommand = new(
@@ -523,7 +522,7 @@ partial class Program
             }
 
             //调用解析
-            ParsedResult parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding);
+            ParsedResult parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding ?? string.Empty);
             List<AudioMaterial> audioMaterial = [];
             if (!p.points.Any())
             {
@@ -772,7 +771,7 @@ partial class Program
                     Console.ResetColor();
                     //重新解析
                     parsedResult.VideoTracks.Clear();
-                    parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding, dfns[vIndex]);
+                    parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding ?? string.Empty, dfns[vIndex]);
                     if (!p.points.Any()) p.points = parsedResult.ExtraPoints;
                     flag = true;
                     selected = true;
