@@ -27,11 +27,9 @@ dotnet tool update --global BBDownT
 ```
 
 # 下载
+Release版本：https://github.com/LOVAHE/BBDownT/releases
+
 自动构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
-
-Release页面：https://github.com/LOVAHE/BBDownT/releases
-
-如果Release页面暂无对应版本，请以 Build Latest 工作流产物为准。
 
 # 开始使用
 目前命令行参数支持情况
@@ -319,35 +317,34 @@ BBDownT serve -l http://0.0.0.0:12450
 BBDownT serve -l http://0.0.0.0:12450 --api-token your-token
 ```
 
-服务器模式默认按安全配置运行：
+服务器模式默认按下面方式运行：
 
-* `/add-task` 只负责加入内存队列，成功入队返回 `202 Accepted`；队列满返回 `429 Too Many Requests`。
-* 默认单任务执行，最多排队100个任务，避免短时间大量请求同时启动下载进程。
-* 默认不允许远程任务传入 `Aria2cArgs`，避免对外开放服务时把aria2c附加参数暴露给远程调用方。
-* 默认不允许远程任务自定义 `WorkDir`，也不允许绝对路径或包含 `..` 的输出路径。
-* 默认不允许远程任务自定义 `Host`、`EpHost`、`TvHost`、`UposHost` 或放开PCDN；如需远程使用BiliPlus或自定义upos，需要显式开启。
-* 默认只向B站页面/API域名、官方媒体CDN域名、字幕/静态资源域名发送Cookie，避免跳转或非相关地址拿到Cookie。
-* 通过 `--host`、`--ep-host`、`--tv-host`、`--upos-host` 配置的域名会自动加入Cookie允许列表，不需要在 `--cookie-allowed-domains` 里重复填写。
-* 默认校验TLS证书；如需抓包代理或调试自签证书，需要显式关闭。
+* 本机访问不强制填写Token；监听 `0.0.0.0` 或其他非本机地址时会要求Token。
+* 下载任务会先进入队列，默认最多排队100个任务。
+* 通过API添加任务时，默认不能改aria2c附加参数和下载目录。
+* 通过API添加任务时，默认不能改BiliPlus、upos、PCDN等网络相关选项。
+* Cookie默认只用于B站页面/API、常用媒体CDN、字幕和静态资源域名。
+* `--host`、`--ep-host`、`--tv-host`、`--upos-host` 填写的域名会自动加入Cookie允许列表。
+* 默认校验TLS证书；需要抓包代理或自签证书时再开启 `--allow-insecure-tls`。
 
-需要兼容旧行为时，可以按需显式开启：
+如果需要让API使用更多自定义选项，可以按需开启：
 
 ```shell
 BBDownT serve --server-allow-aria2c-args --server-allow-custom-output --server-allow-custom-network-hosts
 ```
 
-常用服务器安全配置：
+常用服务器选项：
 
 | 配置 | 默认值 | 说明 |
 | ---- | ---- | ---- |
 | `--api-token <token>` | 本机监听为空；非本机监听自动生成 | 固定API访问Token，可写入配置文件 |
 | `--server-max-queue <num>` | `100` | 最大排队任务数 |
 | `--server-download-root <path>` | 当前工作目录 | 默认下载根目录 |
-| `--server-allow-aria2c-args` | 关闭 | 允许API请求传入 `Aria2cArgs`，只建议在可信网络使用 |
-| `--server-allow-custom-output` | 关闭 | 允许API请求自定义 `WorkDir`、绝对路径或上级目录输出 |
-| `--server-allow-custom-network-hosts` | 关闭 | 允许API请求自定义 `Host`、`EpHost`、`TvHost`、`UposHost` 或放开PCDN |
-| `--cookie-allowed-domains <domains>` | `bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn,hdslb.com,biliapi.net` | 允许发送Cookie的基础域名，支持子域名；`--host`、`--ep-host`、`--tv-host`、`--upos-host` 会自动合并进去 |
-| `--allow-insecure-tls` | 关闭 | 关闭TLS证书校验，仅建议调试代理时使用 |
+| `--server-allow-aria2c-args` | 关闭 | 允许API任务自定义aria2c附加参数 |
+| `--server-allow-custom-output` | 关闭 | 允许API任务自定义工作目录和输出路径 |
+| `--server-allow-custom-network-hosts` | 关闭 | 允许API任务自定义BiliPlus、upos、PCDN等网络选项 |
+| `--cookie-allowed-domains <domains>` | `bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn,hdslb.com,biliapi.net` | Cookie允许发送到的域名，支持子域名；自定义host会自动合并进去 |
+| `--allow-insecure-tls` | 关闭 | 关闭TLS证书校验 |
 | `--max-grpc-message-mb <num>` | `64` | 限制gRPC/gzip消息解包后的最大大小 |
 
 这些配置都可以写进 `BBDownT.config`。带参数的选项按“选项一行、值一行”写入；布尔开关单独一行即可：
