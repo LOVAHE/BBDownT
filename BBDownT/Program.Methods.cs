@@ -15,6 +15,14 @@ namespace BBDownT;
 
 internal partial class Program
 {
+    private static readonly (string OldName, string NewName)[] LegacyLocalFiles =
+    [
+        ("BBDown.config", "BBDownT.config"),
+        ("BBDown.data", "BBDownT.data"),
+        ("BBDownTV.data", "BBDownTTV.data"),
+        ("BBDownApp.data", "BBDownTApp.data"),
+        ("BBDown.archives", "BBDownT.archives")
+    ];
 
     /// <summary>
     /// 兼容旧版本命令行参数并给出警告
@@ -67,6 +75,52 @@ internal partial class Program
             myOption.VideoAscending = true;
             myOption.AudioAscending = true;
         }
+    }
+
+    private static void MigrateLegacyLocalFiles()
+    {
+        foreach (var (oldName, newName) in LegacyLocalFiles)
+        {
+            var oldPath = Path.Combine(APP_DIR, oldName);
+            if (!File.Exists(oldPath))
+            {
+                continue;
+            }
+
+            var newPath = Path.Combine(APP_DIR, newName);
+            if (File.Exists(newPath))
+            {
+                LogDebug("检测到新本地文件 {0}，跳过旧文件 {1}", newName, oldName);
+                continue;
+            }
+
+            try
+            {
+                File.Copy(oldPath, newPath);
+                Log($"已迁移旧本地文件: {oldName} -> {newName}");
+
+                var backupPath = GetLegacyBackupPath(oldPath);
+                File.Move(oldPath, backupPath);
+                Log($"旧本地文件已备份为: {Path.GetFileName(backupPath)}");
+            }
+            catch (Exception e)
+            {
+                LogWarn($"迁移旧本地文件 {oldName} 失败: {e.Message}");
+            }
+        }
+    }
+
+    private static string GetLegacyBackupPath(string oldPath)
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+        var backupPath = $"{oldPath}.migrated-{timestamp}";
+        var index = 1;
+        while (File.Exists(backupPath))
+        {
+            backupPath = $"{oldPath}.migrated-{timestamp}-{index}";
+            index++;
+        }
+        return backupPath;
     }
 
     /// <summary>

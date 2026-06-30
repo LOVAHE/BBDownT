@@ -65,6 +65,7 @@ partial class Program
     public static async Task<int> Main(params string[] args)
     {
         Console.CancelKeyPress += Console_CancelKeyPress;
+        MigrateLegacyLocalFiles();
 
         var rootCommand = CommandLineInvoker.GetRootCommand(RunApp);
         Command loginCommand = new(
