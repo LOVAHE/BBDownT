@@ -382,6 +382,7 @@ API服务器不支持HTTPS配置，如果有需要请自行使用nginx等反向�
 
 # 致谢
 
+* https://github.com/nilaoda/BBDown
 * https://github.com/codebude/QRCoder
 * https://github.com/icsharpcode/SharpZipLib
 * https://github.com/protocolbuffers/protobuf

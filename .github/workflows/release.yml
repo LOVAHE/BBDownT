@@ -164,12 +164,13 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           title="BBDownT ${tag#v}"
           notes="Draft release for ${tag}."
+          repo="${GITHUB_REPOSITORY}"
 
           ls -lah release-assets
 
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release-assets/* --clobber
-            gh release edit "$tag" --draft --title "$title" --notes "$notes"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber --repo "$repo"
+            gh release edit "$tag" --draft --title "$title" --notes "$notes" --repo "$repo"
           else
-            gh release create "$tag" release-assets/* --draft --title "$title" --notes "$notes"
+            gh release create "$tag" release-assets/* --draft --title "$title" --notes "$notes" --repo "$repo"
           fi
