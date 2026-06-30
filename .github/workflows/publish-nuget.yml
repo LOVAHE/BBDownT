@@ -1,0 +1,47 @@
+name: Publish NuGet
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOTNET_SDK_VERSION: "9.0.306"
+
+jobs:
+  publish:
+    name: Publish BBDownT
+    runs-on: ubuntu-latest
+    environment: nuget
+
+    steps:
+      - name: Ensure v2 branch
+        run: test "$GITHUB_REF" = "refs/heads/v2"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Restore
+        run: dotnet restore BBDownT.sln
+
+      - name: Build
+        run: dotnet build BBDownT.sln -c Release -m:1 --no-restore
+
+      - name: Pack
+        run: dotnet pack BBDownT/BBDownT.csproj -c Release -o artifacts --no-build
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: LOVAHE
+
+      - name: Push package
+        run: dotnet nuget push artifacts/*.nupkg --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
