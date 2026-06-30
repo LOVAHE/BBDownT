@@ -11,6 +11,8 @@ public static class Logger
         new("(?i)(SESSDATA=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(bili_jct=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(DedeUserID=)[^;\\s&]+", RegexOptions.Compiled),
+        new("(?i)(ac_time_value=)[^;\\s&]+", RegexOptions.Compiled),
+        new("(?i)(refresh_token=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(access_token=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(access_key=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(\"(?:Cookie|AccessToken|authorization)\"\\s*:\\s*\")[^\"]+", RegexOptions.Compiled),

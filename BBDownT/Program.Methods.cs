@@ -294,13 +294,15 @@ internal partial class Program
     /// 加载用户的认证信息（cookie或token）
     /// </summary>
     /// <param name="myOption"></param>
-    private static void LoadCredentials(MyOption myOption)
+    private static string? LoadCredentials(MyOption myOption)
     {
+        string? webCookieFilePath = null;
         if (string.IsNullOrEmpty(Config.COOKIE) && File.Exists(Path.Combine(APP_DIR, "BBDownT.data")))
         {
             Log("加载本地cookie...");
-            LogDebug("文件路径：{0}", Path.Combine(APP_DIR, "BBDownT.data"));
-            Config.COOKIE = File.ReadAllText(Path.Combine(APP_DIR, "BBDownT.data"));
+            webCookieFilePath = Path.Combine(APP_DIR, "BBDownT.data");
+            LogDebug("文件路径：{0}", webCookieFilePath);
+            Config.COOKIE = File.ReadAllText(webCookieFilePath);
         }
         if (string.IsNullOrEmpty(Config.TOKEN) && File.Exists(Path.Combine(APP_DIR, "BBDownTTV.data")) && myOption.UseTvApi)
         {
@@ -316,6 +318,8 @@ internal partial class Program
             Config.TOKEN = File.ReadAllText(Path.Combine(APP_DIR, "BBDownTApp.data"));
             Config.TOKEN = Config.TOKEN.Replace("access_token=", "");
         }
+
+        return webCookieFilePath;
     }
 
     private static object fileLock = new object();

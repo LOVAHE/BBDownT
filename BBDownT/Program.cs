@@ -332,7 +332,8 @@ partial class Program
     public static async Task<(string fetchedAid, VInfo vInfo, string apiType)> GetVideoInfoAsync(MyOption myOption, string aidOri, string input)
     {
         // 加载认证信息
-        LoadCredentials(myOption);
+        string? webCookieFilePath = LoadCredentials(myOption);
+        await BBDownTCookieRefreshUtil.TryRefreshCookieAsync(webCookieFilePath);
 
         // 检测是否登录了账号
         if (myOption is { UseIntlApi: false, UseTvApi: false } && Config.AREA == "")

@@ -26,6 +26,7 @@ static partial class BBDownTUtil
             string nowVer = $"{ver.Major}.{ver.Minor}.{ver.Build}";
             string redirectUrl = await GetWebLocationAsync("https://github.com/LOVAHE/BBDownT/releases/latest");
             string latestVer = redirectUrl.Replace("https://github.com/LOVAHE/BBDownT/releases/tag/", "");
+            latestVer = latestVer.TrimStart('v', 'V');
             if (nowVer != latestVer && !latestVer.StartsWith("https"))
             {
                 Console.Title = $"发现新版本：{latestVer}";

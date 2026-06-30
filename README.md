@@ -145,9 +145,9 @@ Commands:
 - [x] 支持AVC/HEVC/AV1编码
 - [x] **支持8K/HDR/杜比视界/杜比全景声下载**
 - [x] 自定义存储文件名
+- [x] 自动刷新cookie
 
 # TODO
-- [ ] 自动刷新cookie
 - [ ] 支持更多自定义选项
 
 # 使用教程
@@ -222,7 +222,7 @@ Commands:
 ```
 BBDownT login
 ```
-然后按照提示操作
+然后按照提示操作。登录成功后会同时保存用于刷新Cookie的`ac_time_value`，后续运行时会在需要时自动刷新本地Cookie。
 
 扫码登录云视听小电视账号：
 ```
@@ -236,6 +236,8 @@ BBDownT logintv
 ```
 BBDownT -c "SESSDATA=******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
+如需手动Cookie也支持自动刷新，请同时包含`bili_jct`和`ac_time_value`。旧版本生成的`BBDownT.data`如果缺少`ac_time_value`，需要重新执行一次`BBDownT login`。
+
 手动加载云视听小电视token：
 ```
 BBDownT -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
@@ -303,70 +305,15 @@ BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 <details>
 <summary>API服务器</summary>
 
-启动服务器：
+启动服务器（自定义监听地址和端口）：
 
 ```shell
-BBDownT serve
-BBDownT serve -l http://127.0.0.1:12450
 BBDownT serve -l http://0.0.0.0:12450
 ```
 
-默认监听 `http://127.0.0.1:23333`，仅本机访问时不强制鉴权。如果监听 `0.0.0.0` 或其他非本机地址，API会启用Token鉴权；可以通过 `--api-token` 或 `BBDownT.config` 配置固定Token，未配置时启动会自动生成随机Token。请求时可使用 `Authorization: Bearer <token>` 或 `X-BBDownT-Token: <token>`。
-
-```shell
-BBDownT serve -l http://0.0.0.0:12450 --api-token your-token
-```
-
-服务器模式默认按下面方式运行：
-
-* 本机访问不强制填写Token；监听 `0.0.0.0` 或其他非本机地址时会要求Token。
-* 下载任务会先进入队列，默认最多排队100个任务。
-* 通过API添加任务时，默认不能改aria2c附加参数和下载目录。
-* 通过API添加任务时，默认不能改BiliPlus、upos、PCDN等网络相关选项。
-* Cookie默认只用于B站页面/API、常用媒体CDN、字幕和静态资源域名。
-* `--host`、`--ep-host`、`--tv-host`、`--upos-host` 填写的域名会自动加入Cookie允许列表。
-* 默认校验TLS证书；需要抓包代理或自签证书时再开启 `--allow-insecure-tls`。
-
-如果需要让API使用更多自定义选项，可以按需开启：
-
-```shell
-BBDownT serve --server-allow-aria2c-args --server-allow-custom-output --server-allow-custom-network-hosts
-```
-
-常用服务器选项：
-
-| 配置 | 默认值 | 说明 |
-| ---- | ---- | ---- |
-| `--api-token <token>` | 本机监听为空；非本机监听自动生成 | 固定API访问Token，可写入配置文件 |
-| `--server-max-queue <num>` | `100` | 最大排队任务数 |
-| `--server-download-root <path>` | 当前工作目录 | 默认下载根目录 |
-| `--server-allow-aria2c-args` | 关闭 | 允许API任务自定义aria2c附加参数 |
-| `--server-allow-custom-output` | 关闭 | 允许API任务自定义工作目录和输出路径 |
-| `--server-allow-custom-network-hosts` | 关闭 | 允许API任务自定义BiliPlus、upos、PCDN等网络选项 |
-| `--cookie-allowed-domains <domains>` | `bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn,hdslb.com,biliapi.net` | Cookie允许发送到的域名，支持子域名；自定义host会自动合并进去 |
-| `--allow-insecure-tls` | 关闭 | 关闭TLS证书校验 |
-| `--max-grpc-message-mb <num>` | `64` | 限制gRPC/gzip消息解包后的最大大小 |
-
-这些配置都可以写进 `BBDownT.config`。带参数的选项按“选项一行、值一行”写入；布尔开关单独一行即可：
-
-```config
---api-token
-your-token
-
---server-max-queue
-100
-
---server-download-root
-./downloads
-
---cookie-allowed-domains
-bilibili.com,bilibili.tv,biliintl.com,bilivideo.com,bilivideo.cn,hdslb.com,biliapi.net
-
---max-grpc-message-mb
-64
-```
-
 API服务器不支持HTTPS配置，如果有需要请自行使用nginx等反向代理进行配置
+
+API详细请参考[json-api-doc.md](./json-api-doc.md)
 
 </details>
 

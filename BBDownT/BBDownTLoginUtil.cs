@@ -63,10 +63,15 @@ internal static class BBDownTLoginUtil
                 }
                 else
                 {
-                    string cc = JsonDocument.Parse(w).RootElement.GetProperty("data").GetProperty("url").ToString();
+                    using var loginDoc = JsonDocument.Parse(w);
+                    var loginData = loginDoc.RootElement.GetProperty("data");
+                    string cc = loginData.GetProperty("url").ToString();
+                    string? refreshToken = loginData.TryGetProperty("refresh_token", out var refreshTokenElement)
+                        ? refreshTokenElement.GetString()
+                        : null;
                     Log("登录成功: SESSDATA=" + GetQueryString("SESSDATA", cc));
                     //导出cookie, 转义英文逗号 否则部分场景会出问题
-                    await File.WriteAllTextAsync(Path.Combine(Program.APP_DIR, "BBDownT.data"), cc[(cc.IndexOf('?') + 1)..].Replace("&", ";").Replace(",", "%2C"));
+                    await File.WriteAllTextAsync(Path.Combine(Program.APP_DIR, "BBDownT.data"), BBDownTCookieRefreshUtil.NormalizeLoginCookie(cc, refreshToken));
                     File.Delete("qrcode.png");
                     break;
                 }
