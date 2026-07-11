@@ -11,8 +11,6 @@ namespace BBDownT.Core;
 
 static class AppHelper
 {
-    private static readonly string API = "https://grpc.biliapi.net/bilibili.app.playurl.v1.PlayURL/PlayView";
-    private static readonly string API2 = "https://app.bilibili.com/bilibili.pgc.gateway.player.v2.PlayURL/PlayView";
     private static readonly string dalvikVer = "2.1.0";
     private static readonly string osVer = "11";
     private static readonly string brand = "M2012K11AC";
@@ -64,12 +62,12 @@ static class AppHelper
             if (!(string.IsNullOrEmpty(encoding) || encoding == "HEVC"))
                 LogWarn("APP的番剧不支持 HEVC 以外的编码");
             var body = GetPayload(Convert.ToInt64(epId), Convert.ToInt64(cid), Convert.ToInt64(qn), PlayViewReq.Types.CodeType.Code265);
-            data = await GetPostResponseAsync(API2, body, headers);
+            data = await GetPostResponseAsync(BilibiliAppProtocol.PgcPlayViewEndpoint, body, headers);
         }
         else
         {
             var body = GetPayload(Convert.ToInt64(aid), Convert.ToInt64(cid), Convert.ToInt64(qn), GetVideoCodeType(encoding));
-            data = await GetPostResponseAsync(API, body, headers);
+            data = await GetPostResponseAsync(BilibiliAppProtocol.UgcPlayViewEndpoint, body, headers);
         }
         var resp = new MessageParser<PlayViewReply>(() => new PlayViewReply()).ParseFrom(ReadMessage(data));
 
@@ -205,14 +203,14 @@ static class AppHelper
         return JsonSerializer.Serialize(json, JsonContext.Default.DashJson);
     }
 
-    private static byte[] GetPayload(long aid, long cid, long qn, PlayViewReq.Types.CodeType codec)
+    internal static byte[] GetPayload(long aid, long cid, long qn, PlayViewReq.Types.CodeType codec)
     {
         var obj = new PlayViewReq
         {
             EpId = aid,
             Cid = cid,
-            //obj.Qn = qn;
-            Qn = 127,
+            // Request the full quality set; user preference is applied to returned tracks.
+            Qn = BilibiliAppProtocol.MaximumQuality,
             Fnval = 4048,
             Fourk = true,
             Spmid = "main.ugc-video-detail.0.0",
@@ -228,11 +226,11 @@ static class AppHelper
 
     #region 生成Headers相关方法
 
-    private static Dictionary<string, string> GetHeader(string appkey)
+    internal static Dictionary<string, string> GetHeader(string appkey)
     {
         return new Dictionary<string, string>()
         {
-            ["Host"] = "grpc.biliapi.net",
+            ["Host"] = BilibiliAppProtocol.GrpcAuthority,
             ["user-agent"] = $"Dalvik/{dalvikVer} (Linux; U; Android {osVer}; {brand} {model}) {appVer} os/android model/{brand} mobi_app/android build/{build} channel/{channel} innerVer/{build} osVer/{osVer} network/2 grpc-java-cronet/{cronet}",
             ["te"] = "trailers",
             ["x-bili-fawkes-req-bin"] = GenerateFawkesReqBin(),

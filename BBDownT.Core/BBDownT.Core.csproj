@@ -19,4 +19,8 @@
     <Protobuf Include="APP\**\*.proto" GrpcServices="Client" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="BBDownT.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -21,7 +21,7 @@ static class BBDownTAria2c
         return p.ExitCode;
     }
 
-    public static async Task DownloadFileByAria2cAsync(string url, string path, string extraArgs)
+    public static async Task<int> DownloadFileByAria2cAsync(string url, string path, string extraArgs)
     {
         var headerArgs = "";
         if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
@@ -29,6 +29,6 @@ static class BBDownTAria2c
         headerArgs += " --header=\"User-Agent: Mozilla/5.0\"";
         if (HTTPUtil.ShouldSendCookie(url))
             headerArgs += $" --header=\"Cookie: {HTTPUtil.GetCookieHeaderValue(url)}\"";
-        await RunCommandCodeAsync(ARIA2C, $" --auto-file-renaming=false --download-result=hide --allow-overwrite=true --console-log-level=warn -x16 -s16 -j16 -k5M {headerArgs} {extraArgs} \"{url}\" -d \"{Path.GetDirectoryName(path)}\" -o \"{Path.GetFileName(path)}\"");
+        return await RunCommandCodeAsync(ARIA2C, $" --auto-file-renaming=false --download-result=hide --allow-overwrite=true --console-log-level=warn -x16 -s16 -j16 -k5M {headerArgs} {extraArgs} \"{url}\" -d \"{Path.GetDirectoryName(path)}\" -o \"{Path.GetFileName(path)}\"");
     }
 }

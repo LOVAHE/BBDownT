@@ -1,30 +1,36 @@
 name: Build Latest
 
 on:
+  workflow_call:
   push:
-    tags:
-      - "v*"
+    branches:
+      - "v2"
   workflow_dispatch:
 
 env:
   DOTNET_SDK_VERSION: "9.0.306"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
 jobs:
-  validate-tag:
+  validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure release tag
-        run: |
-          test "$GITHUB_REF_TYPE" = "tag"
-          case "$GITHUB_REF_NAME" in
-            v*) ;;
-            *) exit 1 ;;
-          esac
+      - uses: actions/checkout@v7
+
+      - name: Set up dotnet
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Test
+        run: dotnet test BBDownT.sln -c Release --nologo
 
   build-win-x64-arm64:
     runs-on: windows-latest
-    needs: validate-tag
+    needs: validate
 
     steps:
       - uses: actions/checkout@v7
@@ -39,9 +45,22 @@ jobs:
           dotnet publish BBDownT -r win-x64 -c Release -o artifact
           dotnet publish BBDownT -r win-arm64 -c Release -o artifact-arm64
 
+      - name: Prepare artifacts [win]
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item artifact/BBDownT.exe release-assets/BBDownT_win-x64.exe
+          Copy-Item artifact-arm64/BBDownT.exe release-assets/BBDownT_win-arm64.exe
+
+      - name: Upload artifacts [win]
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-win
+          path: release-assets/*
+
   build-linux-x64-arm64:
     runs-on: ubuntu-latest
-    needs: validate-tag
+    needs: validate
 
     steps:
       - uses: actions/checkout@v7
@@ -94,9 +113,22 @@ jobs:
               dotnet publish BBDownT -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
             "
 
+      - name: Prepare artifacts [linux]
+        run: |
+          mkdir -p release-assets
+          cp artifact/BBDownT release-assets/BBDownT_linux-x64
+          cp artifact-arm64/BBDownT release-assets/BBDownT_linux-arm64
+          chmod +x release-assets/BBDownT_linux-x64 release-assets/BBDownT_linux-arm64
+
+      - name: Upload artifacts [linux]
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          path: release-assets/*
+
   build-mac-x64-arm64:
     runs-on: macos-15
-    needs: validate-tag
+    needs: validate
 
     steps:
       - uses: actions/checkout@v7
@@ -110,3 +142,16 @@ jobs:
         run: |
           dotnet publish BBDownT -r osx-x64 -c Release -o artifact
           dotnet publish BBDownT -r osx-arm64 -c Release -o artifact-arm64
+
+      - name: Prepare artifacts [osx]
+        run: |
+          mkdir -p release-assets
+          cp artifact/BBDownT release-assets/BBDownT_osx-x64
+          cp artifact-arm64/BBDownT release-assets/BBDownT_osx-arm64
+          chmod +x release-assets/BBDownT_osx-x64 release-assets/BBDownT_osx-arm64
+
+      - name: Upload artifacts [osx]
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-osx
+          path: release-assets/*

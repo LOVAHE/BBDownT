@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net;
 using System.Threading.Tasks;
 using static BBDownT.Core.Entity.Entity;
@@ -23,18 +24,34 @@ internal static class BBDownTDownloadUtil
         public DownloadTask? RelatedTask { get; set; } = null;
     }
 
-    private static async Task RangeDownloadToTmpAsync(int id, string url, string tmpName, long fromPosition, long? toPosition, Action<int, long, long> onProgress, bool failOnRangeNotSupported = false)
+    internal static async Task RangeDownloadToTmpAsync(
+        int id,
+        string url,
+        string tmpName,
+        long fromPosition,
+        long? toPosition,
+        Action<int, long, long> onProgress,
+        bool failOnRangeNotSupported = false,
+        HttpClient? httpClient = null)
     {
-        DateTimeOffset? lastTime = File.Exists(tmpName) ? new FileInfo(tmpName).LastWriteTimeUtc : null;
+        var validatorPath = tmpName + ".resume";
+        var resumeValidator = await DownloadResumeValidator.LoadAsync(validatorPath);
         using var fileStream = new FileStream(tmpName, FileMode.OpenOrCreate);
         fileStream.Seek(0, SeekOrigin.End);
+        if (fileStream.Position > 0 && resumeValidator is null)
+        {
+            fileStream.SetLength(0);
+            fileStream.Position = 0;
+        }
         if (toPosition > 0 && fileStream.Position == toPosition - fromPosition + 1)
         {
-            // 已下载完成 直接汇报进度并跳过下载
-            onProgress(id, fileStream.Position, fileStream.Position);
-            return;
+            // 完整旧分片仍需重新验证远端实体；从头请求可避免跨版本拼接。
+            fileStream.SetLength(0);
+            fileStream.Position = 0;
+            resumeValidator = null;
         }
-        var downloadedBytes = fromPosition + fileStream.Position;
+        var existingLength = fileStream.Position;
+        var downloadedBytes = fromPosition + existingLength;
 
         using var httpRequestMessage = new HttpRequestMessage();
         if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
@@ -42,20 +59,67 @@ internal static class BBDownTDownloadUtil
         httpRequestMessage.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
         TryAddCookieHeader(httpRequestMessage, url);
         httpRequestMessage.Headers.Range = new(downloadedBytes, toPosition);
-        httpRequestMessage.Headers.IfRange = lastTime != null ? new(lastTime.Value) : null;
+        if (existingLength > 0)
+        {
+            resumeValidator?.Apply(httpRequestMessage);
+        }
         httpRequestMessage.RequestUri = new(url);
 
-        using var response = (await AppHttpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        using var response = await (httpClient ?? AppHttpClient).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead);
+        if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            var remoteLength = response.Content.Headers.ContentRange?.Length;
+            if (existingLength > 0
+                && remoteLength == downloadedBytes
+                && resumeValidator is not null
+                && resumeValidator.Matches(response))
+            {
+                File.Delete(validatorPath);
+                onProgress(id, existingLength, downloadedBytes);
+                return;
+            }
+
+            fileStream.SetLength(0);
+            fileStream.Position = 0;
+            File.Delete(validatorPath);
+            throw new IOException("续传位置不再有效，已清空临时文件以便重试");
+        }
+        response.EnsureSuccessStatusCode();
+        long? responseContentLength = response.Content.Headers.ContentLength;
 
         if (response.StatusCode == HttpStatusCode.OK) // server doesn't response a partial content
         {
             if (failOnRangeNotSupported && (downloadedBytes > 0 || toPosition != null)) throw new NotSupportedException("Range request is not supported.");
             downloadedBytes = 0;
-            fileStream.Seek(0, SeekOrigin.Begin);
+            existingLength = 0;
+            fileStream.SetLength(0);
+            fileStream.Position = 0;
+        }
+        else if (response.StatusCode == HttpStatusCode.PartialContent)
+        {
+            if (existingLength > 0 && resumeValidator is not null && !resumeValidator.Matches(response))
+            {
+                throw new InvalidDataException("续传响应的远端实体校验器已变化");
+            }
+            responseContentLength = ValidatePartialContentRange(
+                response.Content.Headers.ContentRange,
+                responseContentLength,
+                downloadedBytes,
+                toPosition);
+        }
+        else
+        {
+            throw new InvalidDataException($"不支持的下载响应状态: {(int)response.StatusCode}");
+        }
+
+        var responseValidator = DownloadResumeValidator.FromResponse(response);
+        if (responseValidator.IsUsable)
+        {
+            await responseValidator.SaveAsync(validatorPath);
         }
 
         using var stream = await response.Content.ReadAsStreamAsync();
-        var totalBytes = downloadedBytes + (response.Content.Headers.ContentLength ?? long.MaxValue - downloadedBytes);
+        var totalBytes = downloadedBytes + (responseContentLength ?? long.MaxValue - downloadedBytes);
 
         const int blockSize = 1048576 / 4;
         var buffer = new byte[blockSize];
@@ -70,8 +134,48 @@ internal static class BBDownTDownloadUtil
             onProgress(id, downloadedBytes - fromPosition, totalBytes);
         }
 
-        if (response.Content.Headers.ContentLength != null && (response.Content.Headers.ContentLength != new FileInfo(tmpName).Length))
+        var expectedTempLength = GetExpectedTempLength(existingLength, responseContentLength);
+        if (expectedTempLength != null && expectedTempLength != fileStream.Length)
             throw new Exception("Retry...");
+        File.Delete(validatorPath);
+    }
+
+    internal static long? GetExpectedTempLength(long existingLength, long? responseContentLength)
+    {
+        return responseContentLength is null
+            ? null
+            : checked(existingLength + responseContentLength.Value);
+    }
+
+    internal static long ValidatePartialContentRange(
+        ContentRangeHeaderValue? contentRange,
+        long? contentLength,
+        long requestedFrom,
+        long? requestedTo)
+    {
+        if (contentRange?.From != requestedFrom || contentRange.To is null)
+        {
+            throw new InvalidDataException("服务器返回的 Content-Range 与请求起点不一致");
+        }
+
+        if (requestedTo is not null && contentRange.To != requestedTo)
+        {
+            throw new InvalidDataException("服务器返回的 Content-Range 未完整覆盖请求范围");
+        }
+
+        if (requestedTo is null
+            && (contentRange.Length is null || contentRange.To != contentRange.Length - 1))
+        {
+            throw new InvalidDataException("服务器返回的 Content-Range 未到达资源末尾");
+        }
+
+        var declaredRangeLength = contentRange.To.Value - contentRange.From.Value + 1;
+        if (contentLength is not null && declaredRangeLength != contentLength)
+        {
+            throw new InvalidDataException("服务器返回的 Content-Range 与 Content-Length 不一致");
+        }
+
+        return declaredRangeLength;
     }
 
     public static async Task DownloadFileAsync(string url, string path, DownloadConfig config)
@@ -83,9 +187,8 @@ internal static class BBDownTDownloadUtil
         if (!string.IsNullOrEmpty(desDir) && !Directory.Exists(desDir)) Directory.CreateDirectory(desDir);
         if (config.UseAria2c)
         {
-            await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
-            if (File.Exists(path + ".aria2") || !File.Exists(path))
-                throw new Exception("aria2下载可能存在错误");
+            var exitCode = await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
+            EnsureAria2cDownloadSucceeded(exitCode, path);
             Console.WriteLine();
             return;
         }
@@ -105,25 +208,41 @@ internal static class BBDownTDownloadUtil
         }
     }
 
-    public static async Task MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config)
+    public static async Task<bool> MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config)
     {
         if (config.ForceHttp) url = ReplaceUrl(url);
         LogDebug("Start downloading: {0}", url);
         if (config.UseAria2c)
         {
-            await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
-            if (File.Exists(path + ".aria2") || !File.Exists(path))
-                throw new Exception("aria2下载可能存在错误");
+            var exitCode = await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
+            EnsureAria2cDownloadSucceeded(exitCode, path);
+            DeleteStaleClipFiles(path);
             Console.WriteLine();
-            return;
+            return false;
         }
-        long fileSize = await GetFileSizeAsync(url);
+        long fileSize;
+        try
+        {
+            fileSize = await GetFileSizeAsync(url);
+        }
+        catch (InvalidDataException ex)
+        {
+            LogWarn($"{ex.Message}，自动切换为单线程下载");
+            await DownloadFileAsync(url, path, new DownloadConfig
+            {
+                ForceHttp = false,
+                RelatedTask = config.RelatedTask
+            });
+            DeleteStaleClipFiles(path);
+            return false;
+        }
         LogDebug("文件大小：{0} bytes", fileSize);
         //已下载过, 跳过下载
         if (File.Exists(path) && new FileInfo(path).Length == fileSize)
         {
             LogDebug("文件已下载过, 跳过下载");
-            return;
+            DeleteStaleClipFiles(path);
+            return false;
         }
         List<Clip> allClips = GetAllClips(url, fileSize);
         int total = allClips.Count;
@@ -157,38 +276,70 @@ internal static class BBDownTDownloadUtil
                 goto reDown;
             }
         });
+        return true;
+    }
+
+    internal static void EnsureAria2cDownloadSucceeded(int exitCode, string path)
+    {
+        if (exitCode != 0 || File.Exists(path + ".aria2") || !File.Exists(path))
+        {
+            throw new InvalidOperationException($"aria2下载失败，退出码: {exitCode}");
+        }
+    }
+
+    internal static int DeleteStaleClipFiles(string destinationPath)
+    {
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (string.IsNullOrEmpty(directory))
+        {
+            directory = Directory.GetCurrentDirectory();
+        }
+        if (!Directory.Exists(directory))
+        {
+            return 0;
+        }
+
+        var destinationName = Path.GetFileNameWithoutExtension(destinationPath);
+        var clipExtension = Path.GetExtension(destinationPath).EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+            ? ".vclip"
+            : ".aclip";
+        var expectedSuffix = $"_{destinationName}{clipExtension}";
+        var deletedCount = 0;
+        foreach (var candidate in Directory.EnumerateFiles(directory))
+        {
+            var fileName = Path.GetFileName(candidate);
+            var generatedSuffix = fileName.Length >= 5 ? fileName[5..] : string.Empty;
+            if (fileName.Length < 5
+                || (generatedSuffix != expectedSuffix && generatedSuffix != expectedSuffix + ".resume")
+                || !fileName.AsSpan(0, 5).ToString().All(char.IsDigit))
+            {
+                continue;
+            }
+
+            File.Delete(candidate);
+            deletedCount++;
+        }
+        return deletedCount;
     }
 
     //此函数主要是切片下载逻辑
-    private static List<Clip> GetAllClips(string url, long fileSize)
+    internal static List<Clip> GetAllClips(string url, long fileSize)
     {
         List<Clip> clips = [];
         int index = 0;
-        long counter = 0;
-        int perSize = 20 * 1024 * 1024;
-        while (fileSize > 0)
+        long from = 0;
+        const int perSize = 20 * 1024 * 1024;
+        while (from < fileSize)
         {
-            Clip c = new()
+            var to = Math.Min(checked(from + perSize - 1), fileSize - 1);
+            clips.Add(new Clip
             {
                 index = index,
-                from = counter,
-                to = counter + perSize
-            };
-            //没到最后
-            if (fileSize - perSize > 0)
-            {
-                fileSize -= perSize;
-                counter += perSize + 1;
-                index++;
-                clips.Add(c);
-            }
-            //已到最后
-            else
-            {
-                c.to = -1;
-                clips.Add(c);
-                break;
-            }
+                from = from,
+                to = to
+            });
+            from = checked(to + 1);
+            index++;
         }
         return clips;
     }
@@ -201,10 +352,34 @@ internal static class BBDownTDownloadUtil
         httpRequestMessage.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
         TryAddCookieHeader(httpRequestMessage, url);
         httpRequestMessage.RequestUri = new(url);
-        var response = (await AppHttpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
-        long totalSizeBytes = response.Content.Headers.ContentLength ?? 0;
+        using var response = (await AppHttpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        return GetTotalFileSize(
+            response.StatusCode,
+            response.Content.Headers.ContentLength,
+            response.Content.Headers.ContentRange);
+    }
 
-        return totalSizeBytes;
+    internal static long GetTotalFileSize(
+        HttpStatusCode statusCode,
+        long? contentLength,
+        ContentRangeHeaderValue? contentRange)
+    {
+        return statusCode switch
+        {
+            HttpStatusCode.OK => EnsureKnownPositiveFileSize(contentLength),
+            HttpStatusCode.PartialContent => EnsureKnownPositiveFileSize(contentRange?.Length),
+            _ => throw new InvalidDataException($"不支持的文件大小响应状态: {(int)statusCode}")
+        };
+    }
+
+    internal static long EnsureKnownPositiveFileSize(long? contentLength)
+    {
+        if (contentLength is null or <= 0)
+        {
+            throw new InvalidDataException("服务器未返回有效的 Content-Length，无法进行多线程分段下载");
+        }
+
+        return contentLength.Value;
     }
 
     /// <summary>

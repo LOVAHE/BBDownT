@@ -4,6 +4,7 @@
     <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
     <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
     <PublishAot Condition="'$(RuntimeIdentifier)' != ''">true</PublishAot>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
     <EventSourceSupport>false</EventSourceSupport>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <InvariantGlobalization>true</InvariantGlobalization>

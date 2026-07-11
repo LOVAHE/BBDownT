@@ -32,6 +32,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Ensure tag matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          test -n "$project_version"
+          test "$GITHUB_REF_NAME" = "v${project_version}"
+
       - name: Set up dotnet
         uses: actions/setup-dotnet@v5
         with:

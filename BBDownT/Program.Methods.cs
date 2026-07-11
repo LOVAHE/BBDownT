@@ -211,7 +211,7 @@ internal partial class Program
             BBDownTAria2c.ARIA2C = myOption.Aria2cPath;
         }
         //寻找ffmpeg或mp4box
-        if (!myOption.SkipMux)
+        if (NeedsMuxer(myOption))
         {
             if (myOption.UseMP4box)
             {
@@ -246,22 +246,30 @@ internal partial class Program
         }
     }
 
+    internal static bool NeedsMuxer(MyOption myOption)
+    {
+        return !(myOption.SkipMux
+            || myOption.OnlyShowInfo
+            || myOption.CoverOnly
+            || myOption.SubOnly
+            || myOption.DanmakuOnly);
+    }
+
     /// <summary>
     /// 处理有冲突的选项
     /// </summary>
     /// <param name="myOption"></param>
-    private static void HandleConflictingOptions(MyOption myOption)
+    internal static void HandleConflictingOptions(MyOption myOption)
     {
         //手动选择时不能隐藏流
         if (myOption.Interactive)
         {
             myOption.HideStreams = false;
         }
-        //audioOnly和videoOnly同时开启则全部忽视
+        // 同时指定时保留两类流并跳过混流，等价于下载原始音视频流。
         if (myOption.AudioOnly && myOption.VideoOnly)
         {
-            myOption.AudioOnly = false;
-            myOption.VideoOnly = false;
+            myOption.SkipMux = true;
         }
         if (myOption.SkipSubtitle)
         {
@@ -356,9 +364,9 @@ internal partial class Program
     {
         List<string>? selectedPages = null;
         List<Page> pagesInfo = vInfo.PagesInfo;
-        string selectPage = myOption.SelectPage.ToUpper().Trim().Trim(',');
+        string selectPage = myOption.SelectPage;
 
-        if (string.IsNullOrEmpty(selectPage))
+        if (!myOption.SelectPageSpecified && string.IsNullOrWhiteSpace(selectPage))
         {
             //如果用户没有选择分P, 根据epid或query param来确定某一集
             if (!string.IsNullOrEmpty(vInfo.Index))
@@ -372,38 +380,9 @@ internal partial class Program
                 Log("程序已自动选择你输入的集数, 如果要下载其他集数请自行指定分P(如可使用-p ALL代表全部)");
             }
         }
-        else if (selectPage != "ALL")
+        else
         {
-            selectedPages = new List<string>();
-
-            //选择最新分P
-            string lastPage = pagesInfo.Count.ToString();
-            foreach (string key in new[] { "LAST", "NEW", "LATEST" })
-            {
-                selectPage = selectPage.Replace(key, lastPage);
-            }
-
-            try
-            {
-                if (selectPage.Contains('-'))
-                {
-                    string[] tmp = selectPage.Split('-');
-                    int start = int.Parse(tmp[0]);
-                    int end = int.Parse(tmp[1]);
-                    for (int i = start; i <= end; i++)
-                    {
-                        selectedPages.Add(i.ToString());
-                    }
-                }
-                else
-                {
-                    foreach (var s in selectPage.Split(','))
-                    {
-                        selectedPages.Add(s);
-                    }
-                }
-            }
-            catch { LogError("解析分P参数时失败了~"); selectedPages = null; };
+            selectedPages = PageSelectionParser.Parse(selectPage, pagesInfo.Count);
         }
 
         return selectedPages;
@@ -539,18 +518,23 @@ internal partial class Program
         {
             Log("请选择一条视频流(输入序号): ", false);
             Console.ForegroundColor = ConsoleColor.Cyan;
-            vIndex = Convert.ToInt32(Console.ReadLine());
-            if (vIndex > parsedResult.VideoTracks.Count || vIndex < 0) vIndex = 0;
+            vIndex = ParseSelectionIndex(Console.ReadLine(), parsedResult.VideoTracks.Count);
             Console.ResetColor();
         }
         if (parsedResult.AudioTracks.Any())
         {
             Log("请选择一条音频流(输入序号): ", false);
             Console.ForegroundColor = ConsoleColor.Cyan;
-            aIndex = Convert.ToInt32(Console.ReadLine());
-            if (aIndex > parsedResult.AudioTracks.Count || aIndex < 0) aIndex = 0;
+            aIndex = ParseSelectionIndex(Console.ReadLine(), parsedResult.AudioTracks.Count);
             Console.ResetColor();
         }
+    }
+
+    internal static int ParseSelectionIndex(string? input, int itemCount)
+    {
+        return int.TryParse(input, out var index) && index >= 0 && index < itemCount
+            ? index
+            : 0;
     }
 
     /// <summary>
@@ -561,11 +545,14 @@ internal partial class Program
     {
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
-            await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
-            Log($"合并{(video ? "视频" : "音频")}分片...");
-            CombineMultipleFilesIntoSingleFile(GetFiles(Path.GetDirectoryName(destPath)!, $".{(video ? "v" : "a")}clip"), destPath);
-            Log("清理分片...");
-            foreach (var file in new DirectoryInfo(Path.GetDirectoryName(destPath)!).EnumerateFiles("*.?clip")) file.Delete();
+            var downloadedAsClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
+            if (downloadedAsClips)
+            {
+                Log($"合并{(video ? "视频" : "音频")}分片...");
+                CombineMultipleFilesIntoSingleFile(GetFiles(Path.GetDirectoryName(destPath)!, $".{(video ? "v" : "a")}clip"), destPath);
+                Log("清理分片...");
+                foreach (var file in new DirectoryInfo(Path.GetDirectoryName(destPath)!).EnumerateFiles("*.?clip")) file.Delete();
+            }
         }
         else
         {

@@ -2,6 +2,7 @@
 using System.CommandLine;
 using System.CommandLine.Binding;
 using System.CommandLine.Parsing;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace BBDownT;
@@ -13,8 +14,8 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> UseAppApi = new(["--use-app-api", "-app"], "使用APP端解析模式");
     private static readonly Option<bool> UseIntlApi = new(["--use-intl-api", "-intl"], "使用国际版(东南亚视频)解析模式");
     private static readonly Option<bool> UseMP4box = new(["--use-mp4box"], "使用MP4Box来混流");
-    private static readonly Option<string> EncodingPriority = new(["--encoding-priority", "-e"], "视频及音频编码的选择优先级, 用逗号分割 例: \"hevc,av1,avc,flac,eac3,m4a\"");
-    private static readonly Option<string> DfnPriority = new(["--dfn-priority", "-q"], "画质优先级,用逗号分隔 例: \"8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界\"");
+    private static readonly Option<string> EncodingPriority = new(["--encoding-priority", "-e"], "视频及音频编码的选择优先级, 用逗号分割 例: \"hevc,av1,avc,flac,eac3,m4a\"；与 -q 同时使用时越靠前越优先");
+    private static readonly Option<string> DfnPriority = new(["--dfn-priority", "-q"], "画质优先级,用逗号分隔 例: \"8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界\"；与 -e 同时使用时越靠前越优先");
     private static readonly Option<bool> OnlyShowInfo = new(["--only-show-info", "-info"], "仅解析而不进行下载");
     private static readonly Option<bool> HideStreams = new(["--hide-streams", "-hs"], "不要显示所有可用音视频流");
     private static readonly Option<bool> Interactive = new(["--interactive", "-ia"], "交互式选择清晰度");
@@ -24,8 +25,8 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> MultiThread = new(["--multi-thread", "-mt"], "使用多线程下载(默认开启)");
     private static readonly Option<string> SelectPage = new(["--select-page", "-p"], "选择指定分p或分p范围: (-p 8 或 -p 1,2 或 -p 3-5 或 -p ALL 或 -p LAST 或 -p 3,5,LATEST)");
     private static readonly Option<bool> SimplyMux = new(["--simply-mux"], "精简混流，不增加描述、作者等信息");
-    private static readonly Option<bool> AudioOnly = new(["--audio-only"], "仅下载音频");
-    private static readonly Option<bool> VideoOnly = new(["--video-only"], "仅下载视频");
+    private static readonly Option<bool> AudioOnly = new(["--audio-only"], "仅下载音频；与 --video-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败");
+    private static readonly Option<bool> VideoOnly = new(["--video-only"], "仅下载视频；与 --audio-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败");
     private static readonly Option<bool> DanmakuOnly = new(["--danmaku-only"], "仅下载弹幕");
     private static readonly Option<bool> CoverOnly = new(["--cover-only"], "仅下载封面");
     private static readonly Option<bool> SubOnly = new(["--sub-only"], "仅下载字幕");
@@ -95,7 +96,9 @@ internal static class CommandLineInvoker
         {
             var option = new MyOption
             {
-                Url = bindingContext.ParseResult.GetValueForArgument(Url)
+                Url = bindingContext.ParseResult.GetValueForArgument(Url),
+                EncodingPriorityFirst = CommandLineOptionOrder.EncodingPrecedesQuality(
+                    bindingContext.ParseResult.Tokens.Select(token => token.Value))
             };
 
             if (bindingContext.ParseResult.HasOption(UseTvApi)) option.UseTvApi = bindingContext.ParseResult.GetValueForOption(UseTvApi)!;
@@ -129,7 +132,11 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(AllowPcdn)) option.AllowPcdn = bindingContext.ParseResult.GetValueForOption(AllowPcdn)!;
             if (bindingContext.ParseResult.HasOption(FilePattern)) option.FilePattern = bindingContext.ParseResult.GetValueForOption(FilePattern)!;
             if (bindingContext.ParseResult.HasOption(MultiFilePattern)) option.MultiFilePattern = bindingContext.ParseResult.GetValueForOption(MultiFilePattern)!;
-            if (bindingContext.ParseResult.HasOption(SelectPage)) option.SelectPage = bindingContext.ParseResult.GetValueForOption(SelectPage)!;
+            if (bindingContext.ParseResult.HasOption(SelectPage))
+            {
+                option.SelectPage = bindingContext.ParseResult.GetValueForOption(SelectPage)!;
+                option.SelectPageSpecified = true;
+            }
             if (bindingContext.ParseResult.HasOption(Language)) option.Language = bindingContext.ParseResult.GetValueForOption(Language)!;
             if (bindingContext.ParseResult.HasOption(UserAgent)) option.UserAgent = bindingContext.ParseResult.GetValueForOption(UserAgent)!;
             if (bindingContext.ParseResult.HasOption(Cookie)) option.Cookie = bindingContext.ParseResult.GetValueForOption(Cookie)!;
@@ -176,6 +183,7 @@ internal static class CommandLineInvoker
             Interactive,
             HideStreams,
             MultiThread,
+            SimplyMux,
             VideoOnly,
             AudioOnly,
             DanmakuOnly,

@@ -91,12 +91,21 @@ partial class Program
         var serverAllowCustomNetworkHostsOpt = new Option<bool>(
             ["--server-allow-custom-network-hosts"],
             description: "允许服务器任务自定义解析和下载相关Host");
+        var serverAllowPrivateCallbacksOpt = new Option<bool>(
+            ["--server-allow-private-callbacks"],
+            description: "允许服务器任务回调内网或本机地址");
         var serverDownloadRootOpt = new Option<string>(
             ["--server-download-root"],
             description: "服务器下载根目录，默认使用当前工作目录");
         var serverMaxQueueOpt = new Option<int>(
             ["--server-max-queue"],
             description: "服务器任务队列最大长度，默认100");
+        var serverMaxFinishedOpt = new Option<int>(
+            ["--server-max-finished"],
+            description: "服务器最多保留的已完成任务数，默认1000");
+        var serverFinishedRetentionHoursOpt = new Option<int>(
+            ["--server-finished-retention-hours"],
+            description: "服务器已完成任务保留小时数，默认24");
         var allowInsecureTlsOpt = new Option<bool>(
             ["--allow-insecure-tls"],
             description: "允许忽略TLS证书错误");
@@ -110,15 +119,18 @@ partial class Program
         Command runAsServerCommand = new(
                 "serve",
                 "以服务器模式运行")
-            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverDownloadRootOpt, serverMaxQueueOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
+            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
         runAsServerCommand.SetHandler(context => StartServer(
             context.ParseResult.GetValueForOption(serverUrlOpt),
             context.ParseResult.GetValueForOption(serverTokenOpt),
             context.ParseResult.GetValueForOption(serverAllowAria2cArgsOpt),
             context.ParseResult.GetValueForOption(serverAllowCustomOutputOpt),
             context.ParseResult.GetValueForOption(serverAllowCustomNetworkHostsOpt),
+            context.ParseResult.GetValueForOption(serverAllowPrivateCallbacksOpt),
             context.ParseResult.GetValueForOption(serverDownloadRootOpt),
             context.ParseResult.GetValueForOption(serverMaxQueueOpt),
+            context.ParseResult.GetValueForOption(serverMaxFinishedOpt),
+            context.ParseResult.GetValueForOption(serverFinishedRetentionHoursOpt),
             context.ParseResult.GetValueForOption(allowInsecureTlsOpt),
             context.ParseResult.GetValueForOption(cookieAllowedDomainsOpt),
             context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt)));
@@ -163,24 +175,26 @@ partial class Program
             if (commandLineResult.CommandResult.Command.Name.ToLower() == "serve")
             {
                 newArgsList.AddRange(args);
-                BBDownTConfigParser.HandleConfig(newArgsList, rootCommand, "serve");
+                if (!BBDownTConfigParser.HandleConfig(newArgsList, rootCommand, "serve"))
+                {
+                    return 1;
+                }
                 return await parser.InvokeAsync(newArgsList.ToArray());
             }
             newArgsList.Add(commandLineResult.CommandResult.Command.Name);
             return await parser.InvokeAsync(newArgsList.ToArray());
         }
 
-        foreach (var item in commandLineResult.CommandResult.Children)
+        foreach (var a in commandLineResult.CommandResult.Children.OfType<ArgumentResult>())
         {
-            if (item is ArgumentResult a)
-            {
-                newArgsList.Add(a.Tokens[0].Value);
-            }
-            else if (item is OptionResult o)
-            {
-                newArgsList.Add("--" + o.Option.Name);
-                newArgsList.AddRange(o.Tokens.Select(t => t.Value));
-            }
+            newArgsList.Add(a.Tokens[0].Value);
+        }
+        foreach (var o in CommandLineOptionOrder.ByAppearance(
+            commandLineResult.CommandResult.Children.OfType<OptionResult>(),
+            args))
+        {
+            newArgsList.Add("--" + o.Option.Name);
+            newArgsList.AddRange(o.Tokens.Select(t => t.Value));
         }
 
         if (newArgsList.Contains("--debug"))
@@ -197,7 +211,10 @@ partial class Program
         Console.WriteLine();
 
         //处理配置文件
-        BBDownTConfigParser.HandleConfig(newArgsList, rootCommand);
+        if (!BBDownTConfigParser.HandleConfig(newArgsList, rootCommand))
+        {
+            return 1;
+        }
 
         return await parser.InvokeAsync(newArgsList.ToArray());
     }
@@ -215,8 +232,11 @@ partial class Program
         bool allowAria2cArgs,
         bool allowCustomOutput,
         bool allowCustomNetworkHosts,
+        bool allowPrivateCallbacks,
         string? downloadRoot,
         int maxQueueLength,
+        int maxFinishedTasks,
+        int finishedRetentionHours,
         bool allowInsecureTls,
         string? cookieAllowedDomains,
         int maxGrpcMessageMb)
@@ -229,8 +249,11 @@ partial class Program
             AllowAria2cArgs = allowAria2cArgs,
             AllowCustomOutput = allowCustomOutput,
             AllowCustomNetworkHosts = allowCustomNetworkHosts,
+            AllowPrivateCallbacks = allowPrivateCallbacks,
             DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? Environment.CurrentDirectory : downloadRoot,
-            MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : 100
+            MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : 100,
+            MaxFinishedTasks = maxFinishedTasks > 0 ? maxFinishedTasks : 1000,
+            FinishedTaskRetentionSeconds = (finishedRetentionHours > 0 ? finishedRetentionHours : 24) * 60L * 60L
         };
         //检测更新
         _ = CheckUpdateAsync();
@@ -474,10 +497,15 @@ partial class Program
                 }
             }
 
-            await DownloadPageAsync(p, myOption, vInfo, pagesInfo, encodingPriority, dfnPriority, firstEncoding,
+            var outcome = await DownloadPageAsync(p, myOption, vInfo, pagesInfo, encodingPriority, dfnPriority, firstEncoding,
                 downloadDanmaku, downloadDanmakuFormats, input, savePathFormat, lang, aidOri, apiType, relatedTask);
 
-            if (myOption.SaveArchivesToFile)
+            if (!outcome.IsSuccessful())
+            {
+                throw new InvalidOperationException($"P{p.index} 下载失败");
+            }
+
+            if (myOption.SaveArchivesToFile && outcome.ShouldArchive())
             {
                 SaveAidToFile(p.aid);
             }
@@ -486,12 +514,12 @@ partial class Program
         Log("任务完成");
     }
 
-    private static async Task DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
+    private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
         string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, string apiType, DownloadTask? relatedTask = null)
     {
         string desc = string.IsNullOrEmpty(p.desc) ? vInfo.Desc : p.desc;
         bool bangumi = vInfo.IsBangumi;
-        var pagesCount = selectedPagesInfo.Count;
+        var pagesCount = vInfo.PagesInfo.Count;
         List<Subtitle> subtitleInfo = [];
         string title = vInfo.Title;
         string pic = vInfo.Pic;
@@ -542,10 +570,10 @@ partial class Program
                         if (myOption.SubOnly && File.Exists(s.path) && File.ReadAllText(s.path) != "")
                         {
                             var _outSubPath = FormatSavePath(savePathFormat, title, null, null, p, pagesCount, apiType, pubTime);
-                            if (_outSubPath.Contains('/'))
+                            var outputDirectory = Path.GetDirectoryName(_outSubPath);
+                            if (!string.IsNullOrEmpty(outputDirectory))
                             {
-                                if (!Directory.Exists(_outSubPath.Split('/').First()))
-                                    Directory.CreateDirectory(_outSubPath.Split('/').First());
+                                Directory.CreateDirectory(outputDirectory);
                             }
                             _outSubPath = Path.ChangeExtension(_outSubPath, $".{s.lan}.srt");
                             File.Move(s.path, _outSubPath, true);
@@ -556,7 +584,7 @@ partial class Program
                 if (myOption.SubOnly)
                 {
                     if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
-                    return;
+                    return DownloadPageOutcome.ExclusiveArtifact;
                 }
             }
 
@@ -590,27 +618,18 @@ partial class Program
                 if (parsedResult.VideoTracks.Count == 0)
                 {
                     LogWarn("没有找到符合要求的视频流");
-                    if (myOption.VideoOnly) return;
+                    if (myOption.VideoOnly) return DownloadPageOutcome.Failed;
                 }
                 if (parsedResult.AudioTracks.Count == 0)
                 {
                     LogWarn("没有找到符合要求的音频流");
-                    if (myOption.AudioOnly) return;
+                    if (myOption.AudioOnly) return DownloadPageOutcome.Failed;
                 }
 
-                if (myOption.AudioOnly)
-                {
-                    parsedResult.VideoTracks.Clear();
-                }
-                if (myOption.VideoOnly)
-                {
-                    parsedResult.AudioTracks.Clear();
-                    parsedResult.BackgroundAudioTracks.Clear();
-                    parsedResult.RoleAudioList.Clear();
-                }
+                ApplyDashStreamSelection(myOption, parsedResult);
 
                 //排序
-                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending);
+                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending, myOption.EncodingPriorityFirst);
                 parsedResult.AudioTracks = SortTracks(parsedResult.AudioTracks, encodingPriority, myOption.AudioAscending);
                 parsedResult.BackgroundAudioTracks = SortTracks(parsedResult.BackgroundAudioTracks, encodingPriority, myOption.AudioAscending);
                 foreach (var role in parsedResult.RoleAudioList)
@@ -627,7 +646,7 @@ partial class Program
                 //仅展示 跳过下载
                 if (myOption.OnlyShowInfo)
                 {
-                    return;
+                    return DownloadPageOutcome.InfoOnly;
                 }
 
                 int vIndex = 0; //用户手动选择的视频序号
@@ -684,17 +703,28 @@ partial class Program
                         {
                             Directory.Delete(p.aid);
                         }
-                        return;
+                        return DownloadPageOutcome.ExclusiveArtifact;
                     }
                 }
 
                 if (myOption.CoverOnly)
                 {
                     var coverUrl = pic == "" ? p.cover! : pic;
+                    if (string.IsNullOrWhiteSpace(coverUrl))
+                    {
+                        LogWarn("当前视频没有可下载的封面");
+                        return DownloadPageOutcome.Failed;
+                    }
                     var newCoverPath = Path.ChangeExtension(savePath, Path.GetExtension(coverUrl));
                     await DownloadFileAsync(coverUrl, newCoverPath, downloadConfig);
+                    if (!IsUsableArtifact(newCoverPath))
+                    {
+                        LogWarn("封面下载未生成有效文件");
+                        return DownloadPageOutcome.Failed;
+                    }
                     if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
-                    relatedTask?.SavePaths.Add(newCoverPath);
+                    relatedTask?.AddSavePath(newCoverPath);
+                    return DownloadPageOutcome.ExclusiveArtifact;
                 }
 
                 Log($"已选择的流:");
@@ -709,16 +739,16 @@ partial class Program
                 //处理PCDN
                 HandlePcdn(myOption, selectedVideo, selectedAudio);
 
-                if (!myOption.OnlyShowInfo && File.Exists(savePath) && new FileInfo(savePath).Length != 0)
+                if (ShouldUseMuxedOutputCache(myOption, savePath))
                 {
                     Log($"{savePath}已存在, 跳过下载...");
-                    relatedTask?.SavePaths.Add(savePath);
+                    relatedTask?.AddSavePath(savePath);
                     File.Delete(coverPath);
                     if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0)
                     {
                         Directory.Delete(p.aid, true);
                     }
-                    return;
+                    return DownloadPageOutcome.AlreadyExists;
                 }
 
                 if (selectedVideo != null)
@@ -760,7 +790,13 @@ partial class Program
                 Log($"下载P{p.index}完毕");
                 if (!parsedResult.VideoTracks.Any()) videoPath = "";
                 if (!parsedResult.AudioTracks.Any()) audioPath = "";
-                if (myOption.SkipMux) return;
+                if (myOption.SkipMux)
+                {
+                    RecordDownloadedStreams(
+                        relatedTask,
+                        [videoPath, audioPath, .. audioMaterial.Select(material => material.path)]);
+                    return DownloadPageOutcome.Partial;
+                }
                 Log($"开始合并音视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
                 if (myOption.AudioOnly)
                     savePath = savePath[..^4] + ".m4a";
@@ -776,7 +812,7 @@ partial class Program
                     subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc);
                 if (code != 0 || !File.Exists(savePath) || new FileInfo(savePath).Length == 0)
                 {
-                    LogError("合并失败"); return;
+                    LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
                 Log("清理临时文件...");
                 Thread.Sleep(200);
@@ -791,12 +827,17 @@ partial class Program
             }
             else if (parsedResult.Clips.Any() && parsedResult.Dfns.Any())   //flv
             {
+                if (!CanUseProgressiveStream(myOption))
+                {
+                    LogError("当前接口仅返回包含音视频的合并流，无法分别下载主视频流和主音频流");
+                    return DownloadPageOutcome.Failed;
+                }
                 bool flag = false;
                 var clips = parsedResult.Clips;
                 var dfns = parsedResult.Dfns;
                 reParse:
                 //排序
-                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending);
+                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending, myOption.EncodingPriorityFirst);
 
                 int vIndex = 0;
                 if (myOption.Interactive && !flag && !selected)
@@ -805,8 +846,7 @@ partial class Program
                     dfns.ForEach(key => LogColor($"{i++}.{Config.qualitys[key]}"));
                     Log("请选择最想要的清晰度(输入序号): ", false);
                     Console.ForegroundColor = ConsoleColor.Cyan;
-                    vIndex = Convert.ToInt32(Console.ReadLine());
-                    if (vIndex > dfns.Count || vIndex < 0) vIndex = 0;
+                    vIndex = ParseSelectionIndex(Console.ReadLine(), dfns.Count);
                     Console.ResetColor();
                     //重新解析
                     parsedResult.VideoTracks.Clear();
@@ -827,17 +867,17 @@ partial class Program
                         clips.ForEach(Console.WriteLine);
                     }
                 }
-                if (myOption.OnlyShowInfo) return;
+                if (myOption.OnlyShowInfo) return DownloadPageOutcome.InfoOnly;
                 savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.ElementAtOrDefault(vIndex), null, p, pagesCount, apiType, pubTime);
                 if (File.Exists(savePath) && new FileInfo(savePath).Length != 0)
                 {
                     Log($"{savePath}已存在, 跳过下载...");
-                    relatedTask?.SavePaths.Add(savePath);
+                    relatedTask?.AddSavePath(savePath);
                     if (selectedPagesInfo.Count == 1 && Directory.Exists(p.aid))
                     {
                         Directory.Delete(p.aid, true);
                     }
-                    return;
+                    return DownloadPageOutcome.AlreadyExists;
                 }
                 var pad = string.Empty.PadRight(clips.Count.ToString().Length, '0');
                 for (int i = 0; i < clips.Count; i++)
@@ -852,7 +892,11 @@ partial class Program
                 var files = GetFiles(Path.GetDirectoryName(videoPath)!, ".mp4");
                 videoPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.mp4";
                 BBDownTMuxer.MergeFLV(files, videoPath);
-                if (myOption.SkipMux) return;
+                if (myOption.SkipMux)
+                {
+                    RecordDownloadedStreams(relatedTask, videoPath);
+                    return DownloadPageOutcome.Partial;
+                }
                 Log($"开始混流视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
                 if (myOption.AudioOnly)
                     savePath = savePath[..^4] + ".m4a";
@@ -866,7 +910,7 @@ partial class Program
                     subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux);
                 if (code != 0 || !File.Exists(savePath) || new FileInfo(savePath).Length == 0)
                 {
-                    LogError("合并失败"); return;
+                    LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
                 Log("清理临时文件...");
                 Thread.Sleep(200);
@@ -886,11 +930,13 @@ partial class Program
                     LogError(parsedResult.WebJsonString);
                 }
                 LogDebug("{0}", parsedResult.WebJsonString);
+                return DownloadPageOutcome.Failed;
             }
 
             if (!string.IsNullOrWhiteSpace(savePath)) {
-                relatedTask?.SavePaths.Add(savePath);
+                relatedTask?.AddSavePath(savePath);
             }
+            return DownloadPageOutcome.Completed;
         }
         catch (Exception ex)
         {
@@ -901,6 +947,56 @@ partial class Program
             goto downloadPage;
         }
     }
+
+    internal static bool IsUsableArtifact(string path)
+    {
+        return File.Exists(path) && new FileInfo(path).Length > 0;
+    }
+
+    internal static void ApplyDashStreamSelection(MyOption myOption, ParsedResult parsedResult)
+    {
+        if (myOption.AudioOnly && myOption.VideoOnly)
+        {
+            parsedResult.BackgroundAudioTracks.Clear();
+            parsedResult.RoleAudioList.Clear();
+            return;
+        }
+        if (myOption.AudioOnly && !myOption.VideoOnly)
+        {
+            parsedResult.VideoTracks.Clear();
+        }
+        if (myOption.VideoOnly && !myOption.AudioOnly)
+        {
+            parsedResult.AudioTracks.Clear();
+            parsedResult.BackgroundAudioTracks.Clear();
+            parsedResult.RoleAudioList.Clear();
+        }
+    }
+
+    internal static void RecordDownloadedStreams(DownloadTask? relatedTask, params string[] paths)
+    {
+        if (relatedTask is null)
+        {
+            return;
+        }
+        foreach (var path in paths.Where(path => !string.IsNullOrWhiteSpace(path) && IsUsableArtifact(path)))
+        {
+            relatedTask.AddSavePath(path);
+        }
+    }
+
+    internal static bool ShouldUseMuxedOutputCache(MyOption myOption, string savePath)
+    {
+        return !myOption.OnlyShowInfo
+            && !myOption.SkipMux
+            && IsUsableArtifact(savePath);
+    }
+
+    internal static bool CanUseProgressiveStream(MyOption myOption)
+    {
+        return !(myOption.AudioOnly && myOption.VideoOnly);
+    }
+
 
     private static async Task DoWorkAsync(MyOption myOption)
     {
@@ -925,10 +1021,10 @@ partial class Program
         }
     }
 
-    private static List<Video> SortTracks(List<Video> videoTracks, Dictionary<string, int> dfnPriority, Dictionary<string, byte> encodingPriority, bool videoAscending)
+    internal static List<Video> SortTracks(List<Video> videoTracks, Dictionary<string, int> dfnPriority, Dictionary<string, byte> encodingPriority, bool videoAscending, bool encodingPriorityFirst)
     {
         //用户同时输入了自定义分辨率优先级和自定义编码优先级, 则根据输入顺序依次进行排序
-        return dfnPriority.Any() && encodingPriority.Any() && Environment.CommandLine.IndexOf("--encoding-priority", StringComparison.Ordinal) < Environment.CommandLine.IndexOf("--dfn-priority")
+        return dfnPriority.Any() && encodingPriority.Any() && encodingPriorityFirst
             ? videoTracks
                 .OrderBy(v => encodingPriority.GetValueOrDefault(v.codecs, (byte)100))
                 .ThenBy(v => dfnPriority.GetValueOrDefault(v.dfn, 100))
@@ -951,7 +1047,7 @@ partial class Program
             .ToList();
     }
 
-    private static string FormatSavePath(string savePathFormat, string title, Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime)
+    internal static string FormatSavePath(string savePathFormat, string title, Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime)
     {
         var result = savePathFormat.Replace('\\', '/');
         var regex = InfoRegex();

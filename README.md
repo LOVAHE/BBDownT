@@ -48,16 +48,16 @@ Options:
   -app, --use-app-api                            使用APP端解析模式
   -intl, --use-intl-api                          使用国际版(东南亚视频)解析模式
   --use-mp4box                                   使用MP4Box来混流
-  -e, --encoding-priority <encoding-priority>    视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"
-  -q, --dfn-priority <dfn-priority>              画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"
+  -e, --encoding-priority <encoding-priority>    视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"；与 -q 同时使用时越靠前越优先
+  -q, --dfn-priority <dfn-priority>              画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"；与 -e 同时使用时越靠前越优先
   -info, --only-show-info                        仅解析而不进行下载
   --show-all                                     展示所有分P标题
   -aria2, --use-aria2c                           调用aria2c进行下载(你需要自行准备好二进制可执行文件)
   -ia, --interactive                             交互式选择清晰度
   -hs, --hide-streams                            不要显示所有可用音视频流
   -mt, --multi-thread                            使用多线程下载(默认开启)
-  --video-only                                   仅下载视频
-  --audio-only                                   仅下载音频
+  --video-only                                   仅下载视频；与 --audio-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
+  --audio-only                                   仅下载音频；与 --video-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
   --danmaku-only                                 仅下载弹幕
   --sub-only                                     仅下载字幕
   --cover-only                                   仅下载封面

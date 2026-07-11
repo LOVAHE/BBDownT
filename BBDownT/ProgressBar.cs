@@ -51,17 +51,20 @@ class ProgressBar : IDisposable, IProgress<double>
 
 	public void Report(double value)
 	{
-		// Make sure value is in [0..1] range
-		value = Math.Max(0, Math.Min(1, value));
+		value = NormalizeProgress(value);
 		Interlocked.Exchange(ref currentProgress, value);
 	}
 
 	public void Report(double value, long bytesCount)
 	{
-		// Make sure value is in [0..1] range
-		value = Math.Max(0, Math.Min(1, value));
+		value = NormalizeProgress(value);
 		Interlocked.Exchange(ref currentProgress, value);
 		Interlocked.Exchange(ref downloadedBytes, bytesCount);
+	}
+
+	internal static double NormalizeProgress(double value)
+	{
+		return double.IsFinite(value) ? Math.Clamp(value, 0, 1) : 0;
 	}
 
 	private void SpeedTimerHandler(object? state)
@@ -77,8 +80,7 @@ class ProgressBar : IDisposable, IProgress<double>
 				lastDownloadedBytes = downloadedBytes;
 				if (RelatedTask is not null) 
 				{
-					RelatedTask.DownloadSpeed = delta;
-					RelatedTask.TotalDownloadedBytes += delta;
+					RelatedTask.ReportDownloadedBytes(delta);
 				}
 			}
 
@@ -101,7 +103,7 @@ class ProgressBar : IDisposable, IProgress<double>
 			UpdateText(text);
 			if (RelatedTask is not null) 
 			{
-				RelatedTask.Progress = currentProgress;
+					RelatedTask.ReportProgress(currentProgress);
 			}
 
 			ResetTimer();

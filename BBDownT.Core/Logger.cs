@@ -20,7 +20,7 @@ public static class Logger
         new("(?i)(identify_v1\\s+)[^\\s,\";]+", RegexOptions.Compiled)
     ];
 
-    private static string RedactSensitiveText(object? text)
+    public static string RedactSensitiveText(object? text)
     {
         var value = text?.ToString() ?? "";
         foreach (var pattern in SensitivePatterns)

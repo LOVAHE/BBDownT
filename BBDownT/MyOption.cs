@@ -9,6 +9,7 @@ internal class MyOption
     public bool UseMP4box { get; set; }
     public string? EncodingPriority { get; set; }
     public string? DfnPriority { get; set; }
+    internal bool EncodingPriorityFirst { get; set; }
     public bool OnlyShowInfo { get; set; }
     public bool ShowAll { get; set; }
     public bool UseAria2c { get; set; }
@@ -37,6 +38,7 @@ internal class MyOption
     public string FilePattern { get; set; } = "";
     public string MultiFilePattern { get; set; } = "";
     public string SelectPage { get; set; } = "";
+    internal bool SelectPageSpecified { get; set; }
     public string Language { get; set; } = "";
     public string UserAgent { get; set; } = "";
     public string Cookie { get; set; } = "";

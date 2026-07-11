@@ -6,23 +6,15 @@ using static BBDownT.Core.Util.HTTPUtil;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.IO;
+using static BBDownT.Core.Logger;
 
 namespace BBDownT.Core.Util;
 
 public static partial class SubUtil
 {
-    private static readonly char[] UnsafePathSegmentChars = Path.GetInvalidFileNameChars()
-        .Concat(['/', '\\'])
-        .Distinct()
-        .ToArray();
-
-    private static string GetSafePathSegment(string value)
+    internal static bool HaveValidUrls(IEnumerable<Subtitle> subtitles)
     {
-        foreach (var c in UnsafePathSegmentChars)
-        {
-            value = value.Replace(c, '_');
-        }
-        return value.Trim().TrimEnd('.');
+        return subtitles.All(subtitle => !string.IsNullOrEmpty(subtitle.url));
     }
 
     //https://i0.hdslb.com/bfs/subtitle/subtitle_lan.json
@@ -249,19 +241,20 @@ public static partial class SubUtil
                 {
                     url = url,
                     lan = lan,
-                    path = $"{GetSafePathSegment(aid)}/{GetSafePathSegment(aid)}.{GetSafePathSegment(cid)}.{GetSafePathSegment(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
+                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
                 };
 
-                //有空的URL 不合法
-                if (subtitles.Any(s => string.IsNullOrEmpty(s.url)))
-                    throw new Exception("Bad url");
-
                 subtitles.Add(subtitle);
+
+                //有空的URL 不合法
+                if (!HaveValidUrls(subtitles))
+                    throw new Exception("Bad url");
             }
             return subtitles;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("国际字幕接口1失败: {0}", ex.Message);
             return null;
         }
     }
@@ -285,19 +278,20 @@ public static partial class SubUtil
                 {
                     url = url,
                     lan = lan,
-                    path = $"{GetSafePathSegment(aid)}/{GetSafePathSegment(aid)}.{GetSafePathSegment(cid)}.{GetSafePathSegment(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
+                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
                 };
 
-                //有空的URL 不合法
-                if (subtitles.Any(s => string.IsNullOrEmpty(s.url)))
-                    throw new Exception("Bad url");
-
                 subtitles.Add(subtitle);
+
+                //有空的URL 不合法
+                if (!HaveValidUrls(subtitles))
+                    throw new Exception("Bad url");
             }
             return subtitles;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("国际字幕接口2失败: {0}", ex.Message);
             return null;
         }
     }
@@ -318,13 +312,13 @@ public static partial class SubUtil
                 {
                     url = sub.GetProperty("subtitle_url").ToString(),
                     lan = lan,
-                    path = $"{GetSafePathSegment(aid)}/{GetSafePathSegment(aid)}.{GetSafePathSegment(cid)}.{GetSafePathSegment(lan)}.srt"
+                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}.srt"
                 };
                 subtitles.Add(subtitle);
             }
 
             //有空的URL 不合法
-            if (subtitles.Any(s => string.IsNullOrEmpty(s.url)))
+            if (!HaveValidUrls(subtitles))
                 throw new Exception("Bad url");
 
             //无字幕片源 但是字幕没上导致的空列表，尝试从国际接口获取
@@ -334,8 +328,9 @@ public static partial class SubUtil
             //}
             return subtitles;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("字幕接口1失败: {0}", ex.Message);
             return null;
         }
     }
@@ -356,19 +351,20 @@ public static partial class SubUtil
                 {
                     url = sub.GetProperty("subtitle_url").ToString(),
                     lan = lan,
-                    path = $"{GetSafePathSegment(aid)}/{GetSafePathSegment(aid)}.{GetSafePathSegment(cid)}.{GetSafePathSegment(lan)}.srt"
+                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}.srt"
                 };
                 subtitles.Add(subtitle);
             }
 
             //有空的URL 不合法
-            if (subtitles.Any(s => string.IsNullOrEmpty(s.url)))
+            if (!HaveValidUrls(subtitles))
                 throw new Exception("Bad url");
 
             return subtitles;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("字幕接口2失败: {0}", ex.Message);
             return null;
         }
     }
@@ -403,17 +399,18 @@ public static partial class SubUtil
                 subtitles.AddRange(resp.Subtitle.Subtitles.Select(item => new Subtitle() {
                     url = item.SubtitleUrl,
                     lan = item.Lan,
-                    path = $"{GetSafePathSegment(aid)}/{GetSafePathSegment(aid)}.{GetSafePathSegment(cid)}.{GetSafePathSegment(item.Lan)}.srt"
+                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(item.Lan)}.srt"
                 }));
             }
             //有空的URL 不合法
-            if (subtitles.Any(s => string.IsNullOrEmpty(s.url)))
+            if (!HaveValidUrls(subtitles))
                 throw new Exception("Bad url");
 
             return subtitles;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("字幕接口3失败: {0}", ex.Message);
             return null;
         }
     }

@@ -9,145 +9,31 @@ on:
 permissions:
   contents: write
 
-env:
-  DOTNET_SDK_VERSION: "9.0.306"
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   validate-tag:
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure release tag
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Ensure tag matches package version
+        shell: bash
         run: |
+          set -euo pipefail
           test "$GITHUB_REF_TYPE" = "tag"
-          case "$GITHUB_REF_NAME" in
-            v*) ;;
-            *) exit 1 ;;
-          esac
+          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          test -n "$project_version"
+          test "$GITHUB_REF_NAME" = "v${project_version}"
 
-  build-win-x64-arm64:
-    runs-on: windows-latest
+  build:
     needs: validate-tag
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up dotnet
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
-
-      - name: Publish [win]
-        run: |
-          dotnet publish BBDownT -r win-x64 -c Release -o artifact
-          dotnet publish BBDownT -r win-arm64 -c Release -o artifact-arm64
-
-      - name: Prepare release assets [win]
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force release-assets | Out-Null
-          Copy-Item artifact/BBDownT.exe release-assets/BBDownT_win-x64.exe
-          Copy-Item artifact-arm64/BBDownT.exe release-assets/BBDownT_win-arm64.exe
-
-      - name: Upload release assets [win]
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-win
-          path: release-assets/*
-
-  build-linux-x64-arm64:
-    runs-on: ubuntu-latest
-    needs: validate-tag
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Build x64 in Ubuntu 18.04 container (for glibc 2.27 compatibility)
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            ubuntu:18.04 \
-            bash -c "
-              set -e
-              apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y wget build-essential clang libicu-dev zlib1g libcurl4-openssl-dev libkrb5-dev
-              DOTNET_SDK_VERSION='${{ env.DOTNET_SDK_VERSION }}'
-              DOTNET_SDK_URL=\"https://builds.dotnet.microsoft.com/dotnet/Sdk/\${DOTNET_SDK_VERSION}/dotnet-sdk-\${DOTNET_SDK_VERSION}-linux-x64.tar.gz\"
-              wget -nv \"\$DOTNET_SDK_URL\" -O dotnet-sdk.tar.gz
-              mkdir -p /opt/dotnet
-              tar -xzf dotnet-sdk.tar.gz -C /opt/dotnet
-              export PATH=\"/opt/dotnet:\$PATH\"
-              dotnet publish BBDownT -r linux-x64 -c Release -o /workspace/artifact
-            "
-
-      - name: Build arm64 in Ubuntu 18.04 container (for glibc 2.27 compatibility)
-        run: |
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-18.04-cross-arm64-20220312201346-b2c2436 \
-            bash -c "
-              set -e
-              DOTNET_SDK_VERSION='${{ env.DOTNET_SDK_VERSION }}'
-              DOTNET_SDK_URL=\"https://builds.dotnet.microsoft.com/dotnet/Sdk/\${DOTNET_SDK_VERSION}/dotnet-sdk-\${DOTNET_SDK_VERSION}-linux-x64.tar.gz\"
-              wget -nv \"\$DOTNET_SDK_URL\" -O dotnet-sdk.tar.gz
-              mkdir -p /opt/dotnet
-              tar -xzf dotnet-sdk.tar.gz -C /opt/dotnet
-              export PATH=\"/opt/dotnet:\$PATH\"
-              dotnet publish BBDownT -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
-            "
-
-      - name: Prepare release assets [linux]
-        run: |
-          mkdir -p release-assets
-          cp artifact/BBDownT release-assets/BBDownT_linux-x64
-          cp artifact-arm64/BBDownT release-assets/BBDownT_linux-arm64
-          chmod +x release-assets/BBDownT_linux-x64 release-assets/BBDownT_linux-arm64
-
-      - name: Upload release assets [linux]
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-linux
-          path: release-assets/*
-
-  build-mac-x64-arm64:
-    runs-on: macos-15
-    needs: validate-tag
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up dotnet
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
-
-      - name: Publish [osx]
-        run: |
-          dotnet publish BBDownT -r osx-x64 -c Release -o artifact
-          dotnet publish BBDownT -r osx-arm64 -c Release -o artifact-arm64
-
-      - name: Prepare release assets [osx]
-        run: |
-          mkdir -p release-assets
-          cp artifact/BBDownT release-assets/BBDownT_osx-x64
-          cp artifact-arm64/BBDownT release-assets/BBDownT_osx-arm64
-          chmod +x release-assets/BBDownT_osx-x64 release-assets/BBDownT_osx-arm64
-
-      - name: Upload release assets [osx]
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-osx
-          path: release-assets/*
+    uses: ./.github/workflows/build_latest.yml
 
   draft-release:
     runs-on: ubuntu-latest
     needs:
       - validate-tag
-      - build-win-x64-arm64
-      - build-linux-x64-arm64
-      - build-mac-x64-arm64
+      - build
 
     steps:
       - name: Download release assets

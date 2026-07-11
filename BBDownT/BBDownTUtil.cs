@@ -376,13 +376,6 @@ static partial class BBDownTUtil
         return "";
     }
 
-    //https://s1.hdslb.com/bfs/static/player/main/video.9efc0c61.js
-    public static string GetSession(string buvid3)
-    {
-        //这个参数可以没有 所以此处就不写具体实现了
-        throw new NotImplementedException();
-    }
-
     public static string GetSign(string parms)
     {
         string toEncode = parms + "59b43e04ad6965f34319062b478f83dd";
