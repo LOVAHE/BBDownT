@@ -7,16 +7,29 @@ using static BBDownT.Core.Logger;
 using System.Text;
 using System.Text.Json;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Linq;
 using BBDownT.Core.Util;
 
 namespace BBDownT;
 
 internal static class BBDownTLoginUtil
 {
-    public static async Task<string> GetLoginStatusAsync(string qrcodeKey)
+    private static async Task<LoginStatusResult> GetLoginStatusAsync(string qrcodeKey)
     {
         string queryUrl = $"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcodeKey}&source=main-fe-header";
-        return await HTTPUtil.GetWebSourceAsync(queryUrl);
+        using var request = new HttpRequestMessage(HttpMethod.Get, queryUrl);
+        request.Headers.TryAddWithoutValidation("User-Agent", HTTPUtil.UserAgent);
+        request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+        request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
+        request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
+
+        using var response = (await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        var responseBody = await response.Content.ReadAsStringAsync();
+        var setCookieHeaders = response.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.ToArray()
+            : [];
+        return new LoginStatusResult(responseBody, setCookieHeaders);
     }
 
     public static async Task LoginWEB()
@@ -42,7 +55,8 @@ internal static class BBDownTLoginUtil
             while (true)
             {
                 await Task.Delay(1000);
-                string w = await GetLoginStatusAsync(qrcodeKey);
+                var loginStatus = await GetLoginStatusAsync(qrcodeKey);
+                string w = loginStatus.ResponseBody;
                 int code = JsonDocument.Parse(w).RootElement.GetProperty("data").GetProperty("code").GetInt32();
                 if (code == 86038)
                 {
@@ -69,9 +83,14 @@ internal static class BBDownTLoginUtil
                     string? refreshToken = loginData.TryGetProperty("refresh_token", out var refreshTokenElement)
                         ? refreshTokenElement.GetString()
                         : null;
-                    Log("登录成功: SESSDATA=" + GetQueryString("SESSDATA", cc));
-                    //导出cookie, 转义英文逗号 否则部分场景会出问题
-                    await File.WriteAllTextAsync(Path.Combine(Program.APP_DIR, "BBDownT.data"), BBDownTCookieRefreshUtil.NormalizeLoginCookie(cc, refreshToken));
+                    Log("登录成功");
+                    var cookie = BBDownTCookieRefreshUtil.NormalizeLoginCookie(cc, refreshToken, loginStatus.SetCookieHeaders);
+                    if (!BBDownTCookieRefreshUtil.HasRequiredLoginCookies(cookie))
+                    {
+                        throw new InvalidOperationException("登录响应缺少SESSDATA或bili_jct，未覆盖现有Cookie文件。");
+                    }
+
+                    await File.WriteAllTextAsync(Path.Combine(Program.APP_DIR, "BBDownT.data"), cookie);
                     File.Delete("qrcode.png");
                     break;
                 }
@@ -132,4 +151,6 @@ internal static class BBDownTLoginUtil
         }
         catch (Exception e) { LogError(e.Message); }
     }
+
+    private readonly record struct LoginStatusResult(string ResponseBody, string[] SetCookieHeaders);
 }

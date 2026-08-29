@@ -35,6 +35,14 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     private static readonly Regex RefreshCsrfRegex = new("<div id=\"1-name\">(.+?)</div>", RegexOptions.Compiled);
     private static readonly SemaphoreSlim RefreshLock = new(1, 1);
+    private static readonly HashSet<string> LoginCookieNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "DedeUserID",
+        "DedeUserID__ckMd5",
+        "SESSDATA",
+        "bili_jct",
+        "sid"
+    };
 
     public static async Task TryRefreshCookieAsync(string? cookieFilePath)
     {
@@ -52,7 +60,8 @@ JNrRuoEUXpabUzGB8QIDAQAB
                 return;
             }
 
-            if (!await ShouldRefreshCookieAsync(Config.COOKIE))
+            var refreshState = await GetCookieRefreshStateAsync(Config.COOKIE);
+            if (!refreshState.Refresh)
             {
                 LogDebug("Cookie无需刷新");
                 return;
@@ -66,7 +75,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
             }
 
             Log("检测到Cookie需要刷新，正在自动刷新...");
-            var refreshCsrf = await GetRefreshCsrfAsync(Config.COOKIE);
+            var refreshCsrf = await GetRefreshCsrfAsync(Config.COOKIE, refreshState.Timestamp);
             var refreshResult = await RefreshCookieAsync(Config.COOKIE, cookies["bili_jct"], refreshCsrf, oldRefreshToken);
             await ConfirmRefreshAsync(refreshResult.CookieHeader, refreshResult.BiliJct, oldRefreshToken);
 
@@ -80,7 +89,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
         }
         catch (Exception ex)
         {
-            LogWarn($"自动刷新Cookie失败，将继续使用当前Cookie: {ex.Message}");
+            LogWarn(FormatRefreshFailureMessage(ex));
         }
         finally
         {
@@ -88,7 +97,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
         }
     }
 
-    public static string NormalizeLoginCookie(string loginUrl, string? refreshToken)
+    public static string NormalizeLoginCookie(string loginUrl, string? refreshToken, IEnumerable<string>? setCookieHeaders = null)
     {
         var queryStart = loginUrl.IndexOf('?');
         var query = queryStart >= 0 ? loginUrl[(queryStart + 1)..] : loginUrl;
@@ -115,7 +124,18 @@ JNrRuoEUXpabUzGB8QIDAQAB
                 continue;
             }
 
-            cookies[name] = value.Replace(",", "%2C");
+            if (LoginCookieNames.Contains(name))
+            {
+                cookies[name] = value.Replace(",", "%2C");
+            }
+        }
+
+        if (setCookieHeaders is not null)
+        {
+            foreach (var (name, value) in ExtractSetCookieHeaders(setCookieHeaders))
+            {
+                cookies[name] = value;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(refreshToken))
@@ -126,13 +146,24 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return SerializeCookieHeader(cookies);
     }
 
-    private static async Task<bool> ShouldRefreshCookieAsync(string cookieHeader)
+    internal static bool HasRequiredLoginCookies(string cookieHeader)
+    {
+        var cookies = ParseCookieHeader(cookieHeader);
+        return HasValue(cookies, "SESSDATA") && HasValue(cookies, "bili_jct");
+    }
+
+    private static async Task<CookieRefreshState> GetCookieRefreshStateAsync(string cookieHeader)
     {
         using var request = CreateRequest(HttpMethod.Get, CookieInfoUrl, cookieHeader);
         using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return ParseCookieRefreshState(await response.Content.ReadAsStringAsync());
+    }
+
+    internal static CookieRefreshState ParseCookieRefreshState(string responseBody)
+    {
+        using var doc = JsonDocument.Parse(responseBody);
         var root = doc.RootElement;
         if (!root.TryGetProperty("code", out var codeElement) || codeElement.GetInt32() != 0)
         {
@@ -140,12 +171,20 @@ JNrRuoEUXpabUzGB8QIDAQAB
             throw new InvalidOperationException($"检查Cookie刷新状态失败: {message}");
         }
 
-        return root.GetProperty("data").GetProperty("refresh").GetBoolean();
+        var data = root.GetProperty("data");
+        return new CookieRefreshState(
+            data.GetProperty("refresh").GetBoolean(),
+            data.GetProperty("timestamp").GetInt64());
     }
 
-    private static async Task<string> GetRefreshCsrfAsync(string cookieHeader)
+    internal static string FormatRefreshFailureMessage(Exception exception)
     {
-        using var request = CreateRequest(HttpMethod.Get, CorrespondUrlPrefix + GenerateCorrespondPath(), WithCookieValue(cookieHeader, "buvid3", Guid.NewGuid().ToString()));
+        return $"自动刷新 Cookie 失败，将继续使用当前 Cookie。原因：{exception.Message}";
+    }
+
+    private static async Task<string> GetRefreshCsrfAsync(string cookieHeader, long timestamp)
+    {
+        using var request = CreateRequest(HttpMethod.Get, CorrespondUrlPrefix + GenerateCorrespondPath(timestamp), WithCookieValue(cookieHeader, "buvid3", Guid.NewGuid().ToString()));
         using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -241,12 +280,12 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return request;
     }
 
-    private static string GenerateCorrespondPath()
+    private static string GenerateCorrespondPath(long timestamp)
     {
         using var rsa = RSA.Create();
         rsa.ImportFromPem(RefreshPublicKey);
         var encrypted = rsa.Encrypt(
-            System.Text.Encoding.UTF8.GetBytes($"refresh_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"),
+            System.Text.Encoding.UTF8.GetBytes($"refresh_{timestamp}"),
             RSAEncryptionPadding.OaepSHA256);
         return Convert.ToHexString(encrypted).ToLowerInvariant();
     }
@@ -270,12 +309,17 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     private static Dictionary<string, string> ExtractSetCookies(HttpResponseMessage response)
     {
-        var cookies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!response.Headers.TryGetValues("Set-Cookie", out var values))
         {
-            return cookies;
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
+        return ExtractSetCookieHeaders(values);
+    }
+
+    private static Dictionary<string, string> ExtractSetCookieHeaders(IEnumerable<string> values)
+    {
+        var cookies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in values)
         {
             var firstPart = value.Split(';', 2, StringSplitOptions.TrimEntries)[0];
@@ -322,5 +366,6 @@ JNrRuoEUXpabUzGB8QIDAQAB
             .Select(cookie => $"{cookie.Key}={cookie.Value}"));
     }
 
+    internal readonly record struct CookieRefreshState(bool Refresh, long Timestamp);
     private record RefreshCookieResult(string CookieHeader, string BiliJct);
 }
