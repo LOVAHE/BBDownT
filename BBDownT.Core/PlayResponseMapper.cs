@@ -144,6 +144,7 @@ internal static class PlayResponseMapper
         if (hasRegularAudio
             && !tvApi
             && dash.TryGetProperty("dolby", out var dolby)
+            && dolby.ValueKind == JsonValueKind.Object
             && dolby.TryGetProperty("audio", out var dolbyAudio)
             && dolbyAudio.ValueKind == JsonValueKind.Array)
         {
@@ -152,6 +153,7 @@ internal static class PlayResponseMapper
         if (hasRegularAudio
             && !tvApi
             && dash.TryGetProperty("flac", out var flac)
+            && flac.ValueKind == JsonValueKind.Object
             && flac.TryGetProperty("audio", out var flacAudio)
             && flacAudio.ValueKind == JsonValueKind.Object)
         {

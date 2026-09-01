@@ -216,6 +216,43 @@ public class PlayResponseMapperTests
     }
 
     [Fact]
+    public void WebDashFixture_WithNullOptionalAudioFamilies_MapsRegularAudio()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "dash": {
+                "duration": 1,
+                "video": [],
+                "audio": [{
+                  "id": 30280,
+                  "base_url": "https://cdn.test/audio.m4s",
+                  "backup_url": [],
+                  "bandwidth": 192000,
+                  "codecs": "mp4a.40.2"
+                }],
+                "dolby": null,
+                "flac": null
+              }
+            }
+            """);
+        var result = new ParsedResult();
+
+        PlayResponseMapper.MapDashAudioAndDubbing(
+            document.RootElement,
+            document.RootElement,
+            result,
+            1,
+            "2",
+            "3",
+            false,
+            false,
+            false,
+            _ => false);
+
+        Assert.Equal("M4A", Assert.Single(result.AudioTracks).codecs);
+    }
+
+    [Fact]
     public void BangumiClipFixture_MapsSortedMainAndSkipSegments()
     {
         using var document = JsonDocument.Parse("""
