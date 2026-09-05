@@ -1,9 +1,8 @@
 name: Publish NuGet
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -28,6 +27,16 @@ jobs:
             v*) ;;
             *) exit 1 ;;
           esac
+
+      - name: Ensure release is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease \
+            | jq -e --arg tag "$GITHUB_REF_NAME" \
+              '.tagName == $tag and .isDraft == false and .isPrerelease == false'
 
       - name: Checkout
         uses: actions/checkout@v7
