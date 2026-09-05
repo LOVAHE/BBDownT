@@ -281,6 +281,9 @@ partial class Program
         bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, int delay)
         SetUpWork(MyOption myOption)
     {
+        if (SubtitleSelection.ValidateOptions(myOption) is { } subtitleError)
+            throw new ArgumentException(subtitleError);
+
         //处理废弃选项
         HandleDeprecatedOptions(myOption);
 
@@ -361,6 +364,8 @@ partial class Program
         // 检测是否登录了账号
         if (myOption is { UseIntlApi: false, UseTvApi: false } && Config.AREA == "")
         {
+            if (BBDownTCookieRefreshUtil.IsMissingBiliJct(Config.COOKIE))
+                LogWarn("当前Cookie缺少bili_jct，部分请求可能被拒绝；请重新执行 BBDownT login 或在 -c 中补全Cookie。将继续尝试下载。");
             Log("检测账号登录...");
             if (!await CheckLogin(Config.COOKIE))
             {
@@ -521,6 +526,7 @@ partial class Program
         bool bangumi = vInfo.IsBangumi;
         var pagesCount = vInfo.PagesInfo.Count;
         List<Subtitle> subtitleInfo = [];
+        HashSet<string>? subtitleChoices = null;
         string title = vInfo.Title;
         string pic = vInfo.Pic;
         long pubTime = vInfo.PubTime;
@@ -529,8 +535,11 @@ partial class Program
         downloadPage:
         try
         {
-            LogDebug("尝试获取章节信息...");
-            p.points = await FetchPointsAsync(p.cid, p.aid);
+            if (!myOption.SubOnly)
+            {
+                LogDebug("尝试获取章节信息...");
+                p.points = await FetchPointsAsync(p.cid, p.aid);
+            }
 
             string videoPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.mp4";
             string audioPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.m4a";
@@ -540,6 +549,17 @@ partial class Program
             if (title.EndsWith('.')) title += "_fix";
             //处理文件夹以.开头导致的异常情况
             if (title.StartsWith('.')) title = "_" + title;
+
+            if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
+            {
+                var availableSubtitles = await SubUtil.GetSubtitlesAsync(p.aid, p.cid, p.epid, p.index, myOption.UseIntlApi);
+                subtitleInfo = subtitleChoices is null
+                    ? SubtitleSelection.Choose(availableSubtitles, myOption, Console.In, Console.Out)
+                    : availableSubtitles.Where(s => subtitleChoices.Contains(s.id ?? s.path)).ToList();
+                if (myOption.Interactive && !myOption.OnlyShowInfo)
+                    subtitleChoices ??= subtitleInfo.Select(s => s.id ?? s.path).ToHashSet(StringComparer.Ordinal);
+            }
+            if (myOption.OnlyShowInfo && myOption.SubOnly) return DownloadPageOutcome.InfoOnly;
 
             //处理封面&&字幕
             if (!myOption.OnlyShowInfo)
@@ -555,13 +575,6 @@ partial class Program
 
                 if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
                 {
-                    LogDebug("获取字幕...");
-                    subtitleInfo = await SubUtil.GetSubtitlesAsync(p.aid, p.cid, p.epid, p.index, myOption.UseIntlApi);
-                    if (myOption.SkipAi && subtitleInfo.Any())
-                    {
-                        Log($"跳过下载AI字幕");
-                        subtitleInfo = subtitleInfo.Where(s => !s.lan.StartsWith("ai-")).ToList();
-                    }
                     foreach (Subtitle s in subtitleInfo)
                     {
                         Log($"下载字幕 {s.lan} => {SubUtil.GetSubtitleCode(s.lan).Item2}...");
@@ -575,7 +588,9 @@ partial class Program
                             {
                                 Directory.CreateDirectory(outputDirectory);
                             }
-                            _outSubPath = Path.ChangeExtension(_outSubPath, $".{s.lan}.srt");
+                            // Source paths use aid.cid.<language>[.<track>].<extension>.
+                            var suffix = Path.GetFileName(s.path).Split('.', 3)[2];
+                            _outSubPath = Path.ChangeExtension(_outSubPath, suffix);
                             File.Move(s.path, _outSubPath, true);
                         }
                     }

@@ -212,6 +212,11 @@ public class BBDownTApiServer
             return "Url不能为空";
         }
 
+        var subtitleValidation = SubtitleSelection.ValidateOptions(req);
+        if (subtitleValidation is not null) return subtitleValidation;
+        if (req.Interactive && !req.OnlyShowInfo)
+            return "服务器任务不支持交互选择，请使用语言、AI策略及音视频筛选参数。";
+
         if (!serverOptions.AllowAria2cArgs && !string.IsNullOrWhiteSpace(req.Aria2cArgs))
         {
             return "服务器默认不允许传入Aria2cArgs，如确需使用请启动时配置 --server-allow-aria2c-args";

@@ -5,6 +5,38 @@ namespace BBDownT.Tests;
 
 public sealed class CookieRefreshTests
 {
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("SESSDATA=", false)]
+    [InlineData("SESSDATA=test-session", true)]
+    [InlineData("SESSDATA=test-session; bili_jct=", true)]
+    [InlineData("SESSDATA=test-session; bili_jct=   ", true)]
+    [InlineData("SESSDATA=test-session; bili_jct=test-csrf", false)]
+    [InlineData(" sessdata = test-session ; BILI_JCT = test-csrf ", false)]
+    [InlineData("SESSDATA=mentions-bili_jct; unrelated=value", true)]
+    [InlineData("bili_jct=test-csrf", false)]
+    public void MissingBiliJctWarning_UsesParsedCookieValues(string cookieHeader, bool expected)
+    {
+        Assert.Equal(expected, BBDownTCookieRefreshUtil.IsMissingBiliJct(cookieHeader));
+    }
+
+    [Fact]
+    public async Task MissingBiliJct_RefreshLeavesManualCookieUnchanged()
+    {
+        var original = Config.COOKIE;
+        const string manualCookie = "SESSDATA=test-session; unrelated=keep-this";
+        try
+        {
+            Config.COOKIE = manualCookie;
+            await BBDownTCookieRefreshUtil.TryRefreshCookieAsync(null);
+            Assert.Equal(manualCookie, Config.COOKIE);
+        }
+        finally
+        {
+            Config.COOKIE = original;
+        }
+    }
+
     [Fact]
     public void NormalizeLoginCookieUsesAuthenticationSetCookieHeaders()
     {

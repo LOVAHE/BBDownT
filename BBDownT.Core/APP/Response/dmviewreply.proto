@@ -30,6 +30,10 @@ message VideoSubtitle {
 
 }
 
+message SubtitleWebReply {
+    optional VideoSubtitle subtitle = 1;
+}
+
 message DanmakuFlagConfig {
     optional int32 recFlag = 1;
     optional string recText = 2;
@@ -44,11 +48,15 @@ message DanmuPlayerViewConfig {
 
 message SubtitleItem {
     optional UserInfo author = 6;
-    optional string idStr = 1;
-    optional int64 id = 2;
+    optional int64 id = 1;
+    optional string idStr = 2;
     optional string lanDoc = 4;
     optional string lan = 3;
     optional string subtitleUrl = 5;
+    optional int32 type = 7;
+    optional string lanDocBrief = 8;
+    optional int32 aiType = 9;
+    optional int32 aiStatus = 10;
 }
 
 message UserInfo {

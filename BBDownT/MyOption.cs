@@ -30,6 +30,8 @@ internal class MyOption
     public bool DownloadDanmaku { get; set; } = false;
     public string? DownloadDanmakuFormats { get; set; }
     public bool SkipAi { get; set; } = true;
+    public string? SubtitleLanguage { get; set; }
+    public string? AiSubtitlePolicy { get; set; }
     public bool VideoAscending { get; set; } = false;
     public bool AudioAscending { get; set; } = false;
     public bool AllowPcdn { get; set; } = false;

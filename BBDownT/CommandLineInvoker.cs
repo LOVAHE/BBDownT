@@ -16,9 +16,9 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> UseMP4box = new(["--use-mp4box"], "使用MP4Box来混流");
     private static readonly Option<string> EncodingPriority = new(["--encoding-priority", "-e"], "视频及音频编码的选择优先级, 用逗号分割 例: \"hevc,av1,avc,flac,eac3,m4a\"；与 -q 同时使用时越靠前越优先");
     private static readonly Option<string> DfnPriority = new(["--dfn-priority", "-q"], "画质优先级,用逗号分隔 例: \"8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界\"；与 -e 同时使用时越靠前越优先");
-    private static readonly Option<bool> OnlyShowInfo = new(["--only-show-info", "-info"], "仅解析而不进行下载");
+    private static readonly Option<bool> OnlyShowInfo = new(["--only-show-info", "-info"], "仅解析音视频和字幕信息，不下载；配合 --sub-only 仅列出字幕");
     private static readonly Option<bool> HideStreams = new(["--hide-streams", "-hs"], "不要显示所有可用音视频流");
-    private static readonly Option<bool> Interactive = new(["--interactive", "-ia"], "交互式选择清晰度");
+    private static readonly Option<bool> Interactive = new(["--interactive", "-ia"], "交互式选择音视频和字幕；字幕支持多选");
     private static readonly Option<bool> ShowAll = new(["--show-all"], "展示所有分P标题");
     private static readonly Option<bool> UseAria2c = new(["--use-aria2c", "-aria2"], "调用aria2c进行下载(你需要自行准备好二进制可执行文件)");
     private static readonly Option<string> Aria2cArgs = new(["--aria2c-args"], "调用aria2c的附加参数(默认参数包含\"-x16 -s16 -j16 -k 5M\", 使用时注意字符串转义)");
@@ -38,6 +38,14 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> DownloadDanmaku = new(["--download-danmaku", "-dd"], "下载弹幕");
     private static readonly Option<string> DownloadDanmakuFormats = new(["--download-danmaku-formats", "-ddf"], $"指定需下载的弹幕格式, 用逗号分隔, 可选 {string.Join('/', BBDownTDanmakuFormatInfo.AllFormatNames)}, 默认: \"{string.Join(',', BBDownTDanmakuFormatInfo.AllFormatNames)}\"");
     private static readonly Option<bool> SkipAi = new(["--skip-ai"], description: "跳过AI字幕下载(默认开启)");
+    private static readonly Option<string> SubtitleLanguage = new(["--subtitle-language"], "筛选字幕语言，逗号分隔；zh/en 匹配语言族，zh-Hans/ai-zh 精确匹配");
+    private static readonly Option<string> AiSubtitlePolicy = new(["--ai-subtitle-policy"], "字幕AI策略: exclude/include/prefer-human/only；显式指定时优先于 --skip-ai");
+
+    static CommandLineInvoker()
+    {
+        SubtitleLanguage.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidateLanguage(result.GetValueOrDefault<string>()));
+        AiSubtitlePolicy.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidatePolicy(result.GetValueOrDefault<string>()));
+    }
     private static readonly Option<bool> VideoAscending = new(["--video-ascending"], "视频升序(最小体积优先)");
     private static readonly Option<bool> AudioAscending = new(["--audio-ascending"], "音频升序(最小体积优先)");
     private static readonly Option<bool> AllowPcdn = new(["--allow-pcdn"], "不替换PCDN域名, 仅在正常情况与--upos-host均无法下载时使用");
@@ -129,6 +137,8 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(SkipAi)) option.SkipAi = bindingContext.ParseResult.GetValueForOption(SkipAi)!;
             if (bindingContext.ParseResult.HasOption(VideoAscending)) option.VideoAscending = bindingContext.ParseResult.GetValueForOption(VideoAscending)!;
             if (bindingContext.ParseResult.HasOption(AudioAscending)) option.AudioAscending = bindingContext.ParseResult.GetValueForOption(AudioAscending)!;
+            if (bindingContext.ParseResult.HasOption(SubtitleLanguage)) option.SubtitleLanguage = bindingContext.ParseResult.GetValueForOption(SubtitleLanguage);
+            if (bindingContext.ParseResult.HasOption(AiSubtitlePolicy)) option.AiSubtitlePolicy = bindingContext.ParseResult.GetValueForOption(AiSubtitlePolicy);
             if (bindingContext.ParseResult.HasOption(AllowPcdn)) option.AllowPcdn = bindingContext.ParseResult.GetValueForOption(AllowPcdn)!;
             if (bindingContext.ParseResult.HasOption(FilePattern)) option.FilePattern = bindingContext.ParseResult.GetValueForOption(FilePattern)!;
             if (bindingContext.ParseResult.HasOption(MultiFilePattern)) option.MultiFilePattern = bindingContext.ParseResult.GetValueForOption(MultiFilePattern)!;
@@ -201,6 +211,8 @@ internal static class CommandLineInvoker
             AudioAscending,
             AllowPcdn,
             FilePattern,
+            SubtitleLanguage,
+            AiSubtitlePolicy,
             MultiFilePattern,
             SelectPage,
             Language,

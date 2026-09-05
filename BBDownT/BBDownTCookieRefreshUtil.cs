@@ -152,6 +152,12 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return HasValue(cookies, "SESSDATA") && HasValue(cookies, "bili_jct");
     }
 
+    internal static bool IsMissingBiliJct(string cookieHeader)
+    {
+        var cookies = ParseCookieHeader(cookieHeader);
+        return HasValue(cookies, "SESSDATA") && !HasValue(cookies, "bili_jct");
+    }
+
     private static async Task<CookieRefreshState> GetCookieRefreshStateAsync(string cookieHeader)
     {
         using var request = CreateRequest(HttpMethod.Get, CookieInfoUrl, cookieHeader);

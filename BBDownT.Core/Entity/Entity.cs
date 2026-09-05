@@ -184,6 +184,12 @@ public static class Entity
         public required string lan;
         public required string url;
         public required string path;
+        public string? id;
+        public string? lanDoc;
+        public int? type;
+        public int? aiType;
+
+        public bool IsAi => type.HasValue ? type == 1 : lan.StartsWith("ai-", StringComparison.OrdinalIgnoreCase);
     }
 
     public class Clip

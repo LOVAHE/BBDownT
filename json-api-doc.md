@@ -90,6 +90,23 @@ POST /add-task
 - 默认不允许自定义`WorkDir`，也不允许绝对路径或包含`..`的输出路径；如需使用请启动时配置`--server-allow-custom-output`。
 - 默认不允许自定义`Host`、`EpHost`、`TvHost`、`UposHost`或开启`AllowPcdn`；如需使用请启动时配置`--server-allow-custom-network-hosts`。
 
+字幕选择沿用 `SubOnly`、`SkipAi`、`OnlyShowInfo`，新增可选字符串 `SubtitleLanguage` 和
+`AiSubtitlePolicy`，语义与同名命令行参数一致。显式策略优先于 `SkipAi`；未指定策略时，
+`SkipAi` 默认 `true`。无效语言格式或策略返回 `400`。
+
+```json
+{
+  "Url": "BVxxxx",
+  "SubOnly": true,
+  "SubtitleLanguage": "zh,en",
+  "AiSubtitlePolicy": "prefer-human"
+}
+```
+
+`OnlyShowInfo: true` 配合 `SubOnly: true` 仅将字幕列表输出到服务器控制台，不下载正文。
+列表不是新增的JSON返回字段；服务器任务使用语言/策略参数选择字幕，不需要交互输入。
+下载任务传入 `Interactive: true` 时返回 `400`，避免队列等待控制台输入；信息模式不会交互。
+
 ### 移除已完成的任务
 
 ```http
