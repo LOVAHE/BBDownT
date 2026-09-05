@@ -41,7 +41,7 @@ jobs:
           test "$GITHUB_REF_NAME" = "v${project_version}"
 
       - name: Set up dotnet
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
