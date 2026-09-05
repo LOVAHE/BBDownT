@@ -158,33 +158,6 @@ Commands:
 
 # 使用教程
 
-## 字幕选择
-
-```bash
-# 仅列出字幕，显示全部可用轨道及筛选结果，不下载正文
-BBDownT BVxxxx -info --sub-only
-
-# 中英文字幕，同语言优先普通(CC)字幕，没有时保留AI字幕
-BBDownT BVxxxx --sub-only --subtitle-language zh,en --ai-subtitle-policy prefer-human
-
-# 手动多选字幕；false允许AI字幕出现在候选中
-BBDownT BVxxxx --sub-only -ia --skip-ai false
-```
-
-`--subtitle-language` 不区分大小写；`zh`、`en` 匹配语言族（含 `ai-zh`、`en-US`），
-带连字符的 `zh-Hans`、`ai-zh` 精确匹配。未指定时不限制语言。
-语言筛选先于AI策略执行，因此指定 `zh-Hans` 不会自动退回 `ai-zh`。
-
-`--ai-subtitle-policy` 支持 `exclude`（排除AI）、`include`（包含AI）、`only`（仅AI）、
-`prefer-human`（匹配语言中有同语言族CC字幕时跳过AI）。来源未知的字幕保留，但不会替代AI。
-CC是平台分类，不保证人工校对。未指定策略时沿用 `--skip-ai`，默认排除AI；
-显式策略优先于 `--skip-ai`。语言与策略参数均可写入现有配置文件。
-
-`-ia` 在筛选后的候选中接受从1开始的序号、逗号列表、范围、`ALL` 或 `NONE`，
-回车保留候选，输入错误会重新询问。`-info` 不进行交互。
-`-p`、文件名模板和 `--skip-subtitle` 继续生效；筛选不到字幕时提示并沿用原有下载/退出行为。
-同语言存在多条字幕时，输出文件增加轨道标识以避免覆盖。
-
 <details>
 <summary>配置文件 (NEW)</summary>
 
@@ -360,6 +333,46 @@ BBDownT -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 ```
+
+</details>
+
+<details>
+<summary>字幕选择</summary>
+
+---
+
+查看可用字幕及筛选结果，不下载字幕文件：
+```
+BBDownT -info --sub-only "https://www.bilibili.com/video/BV1qt4y1X7TW"
+```
+
+下载中英文字幕，同语言优先选择普通(CC)字幕，没有时保留AI字幕：
+```
+BBDownT --sub-only --subtitle-language zh,en --ai-subtitle-policy prefer-human "https://www.bilibili.com/video/BV1qt4y1X7TW"
+```
+
+`--subtitle-language`用逗号分隔多个语言，不区分大小写。`zh`、`en`会匹配同一语言族的字幕，例如`ai-zh`、`en-US`；`zh-Hans`、`ai-zh`等带连字符的代码只匹配对应语言。不指定时不限制字幕语言。
+
+`--ai-subtitle-policy`支持以下选项：
+
+| 选项 | 含义 |
+| --- | --- |
+| `exclude` | 排除AI字幕 |
+| `include` | 包含AI字幕 |
+| `prefer-human` | 同语言族有普通(CC)字幕时跳过AI字幕，否则保留AI字幕 |
+| `only` | 仅下载AI字幕 |
+
+不指定策略时沿用`--skip-ai`，默认跳过AI字幕；显式指定策略时优先使用该策略。语言和策略参数也可以写入配置文件。
+
+手动选择需要下载的字幕，并允许AI字幕出现在候选中：
+```
+BBDownT --sub-only -ia --skip-ai false "https://www.bilibili.com/video/BV1qt4y1X7TW"
+```
+然后按照提示输入从1开始的字幕序号，支持逗号列表、范围、`ALL`或`NONE`。直接回车保留所有候选，输入错误会重新询问。使用`-info`时只显示列表，不进行交互。
+
+`-p`、文件名模板和`--skip-subtitle`同样适用；没有符合条件的字幕时会给出提示。同语言存在多条字幕时，文件名会增加轨道标识，避免互相覆盖。
+
+*PS: 程序先筛选语言，再应用AI策略，因此指定`zh-Hans`不会自动改选`ai-zh`。普通(CC)是平台分类，不保证人工校对；来源未知的字幕在`prefer-human`策略下会保留，但不会替代AI字幕。*
 
 </details>
 
