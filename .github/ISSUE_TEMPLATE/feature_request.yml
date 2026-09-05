@@ -1,0 +1,55 @@
+name: 功能请求
+description: 为 BBDownT 提出新功能或改进建议。
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢分享你的想法！请先查阅 [使用说明](https://github.com/LOVAHE/BBDownT#readme) 并搜索 [已有 Issue](https://github.com/LOVAHE/BBDownT/issues?q=is%3Aissue)，确认是否已有相关功能或讨论。
+        请在一个请求中聚焦一项功能，说明它要解决的问题和预期效果。运行异常请使用“问题反馈”表单。
+        如需提供命令、配置或截图，请先隐藏 Cookie、Token 等敏感信息。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景与痛点
+      description: 你想完成什么任务？当前做法有哪些不便或限制？请提供一个具体场景。
+      placeholder: |
+        我需要完成的任务：
+        目前的做法：
+        遇到的不便或限制：
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的功能
+      description: 请描述希望软件如何工作，以及什么结果能满足你的需求。不需要提供代码或技术实现方案。
+      placeholder: |
+        希望增加或改进的行为：
+        使用后期望得到的结果：
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: 使用示例（可选）
+      description: 可以提供期望的操作流程、命令写法或输出示例。若包含尚不存在的参数，请注明是建议。
+      placeholder: |
+        操作或输入：
+        期望输出：
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已尝试的替代方案（可选）
+      description: 是否能通过现有参数、脚本或其他工具实现？如果尝试过，请说明仍有哪些不足。
+  - type: textarea
+    id: environment
+    attributes:
+      label: 相关版本与环境（可选）
+      description: 如果功能与特定环境有关，请填写 BBDownT 版本、操作系统，以及 Docker / WSL 等相关环境。
+      placeholder: 版本 / 系统 / 相关环境
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充说明（可选）
+      description: 可补充关联 Issue、参考链接或截图；截图可直接粘贴或拖入此处。

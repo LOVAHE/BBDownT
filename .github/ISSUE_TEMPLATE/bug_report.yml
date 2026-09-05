@@ -1,0 +1,108 @@
+name: 问题反馈
+description: 报告 BBDownT 运行异常，提供复现步骤以便排查。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先更新到所用渠道的最新版本后重试，并搜索已有 Issue，避免重复提交。
+        - [Release 下载](https://github.com/LOVAHE/BBDownT/releases)
+        - [Actions 构建](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)
+        - DotnetTool 更新：`dotnet tool update --global BBDownT`
+
+        提交前请检查命令、配置、日志和截图，隐藏 Cookie、Token、SESSDATA、bili_jct、ac_time_value 等敏感信息。请勿上传登录凭据文件。
+  - type: dropdown
+    id: source
+    attributes:
+      label: 版本来源
+      options:
+        - Release
+        - Actions
+        - DotnetTool
+        - 自行编译
+        - 其他（请在版本信息中说明）
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: BBDownT 版本
+      description: 请粘贴 BBDownT --version 的输出；Actions 或自行编译版本请补充构建链接或提交 SHA。无法启动时请填写下载包名称。
+      placeholder: 版本号 / 构建链接 / 提交 SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - 其他（请在运行环境中说明）
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 请填写系统版本、CPU 架构和终端。使用 Docker / WSL 时请注明；涉及混流或外部下载器时，请补充 FFmpeg / MP4Box / aria2c 版本。
+      placeholder: |
+        系统及架构：Windows 11 x64
+        终端：PowerShell
+        其他相关环境或依赖：
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: 完整命令
+      description: 请保留全部参数，将敏感值替换为 ***。如使用配置文件，请在下方补充相关配置。
+      placeholder: BBDownT "视频地址或 BV 号" --debug
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: 相关配置（可选）
+      description: 如使用 BBDownT.config 或 --config-file，请粘贴与问题相关的配置，并隐藏敏感信息。
+      render: text
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 请提供可公开访问的视频链接或 BV / av / ep / ss 号、分 P、所用接口和触发步骤，并说明是否每次都会发生。无需提供账号凭据。
+      placeholder: |
+        1. 使用的链接或视频编号：
+        2. 执行上述命令后进行的操作：
+        3. 在哪一步出现问题：
+        复现频率：
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+      placeholder: 你期望软件完成什么操作？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 请描述实际行为和报错信息；如果旧版本正常，请补充最后一个正常版本。
+      placeholder: 实际发生了什么？出现了什么错误？
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 调试日志（可选）
+      description: 建议添加 --debug 后重试，粘贴从启动到报错的相关日志，提交前隐藏敏感信息。无法获取日志时请在实际结果中说明。
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 运行截图（可选）
+      description: 可在此粘贴或拖入截图。请遮盖敏感信息，尽量同时提供可复制的错误文本。
