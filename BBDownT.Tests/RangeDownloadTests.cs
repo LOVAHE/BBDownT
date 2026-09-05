@@ -12,7 +12,7 @@ public class RangeDownloadTests
     [InlineData(2L * 20 * 1024 * 1024, 2)]
     public void GetAllClips_CoversFileExactlyOnce(long fileSize, int expectedCount)
     {
-        var clips = BBDownTDownloadUtil.GetAllClips("https://example.test/media", fileSize);
+        var clips = BBDownTDownloadUtil.GetAllClips(fileSize);
 
         Assert.Equal(expectedCount, clips.Count);
         Assert.Equal(0, clips[0].from);

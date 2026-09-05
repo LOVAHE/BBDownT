@@ -114,11 +114,14 @@ Options:
   --force-replace-host                           强制替换下载服务器host(默认开启)
   --save-archives-to-file                        将下载过的视频记录到本地文件中, 用于后续跳过下载同个视频
   --delay-per-page <delay-per-page>              设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)
+  --download-all                                导出视频地址后下载UP主的全部投稿
+  --delay-per-video <delay-per-video>            设置批量下载视频之间的间隔时间(单位: 秒, 默认10秒)
   --host <host>                                  指定BiliPlus host(使用BiliPlus需要access_token, 不需要cookie, 解析服务器能够获取你账号的大部分权限!)
   --ep-host <ep-host>                            指定BiliPlus EP host(用于代理api.bilibili.com/pgc/view/web/season, 大部分解析服务器不支持代理该接口)
   --tv-host <tv-host>                            自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
   --area <area>                                  (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
   --config-file <config-file>                    读取指定的BBDownT本地配置文件(默认为: BBDownT.config)
+  --migrate                                      将程序目录中的旧版BBDown配置、登录文件和下载归档迁移为BBDownT文件
   --api-token <api-token>                        服务器API鉴权Token，监听非本机地址且未配置时会自动生成
   --version                                      Show version information
   -?, -h, --help                                 Show help and usage information
@@ -135,6 +138,7 @@ Commands:
 - [x] 课程下载(Web)
 - [x] 普通内容下载(Web|TV|App)
 - [x] 合集/列表/收藏夹/个人空间解析
+- [x] UP主投稿视频批量下载
 - [x] 多分P自动下载
 - [x] 选择指定分P进行下载
 - [x] 选择指定清晰度进行下载
@@ -153,9 +157,6 @@ Commands:
 - [ ] 支持更多自定义选项
 
 # 使用教程
-
-<details>
-<summary>配置文件 (NEW)</summary> 
 
 ## 字幕选择
 
@@ -184,11 +185,16 @@ CC是平台分类，不保证人工校对。未指定策略时沿用 `--skip-ai`
 `-p`、文件名模板和 `--skip-subtitle` 继续生效；筛选不到字幕时提示并沿用原有下载/退出行为。
 同语言存在多条字幕时，输出文件增加轨道标识以避免覆盖。
 
+<details>
+<summary>配置文件 (NEW)</summary>
+
 ---
 
 在`1.4.9`或更高版本中，BBDownT支持读取本地配置文件以简化命令行的手动输入。
 
 如果没有指定`--config-file`，则默认读取程序同目录下的`BBDownT.config`文件；若指定该参数，则读取对应文件。
+
+普通启动只读取BBDownT自己的配置文件，不会自动探测、迁移旧版BBDown的配置、登录文件或下载归档。
 
 一个典型的配置文件:
 ```config
@@ -210,6 +216,32 @@ CC是平台分类，不保证人工校对。未指定策略时沿用 `--skip-ai`
 #开启弹幕下载功能
 --download-danmaku
 ```
+
+</details>
+
+<details>
+<summary>迁移旧版配置和登录信息</summary>
+
+---
+
+如果需要继续使用旧版 BBDown 的配置、登录信息或下载归档，请单独执行：
+```
+BBDownT --migrate
+```
+
+迁移程序所在目录中的文件，映射关系如下：
+
+| 旧文件 | 新文件 |
+| --- | --- |
+| `BBDown.config` | `BBDownT.config` |
+| `BBDown.data` | `BBDownT.data` |
+| `BBDownTV.data` | `BBDownTTV.data` |
+| `BBDownApp.data` | `BBDownTApp.data` |
+| `BBDown.archives` | `BBDownT.archives` |
+
+如果目标文件已经存在，程序会跳过该项，不会覆盖目标文件。迁移成功后，原文件会改名为带有`.migrated-时间戳`后缀的备份文件。迁移过程中出现错误时，命令会返回非零状态。
+
+`--migrate`必须单独使用，不能与视频地址或其他参数同时使用。
 
 </details>
 
@@ -328,6 +360,40 @@ BBDownT -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 ```
+
+</details>
+
+<details>
+<summary>下载UP主的全部投稿</summary>
+
+---
+
+直接输入UP主的空间地址，可以导出该UP主的全部投稿视频地址：
+```
+BBDownT "https://space.bilibili.com/123456"
+```
+视频地址会保存到工作目录下的`UP主名称的投稿视频.txt`文件中。
+
+如果你需要自动下载这些视频，可以加上`--download-all`：
+```
+BBDownT --download-all "https://space.bilibili.com/123456"
+```
+程序会先保存完整的视频地址文件，保存成功后再按顺序逐个下载。
+
+默认每个视频下载完成后等待10秒再下载下一个，你可以使用如下命令调整间隔：
+```
+BBDownT --download-all --delay-per-video 15 "https://space.bilibili.com/123456"
+```
+将`--delay-per-video`设为`0`可以取消等待。如果一个视频有多个分P，分P之间的间隔仍然使用`--delay-per-page`设置。
+
+其他下载参数也可以一起使用，例如只下载音频，并保存到指定目录：
+```
+BBDownT --download-all --audio-only --work-dir "./downloads" "https://space.bilibili.com/123456"
+```
+
+如果某个视频下载失败，程序会等待指定间隔后继续下载下一个，最后统一提示失败数量。有失败项时，命令会返回失败状态。
+
+*PS: 这里只会读取本次生成的txt文件，暂不支持直接传入已有的txt文件。与`--only-show-info`同时使用时只导出视频地址。*
 
 </details>
 

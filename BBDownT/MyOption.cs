@@ -52,6 +52,8 @@ internal class MyOption
     public string Aria2cPath { get; set; } = "";
     public string UposHost { get; set; } = "";
     public string DelayPerPage { get; set; } = "0";
+    public bool DownloadAll { get; set; }
+    public int DelayPerVideo { get; set; } = 10;
     public string Host { get; set; } = "api.bilibili.com";
     public string EpHost { get; set; } = "api.bilibili.com";
     public string TvHost { get; set; } = "api.snm0516.aisee.tv";
@@ -65,4 +67,22 @@ internal class MyOption
     public bool AddDfnSubfix { get; set; }
     public bool NoPaddingPageNum { get; set; }
     public bool BandwithAscending { get; set; }
+
+    internal MyOption ForBatchVideo(string url, string workDir)
+    {
+        // All options are value types or immutable strings. Preserve explicit
+        // selection/order flags while isolating mutations made for one video.
+        var copy = (MyOption)MemberwiseClone();
+        copy.Url = url;
+        copy.DownloadAll = false;
+        copy.WorkDir = workDir;
+        // SetUpWork has already normalized these legacy switches on the parent.
+        // Replaying them would append filename suffixes or proxy arguments again.
+        copy.AddDfnSubfix = false;
+        copy.NoPaddingPageNum = false;
+        copy.Aria2cProxy = "";
+        copy.OnlyHevc = copy.OnlyAvc = copy.OnlyAv1 = false;
+        copy.BandwithAscending = false;
+        return copy;
+    }
 }

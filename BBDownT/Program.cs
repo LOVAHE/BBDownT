@@ -62,12 +62,26 @@ partial class Program
         Environment.Exit(0);
     }
 
-    public static async Task<int> Main(params string[] args)
+    public static Task<int> Main(params string[] args)
     {
         Console.CancelKeyPress += Console_CancelKeyPress;
-        MigrateLegacyLocalFiles();
+        return InvokeCommandLineAsync(args, RunApp, () => LegacyLocalFileMigration.Run(APP_DIR));
+    }
 
-        var rootCommand = CommandLineInvoker.GetRootCommand(RunApp);
+    internal static async Task<int> InvokeCommandLineAsync(
+        string[] args, Func<MyOption, Task> runApp, Func<int> migrate)
+    {
+        var rootCommand = CommandLineInvoker.GetRootCommand(runApp);
+        var migrateOption = new Option<bool>("--migrate", "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录")
+        {
+            Arity = ArgumentArity.Zero
+        };
+        const string migrationUsageError = "--migrate需要单独使用，不能与视频地址或其他参数一起传入";
+        migrateOption.AddValidator(result =>
+        {
+            if (!result.IsImplicit) result.ErrorMessage = migrationUsageError;
+        });
+        rootCommand.AddOption(migrateOption);
         Command loginCommand = new(
             "login",
             "通过APP扫描二维码以登录您的WEB账号");
@@ -156,8 +170,26 @@ partial class Program
             }, 1)
             .Build();
 
+        // Let the built-in version middleware run before required-URL checks.
+        // A standalone version query must not migrate or load user files.
+        if (args.Length == 1 && args[0] == "--version")
+        {
+            return await parser.InvokeAsync(args);
+        }
+
+        if (args.Length == 1 && args[0] == "--migrate")
+        {
+            return migrate();
+        }
+
         var newArgsList = new List<string>();
         var commandLineResult = rootCommand.Parse(args);
+
+        if (commandLineResult.FindResultFor(migrateOption) is { IsImplicit: false })
+        {
+            Console.Error.WriteLine(migrationUsageError);
+            return 1;
+        }
 
         //显式抛出异常
         if (commandLineResult.Errors.Any())
@@ -1017,11 +1049,7 @@ partial class Program
     {
         try
         {
-            var (encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats,
-                input, savePathFormat, lang, aidOri, delay) = SetUpWork(myOption);
-            var (fetchedAid, vInfo, apiType) = await GetVideoInfoAsync(myOption, aidOri, input);
-            await DownloadPagesAsync(myOption, vInfo, encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats,
-                input, savePathFormat, lang, fetchedAid, delay, apiType);
+            await ExecuteWorkAsync(myOption);
         }
         catch (Exception e)
         {

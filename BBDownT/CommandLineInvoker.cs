@@ -61,6 +61,8 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> ForceReplaceHost = new(["--force-replace-host"], "强制替换下载服务器host(默认开启)");
     private static readonly Option<bool> SaveArchivesToFile = new(["--save-archives-to-file"], "将下载过的视频记录到本地文件中, 用于后续跳过下载同个视频");
     private static readonly Option<string> DelayPerPage = new(["--delay-per-page"], "设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)");
+    private static readonly Option<bool> DownloadAll = new(["--download-all"], "导出UP主空间TXT清单后，按清单逐条下载全部投稿");
+    private static readonly Option<int> DelayPerVideo = new(["--delay-per-video"], "批量下载时视频之间的间隔秒数，默认10，0为不等待");
     private static readonly Option<string> FilePattern = new(["--file-pattern", "-F"], 
         $"使用内置变量自定义单P存储文件名:\r\n\r\n" + 
         $"<videoTitle>: 视频主标题\r\n" + 
@@ -135,10 +137,10 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(DownloadDanmaku)) option.DownloadDanmaku = bindingContext.ParseResult.GetValueForOption(DownloadDanmaku)!;
             if (bindingContext.ParseResult.HasOption(DownloadDanmakuFormats)) option.DownloadDanmakuFormats = bindingContext.ParseResult.GetValueForOption(DownloadDanmakuFormats)!;
             if (bindingContext.ParseResult.HasOption(SkipAi)) option.SkipAi = bindingContext.ParseResult.GetValueForOption(SkipAi)!;
-            if (bindingContext.ParseResult.HasOption(VideoAscending)) option.VideoAscending = bindingContext.ParseResult.GetValueForOption(VideoAscending)!;
-            if (bindingContext.ParseResult.HasOption(AudioAscending)) option.AudioAscending = bindingContext.ParseResult.GetValueForOption(AudioAscending)!;
             if (bindingContext.ParseResult.HasOption(SubtitleLanguage)) option.SubtitleLanguage = bindingContext.ParseResult.GetValueForOption(SubtitleLanguage);
             if (bindingContext.ParseResult.HasOption(AiSubtitlePolicy)) option.AiSubtitlePolicy = bindingContext.ParseResult.GetValueForOption(AiSubtitlePolicy);
+            if (bindingContext.ParseResult.HasOption(VideoAscending)) option.VideoAscending = bindingContext.ParseResult.GetValueForOption(VideoAscending)!;
+            if (bindingContext.ParseResult.HasOption(AudioAscending)) option.AudioAscending = bindingContext.ParseResult.GetValueForOption(AudioAscending)!;
             if (bindingContext.ParseResult.HasOption(AllowPcdn)) option.AllowPcdn = bindingContext.ParseResult.GetValueForOption(AllowPcdn)!;
             if (bindingContext.ParseResult.HasOption(FilePattern)) option.FilePattern = bindingContext.ParseResult.GetValueForOption(FilePattern)!;
             if (bindingContext.ParseResult.HasOption(MultiFilePattern)) option.MultiFilePattern = bindingContext.ParseResult.GetValueForOption(MultiFilePattern)!;
@@ -160,6 +162,8 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(ForceReplaceHost)) option.ForceReplaceHost = bindingContext.ParseResult.GetValueForOption(ForceReplaceHost)!;
             if (bindingContext.ParseResult.HasOption(SaveArchivesToFile)) option.SaveArchivesToFile = bindingContext.ParseResult.GetValueForOption(SaveArchivesToFile)!;
             if (bindingContext.ParseResult.HasOption(DelayPerPage)) option.DelayPerPage = bindingContext.ParseResult.GetValueForOption(DelayPerPage)!;
+            if (bindingContext.ParseResult.HasOption(DownloadAll)) option.DownloadAll = bindingContext.ParseResult.GetValueForOption(DownloadAll);
+            if (bindingContext.ParseResult.HasOption(DelayPerVideo)) option.DelayPerVideo = bindingContext.ParseResult.GetValueForOption(DelayPerVideo);
             if (bindingContext.ParseResult.HasOption(Host)) option.Host = bindingContext.ParseResult.GetValueForOption(Host)!;
             if (bindingContext.ParseResult.HasOption(EpHost)) option.EpHost = bindingContext.ParseResult.GetValueForOption(EpHost)!;
             if (bindingContext.ParseResult.HasOption(TvHost)) option.TvHost = bindingContext.ParseResult.GetValueForOption(TvHost)!;
@@ -207,12 +211,12 @@ internal static class CommandLineInvoker
             DownloadDanmaku,
             DownloadDanmakuFormats,
             SkipAi,
+            SubtitleLanguage,
+            AiSubtitlePolicy,
             VideoAscending,
             AudioAscending,
             AllowPcdn,
             FilePattern,
-            SubtitleLanguage,
-            AiSubtitlePolicy,
             MultiFilePattern,
             SelectPage,
             Language,
@@ -228,6 +232,8 @@ internal static class CommandLineInvoker
             ForceReplaceHost,
             SaveArchivesToFile,
             DelayPerPage,
+            DownloadAll,
+            DelayPerVideo,
             Host,
             EpHost,
             TvHost,

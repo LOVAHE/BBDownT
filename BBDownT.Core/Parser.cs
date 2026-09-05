@@ -260,13 +260,6 @@ public static partial class Parser
         return parsedResult;
     }
 
-    /// <summary>
-    /// 编码转换
-    /// </summary>
-    /// <param name="code"></param>
-    /// <returns></returns>
-    private static string GetVideoCodec(string code) => PlayResponseMapper.GetVideoCodec(code);
-
     internal static JsonElement ParseJsonRoot(string json)
     {
         using var document = JsonDocument.Parse(json);

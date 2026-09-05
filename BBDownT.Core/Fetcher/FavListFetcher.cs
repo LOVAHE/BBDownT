@@ -13,7 +13,15 @@ namespace BBDownT.Core.Fetcher;
 /// </summary>
 public class FavListFetcher : IFetcher
 {
-    public async Task<VInfo> FetchAsync(string id)
+    public Task<VInfo> FetchAsync(string id) => FetchAsync(
+        id,
+        url => GetWebSourceAsync(url),
+        aid => new NormalInfoFetcher().FetchAsync(aid));
+
+    internal static async Task<VInfo> FetchAsync(
+        string id,
+        Func<string, Task<string>> fetch,
+        Func<string, Task<VInfo>> fetchVideo)
     {
         id = id[6..];
         var favId = id.Split(':')[0];
@@ -22,7 +30,8 @@ public class FavListFetcher : IFetcher
         if (favId == "")
         {
             var favListApi = $"https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid={mid}";
-            favId = JsonDocument.Parse(await GetWebSourceAsync(favListApi)).RootElement.GetProperty("data").GetProperty("list").EnumerateArray().First().GetProperty("id").ToString();
+            using var folders = JsonDocument.Parse(await fetch(favListApi));
+            favId = folders.RootElement.GetProperty("data").GetProperty("list").EnumerateArray().First().GetProperty("id").ToString();
         }
 
         int pageSize = 20;
@@ -30,7 +39,7 @@ public class FavListFetcher : IFetcher
         List<Page> pagesInfo = new();
 
         var api = $"https://api.bilibili.com/x/v3/fav/resource/list?media_id={favId}&pn=1&ps={pageSize}&order=mtime&type=2&tid=0&platform=web";
-        var json = await GetWebSourceAsync(api);
+        var json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
         var data = infoJson.RootElement.GetProperty("data");
         int totalCount = data.GetProperty("info").GetProperty("media_count").GetInt32();
@@ -44,23 +53,22 @@ public class FavListFetcher : IFetcher
         for (int page = 2; page <= totalPage; page++)
         {
             api = $"https://api.bilibili.com/x/v3/fav/resource/list?media_id={favId}&pn={page}&ps={pageSize}&order=mtime&type=2&tid=0&platform=web";
-            json = await GetWebSourceAsync(api);
-            var jsonDoc = JsonDocument.Parse(json);
-            data = jsonDoc.RootElement.GetProperty("data");
-            medias.AddRange(data.GetProperty("medias").EnumerateArray().ToList());
+            json = await fetch(api);
+            using var jsonDoc = JsonDocument.Parse(json);
+            var pageData = jsonDoc.RootElement.GetProperty("data");
+            // JsonElement retains its document; clone entries used after this page is disposed.
+            medias.AddRange(pageData.GetProperty("medias").EnumerateArray().Select(media => media.Clone()));
         }
 
         foreach (var m in medias)
         {
-            //只处理视频类型(可以直接在query param上指定type=2)
-            // if (m.GetProperty("type").GetInt32() != 2) continue;
             //只处理未失效视频
             if (m.GetProperty("attr").GetInt32() != 0) continue;
 
             var pageCount = m.GetProperty("page").GetInt32();
             if (pageCount > 1)
             {
-                var tmpInfo = await new NormalInfoFetcher().FetchAsync(m.GetProperty("id").ToString());
+                var tmpInfo = await fetchVideo(m.GetProperty("id").ToString());
                 foreach (var item in tmpInfo.PagesInfo)
                 {
                     Page p = new(index++, item)

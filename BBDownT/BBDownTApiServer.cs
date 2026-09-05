@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Data;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -11,14 +9,12 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using BBDownT.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 namespace BBDownT;
 
@@ -212,6 +208,8 @@ public class BBDownTApiServer
             return "Url不能为空";
         }
 
+        var batchValidation = SpaceBatchDownload.ValidateOptions(req);
+        if (batchValidation is not null) return batchValidation;
         var subtitleValidation = SubtitleSelection.ValidateOptions(req);
         if (subtitleValidation is not null) return subtitleValidation;
         if (req.Interactive && !req.OnlyShowInfo)
@@ -444,11 +442,7 @@ public class BBDownTApiServer
         {
             var aid = await BBDownTUtil.GetAvIdAsync(option.Url);
             task.SetAid(aid);
-            var (encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats, input, savePathFormat, lang, aidOri, delay) = Program.SetUpWork(option);
-            var (fetchedAid, vInfo, apiType) = await Program.GetVideoInfoAsync(option, aidOri, input);
-            task.SetMetadata(vInfo.Title, vInfo.Pic, vInfo.PubTime);
-            await Program.DownloadPagesAsync(option, vInfo, encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats,
-                        input, savePathFormat, lang, fetchedAid, delay, apiType, task);
+            await Program.ExecuteWorkAsync(option, task);
             succeeded = true;
         }
         catch (Exception e)
@@ -472,200 +466,6 @@ public class BBDownTApiServer
     }
 }
 
-public sealed class DownloadTask
-{
-    private readonly object stateLock = new();
-
-    public DownloadTask(string aid, string url, long taskCreateTime)
-        : this(Guid.NewGuid().ToString("N"), aid, url, taskCreateTime)
-    {
-    }
-
-    internal DownloadTask(string taskId, string aid, string url, long taskCreateTime)
-    {
-        TaskId = taskId;
-        Aid = aid;
-        Url = url;
-        TaskCreateTime = taskCreateTime;
-    }
-
-    public string TaskId { get; }
-    public string Aid { get; private set; }
-    public string Url { get; }
-    public long TaskCreateTime { get; }
-
-    internal static double CalculateDownloadSpeed(double totalDownloadedBytes, long startedAt, long finishedAt)
-    {
-        var elapsedSeconds = finishedAt - startedAt;
-        return elapsedSeconds <= 0 ? 0 : totalDownloadedBytes / elapsedSeconds;
-    }
-
-    internal void SetMetadata(string? title, string? pic, long? videoPubTime)
-    {
-        lock (stateLock)
-        {
-            Title = title;
-            Pic = pic;
-            VideoPubTime = videoPubTime;
-        }
-    }
-
-    internal void SetAid(string aid)
-    {
-        lock (stateLock)
-        {
-            Aid = aid;
-        }
-    }
-
-    internal bool MatchesId(string id)
-    {
-        lock (stateLock)
-        {
-            return string.Equals(TaskId, id, StringComparison.Ordinal)
-                || (!string.IsNullOrEmpty(Aid) && string.Equals(Aid, id, StringComparison.Ordinal));
-        }
-    }
-
-    internal void ReportProgress(double progress)
-    {
-        lock (stateLock)
-        {
-            Progress = ProgressBar.NormalizeProgress(progress);
-        }
-    }
-
-    internal void ReportDownloadedBytes(double bytesPerSecond)
-    {
-        lock (stateLock)
-        {
-            DownloadSpeed = bytesPerSecond;
-            TotalDownloadedBytes += bytesPerSecond;
-        }
-    }
-
-    internal void AddSavePath(string path)
-    {
-        lock (stateLock)
-        {
-            SavePaths.Add(path);
-        }
-    }
-
-    internal void SetError(string error)
-    {
-        lock (stateLock)
-        {
-            Error = error;
-        }
-    }
-
-    internal void Finish(long finishedAt, bool succeeded)
-    {
-        lock (stateLock)
-        {
-            TaskFinishTime = finishedAt;
-            IsSuccessful = succeeded;
-            if (succeeded)
-            {
-                Progress = 1f;
-                DownloadSpeed = CalculateDownloadSpeed(TotalDownloadedBytes, TaskCreateTime, finishedAt);
-            }
-        }
-    }
-
-    internal DownloadTask CreateSnapshot()
-    {
-        lock (stateLock)
-        {
-            return new DownloadTask(TaskId, Aid, Url, TaskCreateTime)
-            {
-                Title = Title,
-                Pic = Pic,
-                VideoPubTime = VideoPubTime,
-                TaskFinishTime = TaskFinishTime,
-                Progress = Progress,
-                DownloadSpeed = DownloadSpeed,
-                TotalDownloadedBytes = TotalDownloadedBytes,
-                IsSuccessful = IsSuccessful,
-                Error = Error,
-                SavePaths = [.. SavePaths]
-            };
-        }
-    }
-
-    [JsonInclude]
-    public string? Title = null;
-    [JsonInclude]
-    public string? Pic = null;
-    [JsonInclude]
-    public long? VideoPubTime = null;
-    [JsonInclude]
-    public long? TaskFinishTime = null;
-    [JsonInclude]
-    public double Progress = 0f;
-    [JsonInclude]
-    public double DownloadSpeed = 0f;
-    [JsonInclude]
-    public double TotalDownloadedBytes = 0f;
-    [JsonInclude]
-    public bool IsSuccessful = false;
-    [JsonInclude]
-    public string? Error = null;
-
-    [JsonInclude]
-    public List<string> SavePaths = new();
-};
-public record DownloadTaskCollection(
-    List<DownloadTask> Pending,
-    List<DownloadTask> Running,
-    List<DownloadTask> Finished);
-
 public sealed record TaskSubmissionResult(string TaskId);
 
 internal sealed record QueuedDownloadTask(ServeRequestOptions Request, DownloadTask Task);
-
-record struct MyOptionBindingResult<T>(T? Result, Exception? Exception)
-{
-    public bool IsValid => Exception is null;
-
-    public static async ValueTask<MyOptionBindingResult<T>> BindAsync(HttpContext httpContext)
-    {
-        try
-        {
-            JsonTypeInfo? jsonTypeInfo = SourceGenerationContext.Default.GetTypeInfo(typeof(T));
-            if (jsonTypeInfo is null)
-            {
-                return new(default, new InvalidOperationException($"Cannot find TypeInfo for type {typeof(T)}"));
-            }
-            var item = await httpContext.Request.ReadFromJsonAsync(jsonTypeInfo);
-
-            if (item is null) return new(default, new NoNullAllowedException());
-
-            return new((T)item, null);
-        }
-        catch (Exception ex)
-        {
-            return new(default, ex);
-        }
-    }
-}
-
-[JsonSerializable(typeof(ProblemDetails))]
-[JsonSerializable(typeof(ValidationProblemDetails))]
-[JsonSerializable(typeof(HttpValidationProblemDetails))]
-[JsonSerializable(typeof(DownloadTask))]
-[JsonSerializable(typeof(List<DownloadTask>))]
-[JsonSerializable(typeof(DownloadTaskCollection))]
-[JsonSerializable(typeof(TaskSubmissionResult))]
-public partial class AppJsonSerializerContext : JsonSerializerContext
-{
-
-}
-
-[JsonSerializable(typeof(MyOption))]
-[JsonSerializable(typeof(ServeRequestOptions))]
-internal partial class SourceGenerationContext : JsonSerializerContext
-{
-
-}

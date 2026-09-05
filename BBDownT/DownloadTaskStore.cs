@@ -106,14 +106,14 @@ internal sealed class DownloadTaskStore
         }
     }
 
-    public DownloadTask? FindSnapshot(string aid)
+    public DownloadTask? FindSnapshot(string id)
     {
         lock (stateLock)
         {
             PruneExpiredFinishedTasks();
-            return (pendingTasks.FirstOrDefault(task => Matches(task, aid))
-                ?? runningTasks.FirstOrDefault(task => Matches(task, aid))
-                ?? finishedTasks.FirstOrDefault(task => Matches(task, aid)))?.CreateSnapshot();
+            return (pendingTasks.FirstOrDefault(task => task.MatchesId(id))
+                ?? runningTasks.FirstOrDefault(task => task.MatchesId(id))
+                ?? finishedTasks.FirstOrDefault(task => task.MatchesId(id)))?.CreateSnapshot();
         }
     }
 
@@ -123,11 +123,6 @@ internal sealed class DownloadTaskStore
         {
             finishedTasks.RemoveAll(predicate);
         }
-    }
-
-    private static bool Matches(DownloadTask task, string id)
-    {
-        return task.MatchesId(id);
     }
 
     private void PruneExpiredFinishedTasks()

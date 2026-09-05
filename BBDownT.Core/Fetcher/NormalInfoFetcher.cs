@@ -61,11 +61,13 @@ public partial class NormalInfoFetcher : IFetcher
 
             if (interactionNode is { InnerText.Length: > 0 })
             {
-                var graphVersion = JsonDocument.Parse(interactionNode.InnerText).RootElement
+                using var interactionJson = JsonDocument.Parse(interactionNode.InnerText);
+                var graphVersion = interactionJson.RootElement
                     .GetProperty("graph_version").GetInt64();
                 var edgeInfoApi = $"https://api.bilibili.com/x/stein/edgeinfo_v2?graph_version={graphVersion}&bvid={bvid}";
                 var edgeInfoJson = await GetWebSourceAsync(edgeInfoApi);
-                var edgeInfoData = JsonDocument.Parse(edgeInfoJson).RootElement.GetProperty("data");
+                using var edgeDocument = JsonDocument.Parse(edgeInfoJson);
+                var edgeInfoData = edgeDocument.RootElement.GetProperty("data");
                 var questions = edgeInfoData.GetProperty("edges").GetProperty("questions").EnumerateArray()
                     .ToList();
                 var index = 2; // 互动视频分P索引从2开始

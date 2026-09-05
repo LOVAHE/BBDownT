@@ -187,8 +187,7 @@ internal static class BBDownTDownloadUtil
         if (!string.IsNullOrEmpty(desDir) && !Directory.Exists(desDir)) Directory.CreateDirectory(desDir);
         if (config.UseAria2c)
         {
-            var exitCode = await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
-            EnsureAria2cDownloadSucceeded(exitCode, path);
+            await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
             Console.WriteLine();
             return;
         }
@@ -214,8 +213,7 @@ internal static class BBDownTDownloadUtil
         LogDebug("Start downloading: {0}", url);
         if (config.UseAria2c)
         {
-            var exitCode = await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, config.Aria2cArgs);
-            EnsureAria2cDownloadSucceeded(exitCode, path);
+            await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
             DeleteStaleClipFiles(path);
             Console.WriteLine();
             return false;
@@ -244,7 +242,7 @@ internal static class BBDownTDownloadUtil
             DeleteStaleClipFiles(path);
             return false;
         }
-        List<Clip> allClips = GetAllClips(url, fileSize);
+        List<Clip> allClips = GetAllClips(fileSize);
         int total = allClips.Count;
         LogDebug("分段数量：{0}", total);
         ConcurrentDictionary<int, long> clipProgress = new();
@@ -277,6 +275,12 @@ internal static class BBDownTDownloadUtil
             }
         });
         return true;
+    }
+
+    private static async Task DownloadWithAria2cAsync(string url, string path, string extraArgs)
+    {
+        var exitCode = await BBDownTAria2c.DownloadFileByAria2cAsync(url, path, extraArgs);
+        EnsureAria2cDownloadSucceeded(exitCode, path);
     }
 
     internal static void EnsureAria2cDownloadSucceeded(int exitCode, string path)
@@ -323,7 +327,7 @@ internal static class BBDownTDownloadUtil
     }
 
     //此函数主要是切片下载逻辑
-    internal static List<Clip> GetAllClips(string url, long fileSize)
+    internal static List<Clip> GetAllClips(long fileSize)
     {
         List<Clip> clips = [];
         int index = 0;

@@ -61,7 +61,7 @@ static partial class BBDownTMuxer
             : arg;
     }
 
-    private static int MuxByMp4box(string url, string videoPath, string audioPath, string outPath, string desc, string title, string author, string episodeId, string pic, string lang, List<Subtitle>? subs, bool audioOnly, bool videoOnly, List<ViewPoint>? points)
+    private static int MuxByMp4box(string videoPath, string audioPath, string outPath, string desc, string title, string author, string episodeId, string pic, string lang, List<Subtitle>? subs, bool audioOnly, bool videoOnly, List<ViewPoint>? points)
     {
         List<string> args = [];
         List<string> metaTags = [];
@@ -97,7 +97,7 @@ static partial class BBDownTMuxer
             metaTags.Add($"title={title}");
         }
         metaTags.Add($"sdesc={desc}");
-        metaTags.Add($"comment={url}");
+        metaTags.Add($"comment={desc}");
         metaTags.Add($"artist={author}");
 
         if (subs != null)
@@ -129,11 +129,9 @@ static partial class BBDownTMuxer
             videoPath = "";
         if (videoOnly)
             audioPath = "";
-        var url = $"https://www.bilibili.com/video/{bvid}/";
-
         if (useMp4box)
         {
-            return MuxByMp4box(url, videoPath, audioPath, outPath, desc, title, author, episodeId, pic, lang, subs, audioOnly, videoOnly, points);
+            return MuxByMp4box(videoPath, audioPath, outPath, desc, title, author, episodeId, pic, lang, subs, audioOnly, videoOnly, points);
         }
 
         if (outPath.Contains('/') && ! Directory.Exists(Path.GetDirectoryName(outPath)))
@@ -203,11 +201,12 @@ static partial class BBDownTMuxer
         List<string> args = ["-loglevel", Config.DEBUG_LOG ? "verbose" : "warning", "-y"];
         args.AddRange(inputArgs);
         args.AddRange(metaArgs);
+        args.AddRange(["-map_metadata", "-1"]);
         if (!simplyMux) {
             args.AddRange(["-metadata", $"title={(episodeId == "" ? title : episodeId)}"]);
-            args.AddRange(["-metadata", $"comment={url}"]);
+            args.AddRange(["-metadata", $"comment={desc}"]);
             if (lang != "") args.AddRange(["-metadata:s:a:0", $"language={lang}"]);
-            if (!string.IsNullOrWhiteSpace(desc)) args.AddRange(["-metadata", $"description={desc}"]);
+            args.AddRange(["-metadata", $"description={desc}"]);
             if (!string.IsNullOrEmpty(author)) args.AddRange(["-metadata", $"artist={author}"]);
             if (episodeId != "") args.AddRange(["-metadata", $"album={title}"]);
             if (pubTime != 0) args.AddRange(["-metadata", $"creation_time={DateTimeOffset.FromUnixTimeSeconds(pubTime).ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")}"]);

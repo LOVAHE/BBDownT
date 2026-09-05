@@ -107,6 +107,23 @@ POST /add-task
 列表不是新增的JSON返回字段；服务器任务使用语言/策略参数选择字幕，不需要交互输入。
 下载任务传入 `Interactive: true` 时返回 `400`，避免队列等待控制台输入；信息模式不会交互。
 
+空间投稿批量下载请求示例：
+
+```json
+{
+  "Url": "https://space.bilibili.com/123456",
+  "DownloadAll": true,
+  "DelayPerVideo": 15
+}
+```
+
+`DownloadAll` 默认为 `false`，此时只导出 TXT 并成功完成任务；`DelayPerVideo` 默认为 `10` 秒，
+允许范围为 `0` 到 `2147483`，超过范围返回 `400`。`DownloadAll` 仅接受 UP 主空间投稿链接。
+清单写入后才开始逐条处理，`OnlyShowInfo: true` 时只导出。整个批次占一个任务，保留 UP 主标题
+和空间 AID；`SavePaths` 包含 TXT 与已产生的媒体/附属文件路径。任一视频失败时仍处理后续视频，
+最后将整体 `IsSuccessful` 设为 `false`；已完成文件保留，回调在整个批次结束后发送一次。
+批量处理仍在现有串行队列中执行，进度/速度沿用当前媒体的显示，视频序号和失败详情输出到日志。
+
 ### 移除已完成的任务
 
 ```http
@@ -167,7 +184,7 @@ DELETE /remove-finished/{id}
 
 **属性：**
 - `TaskId` `<string>`: 提交任务时立即生成的稳定唯一标识；AID尚未解析或解析失败时也可用。
-- `Aid` `<string>`: 视频解析出的Aid，用作正在下载中的任务的唯一标识符，已完成任务中允许重复存在
+- `Aid` `<string>`: 解析出的输入标识，普通视频为AID，空间投稿任务为`mid:UID`；区分任务请使用`TaskId`。
 - `Url` `<string>`: 下载任务请求时的URL，不一定需要完整的URL，命令行支持的`av|bv|BV|ep|ss`都可以在这里使用。
 - `TaskCreateTime` `<long>`: 任务创建时间，Unix时间戳，精确到秒，本机时区。
 - `Title` `<string?>`: 视频的标题。
@@ -179,6 +196,7 @@ DELETE /remove-finished/{id}
 - `TotalDownloadedBytes` `<double>`: 总下载字节(Byte)数，完成后的数字比实际文件偏小。
 - `IsSuccessful` `<bool>`: 标识任务是否成功完成。
 - `Error` `<string?>`: 失败原因；敏感值会被遮盖，成功或尚未失败时为null。
+- `SavePaths` `<List<string>>`: 已记录的输出文件路径，包括空间投稿导出的TXT清单及下载产生的媒体或附属文件。
 
 ### `DownloadTaskCollection` 数据结构
 `DownloadTaskCollection` 数据结构包含等待、正在运行和已完成三个列表。
@@ -192,6 +210,15 @@ DELETE /remove-finished/{id}
 
 参考[BBDownT/Model/ServeRequestOptions.cs](./BBDownT/Model/ServeRequestOptions.cs)和[BBDownT/MyOption.cs](./BBDownT/MyOption.cs)。属性和命令行参数基本对应，相应的值填写命令行会使用的值即可。这个结构会随着版本变化，请参考对应版本的文件。
 
+空间投稿批量下载相关字段：
+
+| 字段 | 类型 | 默认值 | 对应命令行参数与作用 |
+| --- | --- | --- | --- |
+| `DownloadAll` | `bool` | `false` | `--download-all`：空间TXT导出完成后按清单串行下载 |
+| `DelayPerVideo` | `int` | `10` | `--delay-per-video`：视频任务间隔秒数，允许0到2147483 |
+
+`DelayPerVideo` 与现有的分P间隔 `DelayPerPage` 分别生效；首项之前、末项之后不等待。
+
 ## 注意事项
 
 - 由于BBDownT的下载进度回报频率所限，`TotalDownloadedBytes`会比实际下载的文件略低，大概会少等效于1秒下载速度的文件体积，如果文件本身就非常小那这个数字偏差会较大。
@@ -200,6 +227,14 @@ DELETE /remove-finished/{id}
 - callback 默认超时为10秒，失败不改变下载任务本身的成功状态，也不会阻塞后续下载任务。
 
 ## 使用例
+
+#### 按空间清单批量下载
+
+```shell
+curl -X POST -H 'Content-Type: application/json' -d '{ "Url": "https://space.bilibili.com/123456", "DownloadAll": true, "DelayPerVideo": 15 }' http://localhost:23333/add-task
+```
+
+省略 `DownloadAll` 或设为 `false` 时只导出TXT。需要鉴权的服务仍须携带API Token。
 
 #### 用BV号添加任务
 
