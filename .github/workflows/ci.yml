@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOTNET_SDK_VERSION: "9.0.306"
+  DOTNET_SDK_VERSION: "9.0.317"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:

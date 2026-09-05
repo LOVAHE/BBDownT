@@ -34,7 +34,7 @@ jobs:
       - name: Set up dotnet
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "9.0.306"
+          dotnet-version: "9.0.317"
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
