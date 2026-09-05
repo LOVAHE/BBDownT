@@ -422,13 +422,12 @@ API详细请参考[json-api-doc.md](./json-api-doc.md)
 # 致谢
 
 * https://github.com/nilaoda/BBDown
-* https://github.com/codebude/QRCoder
+* https://github.com/Shane32/QRCoder
 * https://github.com/icsharpcode/SharpZipLib
 * https://github.com/protocolbuffers/protobuf
 * https://github.com/grpc/grpc
 * https://github.com/dotnet/command-line-api
 * https://github.com/SocialSisterYi/bilibili-API-collect
-* https://github.com/SeeFlowerX/bilibili-grpc-api
 * https://github.com/FFmpeg/FFmpeg
 * https://github.com/gpac/gpac
 * https://github.com/aria2/aria2
