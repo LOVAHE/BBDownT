@@ -13,5 +13,5 @@ internal static class BilibiliAppProtocol
         "https://app.bilibili.com/bilibili.pgc.gateway.player.v2.PlayURL/PlayView";
 
     public const string GrpcAuthority = "grpc.biliapi.net";
-    public const long MaximumQuality = 127;
+    public const long MaximumQuality = 129;
 }

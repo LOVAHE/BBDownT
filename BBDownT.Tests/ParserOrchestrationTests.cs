@@ -4,6 +4,33 @@ namespace BBDownT.Tests;
 
 public class ParserOrchestrationTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task HdrVivid_MapsReturnedTrackAndRequestsNewMaximum(bool tvApi, bool appApi)
+    {
+        var requestedQns = new List<string>();
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "BV", "2", "3", "", tvApi, false, appApi, "0",
+            qn =>
+            {
+                requestedQns.Add(qn);
+                return Task.FromResult(DashFixture(
+                    "https://cdn.test/hdr-vivid.m4s",
+                    "https://cdn.test/audio.m4s",
+                    quality: 129));
+            },
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
+
+        Assert.Equal(appApi ? new[] { "0" } : new[] { "0", "129" }, requestedQns);
+        var video = Assert.Single(result.VideoTracks);
+        Assert.Equal("129", video.id);
+        Assert.Equal("HDR Vivid", video.dfn);
+        Assert.Equal("https://cdn.test/hdr-vivid.m4s", video.baseUrl);
+        Assert.Single(result.AudioTracks);
+    }
+
     [Fact]
     public async Task Intl_RequestsDefaultThenCodeOneAndAccumulatesTracks()
     {
@@ -158,7 +185,7 @@ public class ParserOrchestrationTests
             """;
     }
 
-    private static string DashFixture(string videoUrl, string audioUrl, bool includeClip = false)
+    private static string DashFixture(string videoUrl, string audioUrl, bool includeClip = false, int quality = 64)
     {
         var clip = includeClip
             ? ",\"clip_info_list\":[{\"toastText\":\"即将跳过片头\",\"start\":1,\"end\":2}]"
@@ -169,7 +196,7 @@ public class ParserOrchestrationTests
                 "dash": {
                   "duration": 3,
                   "video": [{
-                    "id": 64,
+                    "id": {{quality}},
                     "base_url": "{{videoUrl}}",
                     "backup_url": [],
                     "bandwidth": 1000000,

@@ -137,8 +137,7 @@ Commands:
 - [x] 番剧下载(Web|TV|App)
 - [x] 课程下载(Web)
 - [x] 普通内容下载(Web|TV|App)
-- [x] 合集/列表/收藏夹/个人空间解析
-- [x] UP主投稿视频批量下载
+- [x] 合集/列表/收藏夹/个人空间解析与下载
 - [x] 多分P自动下载
 - [x] 选择指定分P进行下载
 - [x] 选择指定清晰度进行下载
@@ -377,7 +376,7 @@ BBDownT --sub-only -ia --skip-ai false "https://www.bilibili.com/video/BV1qt4y1X
 </details>
 
 <details>
-<summary>下载UP主的全部投稿</summary>
+<summary>下载个人空间全部投稿</summary>
 
 ---
 

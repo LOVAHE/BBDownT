@@ -1,3 +1,4 @@
+using BBDownT.Core;
 using BBDownT.Core.Entity;
 using System.CommandLine;
 using static BBDownT.Core.Entity.Entity;
@@ -158,6 +159,54 @@ public class OptionBehaviorTests
 
         Assert.Equal("HEVC", encodingFirst[0].codecs);
         Assert.Equal("1080P", qualityFirst[0].dfn);
+    }
+
+    [Theory]
+    [InlineData(null, "129")]
+    [InlineData("HDR Vivid", "129")]
+    [InlineData("8K 超高清", "127")]
+    public void VideoSorting_HdrVividSupportsDefaultAndExplicitQualityPriority(string? preferredQuality, string expectedId)
+    {
+        var videos = new List<Video>
+        {
+            CreateVideo("127", Config.qualitys["127"], "HEVC"),
+            CreateVideo("129", Config.qualitys["129"], "HEVC"),
+            CreateVideo("125", Config.qualitys["125"], "HEVC")
+        };
+        var qualityPriority = new Dictionary<string, int>();
+        if (preferredQuality != null) qualityPriority[preferredQuality] = 0;
+
+        var sorted = Program.SortTracks(videos, qualityPriority, new(), false, false);
+
+        Assert.Equal(expectedId, sorted[0].id);
+    }
+
+    [Fact]
+    public async Task CommandLine_HdrVividPriorityIsAppliedBeforeFallbackQuality()
+    {
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(0, await command.InvokeAsync([
+            "BV1xx411c7mD", "-q", "HDR Vivid,8K 超高清", "-info"]));
+        Assert.NotNull(captured);
+
+        var setup = Program.SetUpWork(captured);
+        var videos = new List<Video>
+        {
+            CreateVideo("127", Config.qualitys["127"], "HEVC"),
+            CreateVideo("129", Config.qualitys["129"], "HEVC")
+        };
+        var sorted = Program.SortTracks(videos, setup.dfnPriority, setup.encodingPriority,
+            captured.VideoAscending, captured.EncodingPriorityFirst);
+
+        Assert.Equal("129", sorted[0].id);
+        Assert.Equal(0, setup.dfnPriority["HDR Vivid"]);
+        Assert.Equal(1, setup.dfnPriority["8K 超高清"]);
     }
 
     [Fact]

@@ -16,8 +16,8 @@ public class BilibiliAppProtocolTests
 
         var request = PlayViewReq.Parser.ParseFrom(AppHelper.ReadMessage(framed));
 
-        Assert.Equal(127, BilibiliAppProtocol.MaximumQuality);
-        Assert.Equal(127, request.Qn);
+        Assert.Equal(129, BilibiliAppProtocol.MaximumQuality);
+        Assert.Equal(129, request.Qn);
     }
 
     [Fact]

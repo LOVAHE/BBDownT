@@ -119,7 +119,7 @@ internal partial class Program
     /// <returns></returns>
     private static Dictionary<string, int> ParseDfnPriority(MyOption myOption)
     {
-        var dfnPriority = new Dictionary<string, int>();
+        var dfnPriority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (myOption.DfnPriority != null)
         {
             var dfnPriorityTemp = myOption.DfnPriority.Replace("，", ",").Split(',').Select(s => s.ToUpper().Trim()).Where(s => !string.IsNullOrEmpty(s));
