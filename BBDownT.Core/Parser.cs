@@ -51,8 +51,9 @@ public static partial class Parser
         return documentRoot;
     }
 
-    private static async Task<string> GetPlayJsonAsync(string encoding, string aidOri, string aid, string cid, string epId, bool tvApi, bool intl, bool appApi, string qn = "0")
+    internal static async Task<string> GetPlayJsonAsync(string encoding, string aidOri, string aid, string cid, string epId, bool tvApi, bool intl, bool appApi, string qn = "0", string? audioLanguage = null, Func<string, Task<string>>? fetchWeb = null)
     {
+        ValidateAudioLanguageMode(audioLanguage, tvApi, intl, appApi);
         LogDebug("aid={0},cid={1},epId={2},tvApi={3},IntlApi={4},appApi={5},qn={6}", aid, cid, epId, tvApi, intl, appApi, qn);
 
         if (intl) return await GetPlayJsonAsync(aid, cid, epId, qn);
@@ -88,6 +89,7 @@ public static partial class Parser
             apiBuilder.Append($"&otype=json&qn={qn}");
             if (bangumi) apiBuilder.Append($"&module=bangumi&ep_id={epId}&session=");
             if (Config.COOKIE == "") apiBuilder.Append("&try_look=1");
+            if (!string.IsNullOrEmpty(audioLanguage)) apiBuilder.Append($"&cur_language={Uri.EscapeDataString(audioLanguage)}");
             apiBuilder.Append($"&wts={GetTimeStamp(true)}");
             api = prefix + (bangumi ? apiBuilder.ToString() : WbiSign(apiBuilder.ToString()));
         }
@@ -96,13 +98,14 @@ public static partial class Parser
         if (cheese) api = api.Replace("/pgc/", "/pugv/");
 
         //Console.WriteLine(api);
-        string webJson = await GetWebSourceAsync(api);
+        var fetch = fetchWeb ?? (url => GetWebSourceAsync(url));
+        string webJson = await fetch(api);
         //以下情况从网页源代码尝试解析
         if (webJson.Contains("\"大会员专享限制\""))
         {
             Log("此视频需要大会员，您大概率需要登录一个有大会员的账号才可以下载，尝试从网页源码解析");
             string webUrl = "https://www.bilibili.com/bangumi/play/ep" + epId;
-            string webSource = await GetWebSourceAsync(webUrl);
+            string webSource = await fetch(webUrl);
             webJson = PlayerJsonRegex().Match(webSource).Groups[1].Value;
         }
         return webJson;
@@ -129,7 +132,11 @@ public static partial class Parser
     }
 
     public static Task<ParsedResult> ExtractTracksAsync(string aidOri, string aid, string cid, string epId, bool tvApi, bool intlApi, bool appApi, string encoding, string qn = "0")
+        => ExtractTracksAsync(aidOri, aid, cid, epId, tvApi, intlApi, appApi, encoding, qn, null);
+
+    public static Task<ParsedResult> ExtractTracksAsync(string aidOri, string aid, string cid, string epId, bool tvApi, bool intlApi, bool appApi, string encoding, string qn, string? audioLanguage)
     {
+        ValidateAudioLanguageMode(audioLanguage, tvApi, intlApi, appApi);
         return ExtractTracksWithFetcherAsync(
             aidOri,
             aid,
@@ -148,8 +155,16 @@ public static partial class Parser
                 tvApi,
                 intlApi,
                 appApi,
-                requestedQn),
-            (requestedQn, code) => GetPlayJsonAsync(aid, cid, epId, requestedQn, code));
+                requestedQn,
+                audioLanguage),
+            (requestedQn, code) => GetPlayJsonAsync(aid, cid, epId, requestedQn, code),
+            audioLanguage);
+    }
+
+    private static void ValidateAudioLanguageMode(string? language, bool tvApi, bool intlApi, bool appApi)
+    {
+        if (!string.IsNullOrEmpty(language) && (tvApi || intlApi || appApi))
+            throw new ArgumentException("配音语言选择目前仅支持默认 WEB 解析模式");
     }
 
     internal static async Task<ParsedResult> ExtractTracksWithFetcherAsync(
@@ -162,7 +177,8 @@ public static partial class Parser
         bool appApi,
         string qn,
         Func<string, Task<string>> fetchPrimary,
-        Func<string, string, Task<string>> fetchIntlVariant)
+        Func<string, string, Task<string>> fetchIntlVariant,
+        string? requestedAudioLanguage = null)
     {
         ParsedResult parsedResult = new();
 
@@ -193,6 +209,7 @@ public static partial class Parser
             }
         }
         var root = SelectResponseRoot(data);
+        AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
 
         bool bangumi = aidOri.StartsWith("ep:");
 
@@ -216,6 +233,7 @@ public static partial class Parser
                 parsedResult.WebJsonString = await fetchPrimary(GetMaxQn());
                 data = ParseJsonRoot(parsedResult.WebJsonString);
                 root = SelectResponseRoot(data);
+                AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
                 PlayResponseMapper.MapDashVideos(
                     root,
                     parsedResult,
@@ -248,6 +266,7 @@ public static partial class Parser
             parsedResult.WebJsonString = await fetchPrimary(GetMaxQn());
             data = ParseJsonRoot(parsedResult.WebJsonString);
             root = SelectResponseRoot(data);
+            AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
             PlayResponseMapper.MapDurl(root, parsedResult);
         }
 

@@ -90,6 +90,26 @@ POST /add-task
 - 默认不允许自定义`WorkDir`，也不允许绝对路径或包含`..`的输出路径；如需使用请启动时配置`--server-allow-custom-output`。
 - 默认不允许自定义`Host`、`EpHost`、`TvHost`、`UposHost`或开启`AllowPcdn`；如需使用请启动时配置`--server-allow-custom-network-hosts`。
 
+配音语言可通过可选字符串 `AudioLanguage` 指定，完整匹配 `-info` 列出的代码，不区分大小写。
+例如下面请求选择平台提供的 `en-US` 配音版本，并仅下载音频：
+
+```json
+{
+  "Url": "BVxxxx",
+  "AudioLanguage": "en-US",
+  "AudioOnly": true
+}
+```
+
+`en-US` 仅为示例，需视频实际提供对应版本。此选项只支持默认 WEB/DASH 模式；
+无效代码格式、与 TV/APP/INTL 或仅字幕/封面/弹幕模式冲突会在入队前返回 `400`。
+视频未提供该语言、返回版本不符或仅有分段合并流时，已入队任务会记录失败。
+显式选择的输出文件加入 `.audio-en-us` 等语言后缀；若同时设置 `SaveArchivesToFile`，
+此次不读写仅按 aid 的归档；常规混流模式使用带后缀的输出文件检查是否已下载，
+`SkipMux: true` 仍走已有原始流下载流程。
+不设置 `AudioLanguage` 时保持默认取流行为。`Language` 仍仅用于写封装的语言标签，字幕另行选择。
+`OnlyShowInfo: true` 会在服务器控制台列出配音语言，不新增任务 JSON 的语言列表字段。
+
 字幕选择沿用 `SubOnly`、`SkipAi`、`OnlyShowInfo`，新增可选字符串 `SubtitleLanguage` 和
 `AiSubtitlePolicy`，语义与同名命令行参数一致。显式策略优先于 `SkipAi`；未指定策略时，
 `SkipAi` 默认 `true`。无效语言格式或策略返回 `400`。

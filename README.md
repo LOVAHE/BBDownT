@@ -102,6 +102,7 @@ Options:
                                                  默认为: <videoTitle>/[P<pageNumberWithZero>]<pageTitle>
   -p, --select-page <select-page>                选择指定分p或分p范围: (-p 8 或 -p 1,2 或 -p 3-5 或 -p ALL 或 -p LAST 或 -p 3,5,LATEST)
   --language <language>                          设置混流的音频语言(代码), 如chi, jpn等
+  --audio-language <code>                        选择 -info 列出的配音语言代码；WEB/DASH，输出文件附加语言后缀
   -ua, --user-agent <user-agent>                 指定user-agent, 否则使用随机user-agent
   -c, --cookie <cookie>                          设置字符串cookie用以下载网页接口的会员内容
   -token, --access-token <access-token>          设置access_token用以下载TV/APP接口的会员内容
@@ -148,7 +149,7 @@ Commands:
 - [x] 多线程下载
 - [x] 支持调用aria2c下载
 - [x] 支持AVC/HEVC/AV1编码
-- [x] **支持8K/HDR/杜比视界/杜比全景声下载**
+- [x] **支持8K/HDR/HDR Vivid/杜比视界/杜比全景声下载**
 - [x] 自定义存储文件名
 - [x] 自动刷新cookie
 
@@ -336,6 +337,33 @@ BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 </details>
 
 <details>
+<summary>配音语言选择</summary>
+
+查看视频当前及可选的配音语言。配音列表位于音视频流列表之后，默认版本标记为 `[默认]` 并在终端中以绿色显示；AI 版本标记为 `[AI]`，显式选择其他版本时另标记 `[当前]`：
+
+```bash
+BBDownT -info "BVxxxx"
+```
+
+如果列表中包含 `en-US`，可以选择这个版本，或仅保存它的音频：
+
+```bash
+BBDownT --audio-language en-US "BVxxxx"
+BBDownT --audio-language en-US --audio-only "BVxxxx"
+```
+
+- 语言代码以该视频的 `-info` 列表为准，上面的 `en-US` 只是示例。一次选择一个代码，不区分大小写，但必须完整匹配；`en` 不会自动匹配 `en-US`。
+- 不指定时沿用接口默认版本；需要原声时，选择列表中对应原声的代码。此功能使用平台已有配音，不生成翻译或配音。
+- 目前仅支持默认 WEB 模式下的 DASH 音视频流，不能与 `-tv`、`-app`、`-intl`、`--sub-only`、`--cover-only`、`--danmaku-only` 一起使用。
+- 找不到语言或接口未确认返回该版本时直接报错，不会静默改回默认版本。选择后重新获取整套音视频地址，视频画面也可能随平台翻译版本变化。
+- 显式选择会在最终输出及主音视频临时文件名中加入后缀，如 `视频.audio-en-us.mp4` 或 `视频.audio-en-us.m4a`，防止和其他配音版本混淆。
+- 配合 `--save-archives-to-file` 时，不读取或写入原来仅按 aid 记录的归档；常规混流模式由带语言后缀的输出文件判断是否已下载，`--skip-mux` 仍走已有原始流下载流程。原有归档文件格式不变。
+- `--language` 仍只设置封装文件的音轨语言标签，例如 `--language eng`。字幕仍由 `--subtitle-language` 和 AI 字幕策略选择，不会因切换配音自动改选。
+- 参数也可写入配置文件。`-ia` 仍选择音视频规格，配音语言通过 `--audio-language` 指定。
+
+</details>
+
+<details>
 <summary>字幕选择</summary>
 
 ---
@@ -434,12 +462,12 @@ API详细请参考[json-api-doc.md](./json-api-doc.md)
 # 致谢
 
 * https://github.com/nilaoda/BBDown
+* https://github.com/bggRGjQaUbCoE/PiliPlus
 * https://github.com/Shane32/QRCoder
 * https://github.com/icsharpcode/SharpZipLib
 * https://github.com/protocolbuffers/protobuf
 * https://github.com/grpc/grpc
 * https://github.com/dotnet/command-line-api
-* https://github.com/SocialSisterYi/bilibili-API-collect
 * https://github.com/FFmpeg/FFmpeg
 * https://github.com/gpac/gpac
 * https://github.com/aria2/aria2

@@ -212,6 +212,8 @@ public class BBDownTApiServer
         if (batchValidation is not null) return batchValidation;
         var subtitleValidation = SubtitleSelection.ValidateOptions(req);
         if (subtitleValidation is not null) return subtitleValidation;
+        var audioValidation = AudioLanguageSelection.ValidateOptions(req);
+        if (audioValidation is not null) return audioValidation;
         if (req.Interactive && !req.OnlyShowInfo)
             return "服务器任务不支持交互选择，请使用语言、AI策略及音视频筛选参数。";
 
