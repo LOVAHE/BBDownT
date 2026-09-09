@@ -43,6 +43,7 @@ internal static class CommandLineInvoker
 
     static CommandLineInvoker()
     {
+        AudioLanguage.AddValidator(result => result.ErrorMessage = AudioLanguageSelection.ValidateCode(result.GetValueOrDefault<string>()));
         SubtitleLanguage.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidateLanguage(result.GetValueOrDefault<string>()));
         AiSubtitlePolicy.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidatePolicy(result.GetValueOrDefault<string>()));
     }
@@ -50,6 +51,7 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> AudioAscending = new(["--audio-ascending"], "音频升序(最小体积优先)");
     private static readonly Option<bool> AllowPcdn = new(["--allow-pcdn"], "不替换PCDN域名, 仅在正常情况与--upos-host均无法下载时使用");
     private static readonly Option<string> Language = new(["--language"], "设置混流的音频语言(代码), 如chi, jpn等");
+    private static readonly Option<string> AudioLanguage = new(["--audio-language"], "选择配音语言，精确匹配 -info 列出的代码；仅默认WEB/DASH模式，输出文件附加语言后缀");
     private static readonly Option<string> UserAgent = new(["--user-agent", "-ua"], "指定user-agent, 否则使用随机user-agent");
     private static readonly Option<string> Cookie = new(["--cookie", "-c"], "设置字符串cookie用以下载网页接口的会员内容");
     private static readonly Option<string> AccessToken = new(["--access-token", "-token"], "设置access_token用以下载TV/APP接口的会员内容");
@@ -150,6 +152,7 @@ internal static class CommandLineInvoker
                 option.SelectPageSpecified = true;
             }
             if (bindingContext.ParseResult.HasOption(Language)) option.Language = bindingContext.ParseResult.GetValueForOption(Language)!;
+            if (bindingContext.ParseResult.HasOption(AudioLanguage)) option.AudioLanguage = bindingContext.ParseResult.GetValueForOption(AudioLanguage);
             if (bindingContext.ParseResult.HasOption(UserAgent)) option.UserAgent = bindingContext.ParseResult.GetValueForOption(UserAgent)!;
             if (bindingContext.ParseResult.HasOption(Cookie)) option.Cookie = bindingContext.ParseResult.GetValueForOption(Cookie)!;
             if (bindingContext.ParseResult.HasOption(AccessToken)) option.AccessToken = bindingContext.ParseResult.GetValueForOption(AccessToken)!;
@@ -220,6 +223,7 @@ internal static class CommandLineInvoker
             MultiFilePattern,
             SelectPage,
             Language,
+            AudioLanguage,
             UserAgent,
             Cookie,
             AccessToken,

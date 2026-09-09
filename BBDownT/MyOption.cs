@@ -42,6 +42,7 @@ internal class MyOption
     public string SelectPage { get; set; } = "";
     internal bool SelectPageSpecified { get; set; }
     public string Language { get; set; } = "";
+    public string? AudioLanguage { get; set; }
     public string UserAgent { get; set; } = "";
     public string Cookie { get; set; } = "";
     public string AccessToken { get; set; } = "";

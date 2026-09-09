@@ -7,6 +7,9 @@ public class ParsedResult
     public string WebJsonString { get; set; } = string.Empty;
     public List<Video> VideoTracks { get; set; } = new();
     public List<Audio> AudioTracks { get; set; } = new();
+    public List<AudioLanguageInfo> AudioLanguages { get; set; } = new();
+    public string? CurrentAudioLanguage { get; set; }
+    public string? DefaultAudioLanguage { get; set; }
     public List<Audio> BackgroundAudioTracks { get; set; } = new();
     public List<AudioMaterialInfo> RoleAudioList { get; set; } = new();
     public List<ViewPoint> ExtraPoints { get; set; } = new();

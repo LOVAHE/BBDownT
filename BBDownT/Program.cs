@@ -315,6 +315,8 @@ partial class Program
     {
         if (SubtitleSelection.ValidateOptions(myOption) is { } subtitleError)
             throw new ArgumentException(subtitleError);
+        if (AudioLanguageSelection.ValidateOptions(myOption) is { } audioError)
+            throw new ArgumentException(audioError);
 
         //处理废弃选项
         HandleDeprecatedOptions(myOption);
@@ -492,63 +494,22 @@ partial class Program
     public static async Task DownloadPagesAsync(MyOption myOption, VInfo vInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
         string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, int delay, string apiType, DownloadTask? relatedTask = null)
     {
-        List<Page> pagesInfo = vInfo.PagesInfo;
-        bool bangumi = vInfo.IsBangumi;
-        bool cheese = vInfo.IsCheese;
-        //获取已选择的分P列表
+        // Compose legacy side effects here; the runner only owns page scheduling.
         List<string>? selectedPages = GetSelectedPages(myOption, vInfo, input);
+        Log($"共计 {vInfo.PagesInfo.Count} 个分P, 已选择：" + (selectedPages == null ? "ALL" : string.Join(",", selectedPages)));
 
-        Log($"共计 {pagesInfo.Count} 个分P, 已选择：" + (selectedPages == null ? "ALL" : string.Join(",", selectedPages)));
-        var pagesCount = pagesInfo.Count;
+        var plan = PageDownloadPlan.Create(
+            vInfo, myOption, selectedPages, SinglePageDefaultSavePath, MultiPageDefaultSavePath);
+        var runner = new PageDownloadRunner(
+            CheckAidFromFile, SaveAidToFile,
+            milliseconds => Task.Delay(milliseconds), message => Log(message));
 
-        //过滤不需要的分P
-        if (selectedPages != null)
-        {
-            pagesInfo = pagesInfo.Where(p => selectedPages.Contains(p.index.ToString())).ToList();
-        }
-
-        // 根据p数选择存储路径
-        savePathFormat = string.IsNullOrEmpty(myOption.FilePattern) ? SinglePageDefaultSavePath : myOption.FilePattern;
-        // 1. 多P; 2. 只有1P, 但是是番剧, 尚未完结时 按照多P处理
-        if (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd))
-        {
-            savePathFormat = string.IsNullOrEmpty(myOption.MultiFilePattern) ? MultiPageDefaultSavePath : myOption.MultiFilePattern;
-        }
-
-        foreach (Page p in pagesInfo)
-        {
-            if (pagesInfo.Count > 1 && delay > 0)
-            {
-                Log($"停顿{delay}秒...");
-                await Task.Delay(delay * 1000);
-            }
-            Log($"开始解析P{p.index}: {p.aid}... ({pagesInfo.IndexOf(p) + 1} of {pagesInfo.Count})");
-
-            if (myOption.SaveArchivesToFile)
-            {
-                if (CheckAidFromFile(p.aid))
-                {
-
-                    Log($"aid: {p.aid}已下载过, 跳过下载...");
-                    continue;
-                }
-            }
-
-            var outcome = await DownloadPageAsync(p, myOption, vInfo, pagesInfo, encodingPriority, dfnPriority, firstEncoding,
-                downloadDanmaku, downloadDanmakuFormats, input, savePathFormat, lang, aidOri, apiType, relatedTask);
-
-            if (!outcome.IsSuccessful())
-            {
-                throw new InvalidOperationException($"P{p.index} 下载失败");
-            }
-
-            if (myOption.SaveArchivesToFile && outcome.ShouldArchive())
-            {
-                SaveAidToFile(p.aid);
-            }
-        }
-
-        Log("任务完成");
+        var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
+        if (myOption.SaveArchivesToFile && !useAidArchive)
+            Log("已选择配音版本，不读写按aid记录的归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
+        await runner.RunAsync(plan.Pages, useAidArchive, delay,
+            page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
+                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask));
     }
 
     private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
@@ -564,17 +525,24 @@ partial class Program
         long pubTime = vInfo.PubTime;
         bool selected = false; //用户是否已经手动选择过了轨道
         int retryCount = 0;
+        var requestedAudioLanguage = AudioLanguageSelection.Normalize(myOption.AudioLanguage);
+        Task<ParsedResult> FetchTracks(string? language, string quality = "0") =>
+            ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi,
+                myOption.UseAppApi, firstEncoding ?? string.Empty, quality, language);
         downloadPage:
         try
         {
+            // Resolve an explicit language before creating or downloading artifacts.
+            var languageTracks = requestedAudioLanguage is null ? null
+                : await AudioLanguageSelection.FetchAsync(requestedAudioLanguage, language => FetchTracks(language));
             if (!myOption.SubOnly)
             {
                 LogDebug("尝试获取章节信息...");
                 p.points = await FetchPointsAsync(p.cid, p.aid);
             }
 
-            string videoPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.mp4";
-            string audioPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.m4a";
+            string videoPath = AudioLanguageSelection.WithLanguageSuffix($"{p.aid}/{p.aid}.P{p.index}.{p.cid}.mp4", requestedAudioLanguage);
+            string audioPath = AudioLanguageSelection.WithLanguageSuffix($"{p.aid}/{p.aid}.P{p.index}.{p.cid}.m4a", requestedAudioLanguage);
             var coverPath = $"{p.aid}/{p.aid}.jpg";
 
             //处理文件夹以.结尾导致的异常情况
@@ -636,7 +604,7 @@ partial class Program
             }
 
             //调用解析
-            ParsedResult parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding ?? string.Empty);
+            ParsedResult parsedResult = languageTracks ?? await FetchTracks(null);
             List<AudioMaterial> audioMaterial = [];
             if (!p.points.Any())
             {
@@ -690,6 +658,13 @@ partial class Program
                     PrintAllTracksInfo(parsedResult, p.dur, myOption.OnlyShowInfo);
                 }
 
+                if (myOption.OnlyShowInfo || (!myOption.HideStreams && parsedResult.AudioLanguages.Count > 0))
+                {
+                    Console.WriteLine();
+                    AudioLanguageSelection.PrintAvailable(parsedResult, Console.Out);
+                    Console.WriteLine();
+                }
+
                 //仅展示 跳过下载
                 if (myOption.OnlyShowInfo)
                 {
@@ -712,6 +687,7 @@ partial class Program
 
                 LogDebug("Format Before: " + savePathFormat);
                 savePath = FormatSavePath(savePathFormat, title, selectedVideo, selectedAudio, p, pagesCount, apiType, pubTime);
+                savePath = AudioLanguageSelection.OutputPath(savePath, requestedAudioLanguage, myOption.AudioOnly && !myOption.VideoOnly);
                 LogDebug("Format After: " + savePath);
 
                 if (downloadDanmaku)
@@ -897,7 +873,7 @@ partial class Program
                     Console.ResetColor();
                     //重新解析
                     parsedResult.VideoTracks.Clear();
-                    parsedResult = await ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi, myOption.UseAppApi, firstEncoding ?? string.Empty, dfns[vIndex]);
+                    parsedResult = await FetchTracks(null, dfns[vIndex]);
                     if (!p.points.Any()) p.points = parsedResult.ExtraPoints;
                     flag = true;
                     selected = true;
@@ -913,6 +889,12 @@ partial class Program
                     {
                         clips.ForEach(Console.WriteLine);
                     }
+                }
+                if (myOption.OnlyShowInfo || (!myOption.HideStreams && parsedResult.AudioLanguages.Count > 0))
+                {
+                    Console.WriteLine();
+                    AudioLanguageSelection.PrintAvailable(parsedResult, Console.Out);
+                    Console.WriteLine();
                 }
                 if (myOption.OnlyShowInfo) return DownloadPageOutcome.InfoOnly;
                 savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.ElementAtOrDefault(vIndex), null, p, pagesCount, apiType, pubTime);
@@ -985,7 +967,7 @@ partial class Program
             }
             return DownloadPageOutcome.Completed;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not AudioLanguageUnavailableException)
         {
             if (++retryCount > 2) throw;
             LogError(ex.Message);
