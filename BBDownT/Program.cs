@@ -335,7 +335,7 @@ partial class Program
         var dfnPriority = ParseDfnPriority(myOption);
 
         //优先使用用户设置的UA
-        HTTPUtil.UserAgent = string.IsNullOrEmpty(myOption.UserAgent) ? HTTPUtil.UserAgent : myOption.UserAgent;
+        if (!string.IsNullOrEmpty(myOption.UserAgent)) HTTPUtil.UserAgent = myOption.UserAgent;
 
         bool downloadDanmaku = myOption.DownloadDanmaku || myOption.DanmakuOnly;
         BBDownTDanmakuFormat[] downloadDanmakuFormats = ParseDownloadDanmakuFormats(myOption);
