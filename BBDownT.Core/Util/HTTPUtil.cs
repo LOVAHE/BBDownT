@@ -21,7 +21,8 @@ public static class HTTPUtil
 
     private static readonly object UserAgentLock = new();
     private static readonly string[] AndroidDevices =
-        ["Pixel 8", "Pixel 9", "SM-S9280", "SM-S9380", "23127PN0CC", "24031PN0DC", "V2307A", "V2408A"];
+        ["Pixel 4", "Pixel 5", "Pixel 6", "Pixel 7", "Pixel 8", "Pixel 9", "SM-S9080", "SM-S9180",
+         "SM-S9280", "SM-S9380", "M2012K11AC", "2210132C", "23127PN0CC", "24031PN0DC", "V2307A", "V2408A"];
     private static readonly string[] CurlUserAgents =
         ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
     private static string userAgent = GenerateDefaultUserAgent(Random.Shared);
@@ -45,82 +46,24 @@ public static class HTTPUtil
 
     internal static string GenerateDefaultUserAgent(Random random)
     {
-        return random.Next(12) switch
-        {
-            0 => BuildChromiumUserAgent(random, edge: false),
-            1 => BuildChromiumUserAgent(random, edge: true),
-            2 => BuildFirefoxUserAgent(random),
-            3 => BuildSafariUserAgent(random),
-            4 => BuildAndroidChromeUserAgent(random),
-            5 => BuildIosSafariUserAgent(random),
-            _ => GenerateTransportUserAgent(random)
-        };
+        return GenerateTransportUserAgent(random);
     }
 
     internal static string GenerateTransportUserAgent(Random random)
     {
-        return random.Next(5) switch
+        return random.Next(3) switch
         {
             0 => $"Dart/3.{random.Next(6, 10)} (dart:io)",
-            1 => random.Next(3) switch
-            {
-                0 => "okhttp/4.12.0",
-                1 => "okhttp/5.0.0",
-                _ => "okhttp/5.1.0"
-            },
-            2 => "Go-http-client/1.1",
-            3 => CurlUserAgents[random.Next(CurlUserAgents.Length)],
+            1 => CurlUserAgents[random.Next(CurlUserAgents.Length)],
             _ => BuildDalvikUserAgent(random)
         };
     }
 
-    private static string BuildChromiumUserAgent(Random random, bool edge)
-    {
-        string platform = random.Next(3) switch
-        {
-            0 => "Windows NT 10.0; Win64; x64",
-            1 => "X11; Linux x86_64",
-            _ => "Macintosh; Intel Mac OS X 10_15_7"
-        };
-        int major = random.Next(149, 153);
-        string edgeSuffix = edge ? $" Edg/{major}.0.0.0" : "";
-        return $"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36{edgeSuffix}";
-    }
-
-    private static string BuildFirefoxUserAgent(Random random)
-    {
-        string platform = random.Next(3) switch
-        {
-            0 => "Windows NT 10.0; Win64; x64",
-            1 => "X11; Linux x86_64",
-            _ => "Macintosh; Intel Mac OS X 10.15"
-        };
-        int major = random.Next(154, 158);
-        return $"Mozilla/5.0 ({platform}; rv:{major}.0) Gecko/20100101 Firefox/{major}.0";
-    }
-
-    private static string BuildSafariUserAgent(Random random)
-    {
-        int minor = random.Next(4, 7);
-        return $"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.{minor} Safari/605.1.15";
-    }
-
-    private static string BuildAndroidChromeUserAgent(Random random)
-    {
-        int android = random.Next(12, 17);
-        int major = random.Next(149, 153);
-        return $"Mozilla/5.0 (Linux; Android {android}; {AndroidDevices[random.Next(AndroidDevices.Length)]}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Mobile Safari/537.36";
-    }
-
-    private static string BuildIosSafariUserAgent(Random random)
-    {
-        int minor = random.Next(4, 7);
-        return $"Mozilla/5.0 (iPhone; CPU iPhone OS 26_{minor} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.{minor} Mobile/15E148 Safari/604.1";
-    }
-
     private static string BuildDalvikUserAgent(Random random)
     {
-        return $"Dalvik/2.1.0 (Linux; U; Android {random.Next(12, 17)}; {AndroidDevices[random.Next(AndroidDevices.Length)]})";
+        string device = AndroidDevices[random.Next(AndroidDevices.Length)];
+        int android = random.Next(device == "SM-S9380" ? 15 : 14, 17);
+        return $"Dalvik/2.1.0 (Linux; U; Android {android}; {device})";
     }
 
     private static string? RotateAutomaticUserAgent(string failedUserAgent)

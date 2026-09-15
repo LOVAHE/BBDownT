@@ -8,7 +8,7 @@ public class HTTPUtilTests
     public void GenerateDefaultUserAgent_ProducesVariedNonProductIdentities()
     {
         var random = new Random(20260914);
-        var values = Enumerable.Range(0, 500)
+        var values = Enumerable.Range(0, 2000)
             .Select(_ => HTTPUtil.GenerateDefaultUserAgent(random))
             .ToHashSet(StringComparer.Ordinal);
 
@@ -17,14 +17,18 @@ public class HTTPUtilTests
         {
             Assert.NotEmpty(value);
             Assert.DoesNotContain("BBDownT", value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Mozilla", value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("okhttp", value, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Go-http-client", value, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain('\r', value);
             Assert.DoesNotContain('\n', value);
+            using var request = new HttpRequestMessage();
+            request.Headers.UserAgent.ParseAdd(value);
         });
-        Assert.Contains(values, value => value.StartsWith("Mozilla/", StringComparison.Ordinal));
-        Assert.Contains(values, value => !value.StartsWith("Mozilla/", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.Contains("Windows NT", StringComparison.Ordinal));
+        Assert.Contains(values, value => value.StartsWith("Dart/", StringComparison.Ordinal));
+        Assert.Contains(values, value => value.StartsWith("curl/", StringComparison.Ordinal));
+        Assert.Contains(values, value => value.StartsWith("Dalvik/", StringComparison.Ordinal));
         Assert.Contains(values, value => value.Contains("Android", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.Contains("iPhone", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -36,8 +40,6 @@ public class HTTPUtilTests
             .ToArray();
 
         Assert.Contains(values, value => value.StartsWith("Dart/", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.StartsWith("okhttp/", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.StartsWith("Go-http-client/", StringComparison.Ordinal));
         Assert.Contains(values, value => value.StartsWith("curl/", StringComparison.Ordinal));
         Assert.Contains(values, value => value.StartsWith("Dalvik/", StringComparison.Ordinal));
     }
