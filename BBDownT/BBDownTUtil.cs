@@ -27,7 +27,7 @@ static partial class BBDownTUtil
             string redirectUrl = await GetWebLocationAsync("https://github.com/LOVAHE/BBDownT/releases/latest");
             string latestVer = redirectUrl.Replace("https://github.com/LOVAHE/BBDownT/releases/tag/", "");
             latestVer = latestVer.TrimStart('v', 'V');
-            if (nowVer != latestVer && !latestVer.StartsWith("https"))
+            if (IsNewerVersion(nowVer, latestVer))
             {
                 Console.Title = $"发现新版本：{latestVer}";
                 LogColor($"发现新版本：{latestVer}");
@@ -37,6 +37,13 @@ static partial class BBDownTUtil
         {
             ;
         }
+    }
+
+    internal static bool IsNewerVersion(string currentVersion, string candidateVersion)
+    {
+        return Version.TryParse(currentVersion.TrimStart('v', 'V'), out var current)
+            && Version.TryParse(candidateVersion.TrimStart('v', 'V'), out var candidate)
+            && candidate.CompareTo(current) > 0;
     }
 
     public static async Task<string> GetAvIdAsync(string input)

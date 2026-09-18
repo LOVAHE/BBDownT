@@ -66,7 +66,7 @@ public static class HTTPUtil
         return $"Dalvik/2.1.0 (Linux; U; Android {android}; {device})";
     }
 
-    private static string? RotateAutomaticUserAgent(string failedUserAgent)
+    internal static string? RotateAutomaticUserAgent(string failedUserAgent)
     {
         lock (UserAgentLock)
         {

@@ -4,6 +4,78 @@ namespace BBDownT.Tests;
 
 public class ParserOrchestrationTests
 {
+    private const string RiskControlVoucher =
+        "{\"code\":0,\"message\":\"OK\",\"data\":{\"v_voucher\":\"voucher-test\"}}";
+
+    [Fact]
+    public async Task RiskControlVoucher_RotatesUserAgentAndRetriesPrimaryRequest()
+    {
+        var requestedQns = new List<string>();
+        var delays = new List<int>();
+        var rotations = 0;
+        var responses = new Queue<string>(
+        [
+            RiskControlVoucher,
+            DashFixture("https://cdn.test/video-first.m4s", "https://cdn.test/audio-first.m4s"),
+            DashFixture("https://cdn.test/video-final.m4s", "https://cdn.test/audio-final.m4s")
+        ]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "BV", "2", "3", "", false, false, false, "0",
+            qn =>
+            {
+                requestedQns.Add(qn);
+                return Task.FromResult(responses.Dequeue());
+            },
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"),
+            riskControlDelay: milliseconds =>
+            {
+                delays.Add(milliseconds);
+                return Task.CompletedTask;
+            },
+            rotateUserAgent: () =>
+            {
+                rotations++;
+                return true;
+            });
+
+        Assert.Equal(new[] { "0", "0", Config.qualitys.Keys.First() }, requestedQns);
+        Assert.Equal(new[] { 1000 }, delays);
+        Assert.Equal(1, rotations);
+        Assert.Equal("https://cdn.test/video-first.m4s", Assert.Single(result.VideoTracks).baseUrl);
+        Assert.Equal("https://cdn.test/audio-final.m4s", Assert.Single(result.AudioTracks).baseUrl);
+    }
+
+    [Fact]
+    public async Task RiskControlVoucher_StopsAfterBoundedRetries()
+    {
+        var requests = 0;
+        var delays = 0;
+        var rotations = 0;
+
+        var response = await Parser.FetchPlayResponseWithRiskControlRetryAsync(
+            () =>
+            {
+                requests++;
+                return Task.FromResult(RiskControlVoucher);
+            },
+            _ =>
+            {
+                delays++;
+                return Task.CompletedTask;
+            },
+            () =>
+            {
+                rotations++;
+                return true;
+            });
+
+        Assert.Equal(RiskControlVoucher, response);
+        Assert.Equal(3, requests);
+        Assert.Equal(2, delays);
+        Assert.Equal(2, rotations);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
