@@ -5,6 +5,16 @@ namespace BBDownT.Tests;
 
 public class ParserResponseShapeTests
 {
+    [Theory]
+    [InlineData("{\"data\":{\"v_voucher\":\"voucher-test\"}}", true)]
+    [InlineData("{\"data\":{\"v_voucher\":\"\"}}", false)]
+    [InlineData("{\"data\":{\"dash\":{}}}", false)]
+    [InlineData("not-json", false)]
+    public void IsRiskControlVoucherResponse_UsesJsonShape(string json, bool expected)
+    {
+        Assert.Equal(expected, Parser.IsRiskControlVoucherResponse(json));
+    }
+
     [Fact]
     public void ParseJsonRoot_ReturnsDetachedElement()
     {

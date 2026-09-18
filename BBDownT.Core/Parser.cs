@@ -13,6 +13,9 @@ namespace BBDownT.Core;
 
 public static partial class Parser
 {
+    private const int RiskControlMaxAttempts = 3;
+    private const int RiskControlRetryDelayMilliseconds = 1000;
+
     public static string WbiSign(string api)
     {
         return $"{api}&w_rid=" + string.Concat(MD5.HashData(Encoding.UTF8.GetBytes(api + Config.WBI)).Select(i => i.ToString("x2")).ToArray());
@@ -178,12 +181,24 @@ public static partial class Parser
         string qn,
         Func<string, Task<string>> fetchPrimary,
         Func<string, string, Task<string>> fetchIntlVariant,
-        string? requestedAudioLanguage = null)
+        string? requestedAudioLanguage = null,
+        Func<int, Task>? riskControlDelay = null,
+        Func<bool>? rotateUserAgent = null)
     {
         ParsedResult parsedResult = new();
+        riskControlDelay ??= Task.Delay;
+        rotateUserAgent ??= () => HTTPUtil.RotateAutomaticUserAgent(HTTPUtil.UserAgent) is not null;
+
+        Task<string> FetchPrimaryAsync(string requestedQn) =>
+            FetchPlayResponseWithRiskControlRetryAsync(
+                () => fetchPrimary(requestedQn), riskControlDelay, rotateUserAgent);
+
+        Task<string> FetchIntlVariantAsync(string requestedQn, string code) =>
+            FetchPlayResponseWithRiskControlRetryAsync(
+                () => fetchIntlVariant(requestedQn, code), riskControlDelay, rotateUserAgent);
 
         //调用解析
-        parsedResult.WebJsonString = await fetchPrimary(qn);
+        parsedResult.WebJsonString = await FetchPrimaryAsync(qn);
 
         LogDebug(parsedResult.WebJsonString);
 
@@ -197,7 +212,7 @@ public static partial class Parser
                 parsedResult,
                 url => BaseUrlRegex().IsMatch(url));
 
-            parsedResult.WebJsonString = await fetchIntlVariant(qn, "1");
+            parsedResult.WebJsonString = await FetchIntlVariantAsync(qn, "1");
             data = ParseJsonRoot(parsedResult.WebJsonString);
             if (IsIntlResponse(data))
             {
@@ -230,7 +245,7 @@ public static partial class Parser
             // 此处处理免二压视频，需要单独再请求一次。
             if (!appApi)
             {
-                parsedResult.WebJsonString = await fetchPrimary(GetMaxQn());
+                parsedResult.WebJsonString = await FetchPrimaryAsync(GetMaxQn());
                 data = ParseJsonRoot(parsedResult.WebJsonString);
                 root = SelectResponseRoot(data);
                 AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
@@ -263,7 +278,7 @@ public static partial class Parser
         else if (root.TryGetProperty("durl", out var durlNode) && durlNode.ValueKind == JsonValueKind.Array) //flv
         {
             //默认以最高清晰度解析
-            parsedResult.WebJsonString = await fetchPrimary(GetMaxQn());
+            parsedResult.WebJsonString = await FetchPrimaryAsync(GetMaxQn());
             data = ParseJsonRoot(parsedResult.WebJsonString);
             root = SelectResponseRoot(data);
             AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
@@ -277,6 +292,50 @@ public static partial class Parser
         }
 
         return parsedResult;
+    }
+
+    internal static async Task<string> FetchPlayResponseWithRiskControlRetryAsync(
+        Func<Task<string>> fetch,
+        Func<int, Task> delay,
+        Func<bool> rotateUserAgent)
+    {
+        string response = string.Empty;
+        for (int attempt = 1; attempt <= RiskControlMaxAttempts; attempt++)
+        {
+            response = await fetch();
+            if (!IsRiskControlVoucherResponse(response)) return response;
+
+            if (attempt == RiskControlMaxAttempts)
+            {
+                LogWarn($"B站播放接口持续返回风控凭证(v_voucher)，已自动请求{RiskControlMaxAttempts}次。若本次解析失败，请稍后重试，或通过 --user-agent 指定浏览器User-Agent。");
+                return response;
+            }
+
+            bool rotated = rotateUserAgent();
+            LogWarn(rotated
+                ? $"B站播放接口返回风控凭证(v_voucher)，正在更换User-Agent后重试... ({attempt}/{RiskControlMaxAttempts - 1})"
+                : $"B站播放接口返回风控凭证(v_voucher)，正在重试... ({attempt}/{RiskControlMaxAttempts - 1})");
+            await delay(RiskControlRetryDelayMilliseconds);
+        }
+
+        return response;
+    }
+
+    internal static bool IsRiskControlVoucherResponse(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty("data", out var data)
+                && data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("v_voucher", out var voucher)
+                && voucher.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(voucher.GetString());
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     internal static JsonElement ParseJsonRoot(string json)
