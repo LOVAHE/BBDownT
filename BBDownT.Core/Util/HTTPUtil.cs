@@ -27,6 +27,8 @@ public static class HTTPUtil
         ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
     private static string userAgent = GenerateDefaultUserAgent(Random.Shared);
     private static bool automaticUserAgent = true;
+    private static BrowserRequestProfile authenticatedBrowserProfile = BrowserRequestProfile.Create(Random.Shared);
+    private static Action<BrowserRequestProfile>? persistAuthenticatedBrowserProfile;
 
     public static string UserAgent
     {
@@ -41,6 +43,34 @@ public static class HTTPUtil
                 userAgent = value;
                 automaticUserAgent = false;
             }
+        }
+    }
+
+    internal static bool IsAutomaticUserAgent
+    {
+        get
+        {
+            lock (UserAgentLock) return automaticUserAgent;
+        }
+    }
+
+    internal static BrowserRequestProfile AuthenticatedBrowserProfile
+    {
+        get
+        {
+            lock (UserAgentLock) return authenticatedBrowserProfile;
+        }
+    }
+
+    internal static void ConfigureAuthenticatedBrowserProfile(
+        BrowserRequestProfile profile,
+        Action<BrowserRequestProfile>? persistProfile = null)
+    {
+        if (!profile.IsValid()) throw new ArgumentException("浏览器请求配置无效", nameof(profile));
+        lock (UserAgentLock)
+        {
+            authenticatedBrowserProfile = profile;
+            persistAuthenticatedBrowserProfile = persistProfile;
         }
     }
 
@@ -66,21 +96,24 @@ public static class HTTPUtil
         return $"Dalvik/2.1.0 (Linux; U; Android {android}; {device})";
     }
 
-    internal static string? RotateAutomaticUserAgent(string failedUserAgent)
+    internal static bool PrepareRiskControlRetry()
     {
         lock (UserAgentLock)
         {
-            if (!automaticUserAgent) return null;
-            if (userAgent != failedUserAgent) return userAgent;
-
-            string replacement;
-            do
-            {
-                replacement = GenerateTransportUserAgent(Random.Shared);
-            } while (replacement == failedUserAgent);
-            userAgent = replacement;
-            return replacement;
+            if (!automaticUserAgent || !string.IsNullOrEmpty(Config.COOKIE)) return false;
+            userAgent = GenerateDifferentTransportUserAgent(userAgent);
+            return true;
         }
+    }
+
+    private static string GenerateDifferentTransportUserAgent(string previous)
+    {
+        string replacement;
+        do
+        {
+            replacement = GenerateTransportUserAgent(Random.Shared);
+        } while (replacement == previous);
+        return replacement;
     }
 
     public static bool ShouldSendCookie(string url)
@@ -117,10 +150,24 @@ public static class HTTPUtil
         return htmlCode;
     }
 
-    private static async Task<HttpResponseMessage> SendWebRequestAsync(HttpMethod method, string url, string? requestedUserAgent, bool sendCookie)
+    internal static async Task<string> GetAuthenticatedWebSourceAsync(string url)
     {
-        string firstUserAgent = requestedUserAgent ?? UserAgent;
-        using var webRequest = CreateWebRequest(method, url, firstUserAgent, sendCookie);
+        using var webResponse = (await SendWebRequestAsync(
+            HttpMethod.Get, url, null, sendCookie: true, forceAuthenticatedProfile: true)).EnsureSuccessStatusCode();
+        string htmlCode = await webResponse.Content.ReadAsStringAsync();
+        LogDebug("Response: {0}", htmlCode);
+        return htmlCode;
+    }
+
+    private static async Task<HttpResponseMessage> SendWebRequestAsync(
+        HttpMethod method,
+        string url,
+        string? requestedUserAgent,
+        bool sendCookie,
+        bool forceAuthenticatedProfile = false)
+    {
+        var firstIdentity = ResolveRequestIdentity(url, requestedUserAgent, sendCookie, forceAuthenticatedProfile);
+        using var webRequest = CreateWebRequest(method, url, firstIdentity, sendCookie);
         LogDebug("获取网页内容: Url: {0}, Headers: {1}", url, webRequest.Headers);
         var response = await AppHttpClient.SendAsync(webRequest, HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode != HttpStatusCode.PreconditionFailed || requestedUserAgent is not null)
@@ -128,21 +175,39 @@ public static class HTTPUtil
             return response;
         }
 
-        string? retryUserAgent = RotateAutomaticUserAgent(firstUserAgent);
-        if (retryUserAgent is null) return response;
+        var retryIdentity = RotateAutomaticIdentity(firstIdentity);
+        if (retryIdentity is null) return response;
 
         response.Dispose();
-        LogDebug("服务端返回HTTP 412，自动更换User-Agent后重试");
-        using var retryRequest = CreateWebRequest(method, url, retryUserAgent, sendCookie);
+        LogDebug(firstIdentity.BrowserProfile is null
+            ? "服务端返回HTTP 412，自动更换User-Agent后重试"
+            : "服务端返回HTTP 412，自动更换完整浏览器请求配置后重试");
+        using var retryRequest = CreateWebRequest(method, url, retryIdentity.Value, sendCookie);
         LogDebug("重试获取网页内容: Url: {0}, Headers: {1}", url, retryRequest.Headers);
         return await AppHttpClient.SendAsync(retryRequest, HttpCompletionOption.ResponseHeadersRead);
     }
 
-    private static HttpRequestMessage CreateWebRequest(HttpMethod method, string url, string requestUserAgent, bool sendCookie)
+    internal static void ApplyWebRequestHeaders(
+        HttpRequestMessage request,
+        string url,
+        bool sendCookie = true,
+        bool forceAuthenticatedProfile = false)
+    {
+        var identity = ResolveRequestIdentity(url, null, sendCookie, forceAuthenticatedProfile);
+        ApplyRequestIdentity(request, identity, url);
+        if (sendCookie) TryAddCookieHeader(request, url);
+        if (request.Method == HttpMethod.Get && url.Contains("api.bilibili.com", StringComparison.OrdinalIgnoreCase))
+            request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
+    }
+
+    private static HttpRequestMessage CreateWebRequest(
+        HttpMethod method,
+        string url,
+        RequestIdentity identity,
+        bool sendCookie)
     {
         var request = new HttpRequestMessage(method, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", requestUserAgent);
-        request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+        ApplyRequestIdentity(request, identity, url);
         if (sendCookie) TryAddCookieHeader(request, url);
         if (method == HttpMethod.Get && url.Contains("api.bilibili.com"))
             request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
@@ -151,10 +216,101 @@ public static class HTTPUtil
         return request;
     }
 
+    private static RequestIdentity ResolveRequestIdentity(
+        string url,
+        string? requestedUserAgent,
+        bool sendCookie,
+        bool forceAuthenticatedProfile)
+    {
+        lock (UserAgentLock)
+        {
+            if (requestedUserAgent is not null)
+                return new RequestIdentity(requestedUserAgent, null);
+
+            bool useBrowserProfile = automaticUserAgent
+                && (forceAuthenticatedProfile || (sendCookie && ShouldSendCookie(url)));
+            return useBrowserProfile
+                ? new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile)
+                : new RequestIdentity(userAgent, null);
+        }
+    }
+
+    private static void ApplyRequestIdentity(HttpRequestMessage request, RequestIdentity identity, string url)
+    {
+        if (identity.BrowserProfile is not null)
+        {
+            identity.BrowserProfile.Apply(request);
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", IsBilibiliSameSite(url) ? "same-site" : "cross-site");
+            return;
+        }
+
+        request.Headers.TryAddWithoutValidation("User-Agent", identity.UserAgent);
+        request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+    }
+
+    private static bool IsBilibiliSameSite(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (uri.Host.Equals("bilibili.com", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith(".bilibili.com", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity)
+    {
+        BrowserRequestProfile? changedProfile = null;
+        Action<BrowserRequestProfile>? persistProfile = null;
+        RequestIdentity retryIdentity;
+
+        lock (UserAgentLock)
+        {
+            if (!automaticUserAgent) return null;
+            if (failedIdentity.BrowserProfile is not null)
+            {
+                if (authenticatedBrowserProfile != failedIdentity.BrowserProfile)
+                    return new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile);
+
+                do
+                {
+                    changedProfile = BrowserRequestProfile.Create(Random.Shared);
+                } while (changedProfile == authenticatedBrowserProfile);
+                authenticatedBrowserProfile = changedProfile;
+                persistProfile = persistAuthenticatedBrowserProfile;
+                retryIdentity = new RequestIdentity(changedProfile.UserAgent, changedProfile);
+            }
+            else
+            {
+                if (userAgent != failedIdentity.UserAgent)
+                    return new RequestIdentity(userAgent, null);
+                userAgent = GenerateDifferentTransportUserAgent(userAgent);
+                retryIdentity = new RequestIdentity(userAgent, null);
+            }
+        }
+
+        if (changedProfile is not null && persistProfile is not null)
+        {
+            try
+            {
+                persistProfile(changedProfile);
+            }
+            catch (Exception ex)
+            {
+                LogWarn($"保存浏览器请求配置失败，将仅在本次运行中使用新配置。原因：{ex.Message}");
+            }
+        }
+        return retryIdentity;
+    }
+
+    private readonly record struct RequestIdentity(
+        string UserAgent,
+        BrowserRequestProfile? BrowserProfile);
+
     // 重写重定向处理, 自动跟随多次重定向
     public static async Task<string> GetWebLocationAsync(string url)
     {
-        using var webResponse = (await SendWebRequestAsync(HttpMethod.Head, url, null, sendCookie: false)).EnsureSuccessStatusCode();
+        bool sendCookie = ShouldSendCookie(url);
+        using var webResponse = (await SendWebRequestAsync(HttpMethod.Head, url, null, sendCookie)).EnsureSuccessStatusCode();
         string location = webResponse.RequestMessage?.RequestUri?.AbsoluteUri ?? url;
         LogDebug("Location: {0}", location);
         return location;

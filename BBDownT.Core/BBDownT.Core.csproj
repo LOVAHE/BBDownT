@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="BBDownT" />
     <InternalsVisibleTo Include="BBDownT.Tests" />
   </ItemGroup>
 

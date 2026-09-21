@@ -10,6 +10,7 @@ using static BBDownT.Core.Logger;
 using System.IO;
 using BBDownT.Core;
 using System.Runtime.InteropServices;
+using AudioMaterial = BBDownT.Core.Entity.Entity.AudioMaterial;
 
 namespace BBDownT;
 

@@ -19,8 +19,7 @@ internal static class BBDownTLoginUtil
     {
         string queryUrl = $"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcodeKey}&source=main-fe-header";
         using var request = new HttpRequestMessage(HttpMethod.Get, queryUrl);
-        request.Headers.TryAddWithoutValidation("User-Agent", HTTPUtil.UserAgent);
-        request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+        HTTPUtil.ApplyWebRequestHeaders(request, queryUrl, sendCookie: false, forceAuthenticatedProfile: true);
         request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
         request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
 
@@ -36,9 +35,10 @@ internal static class BBDownTLoginUtil
     {
         try
         {
+            AuthenticatedWebProfileStore.Configure(Program.APP_DIR);
             Log("获取登录地址...");
             string loginUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header";
-            string url = JsonDocument.Parse(await HTTPUtil.GetWebSourceAsync(loginUrl)).RootElement.GetProperty("data").GetProperty("url").ToString();
+            string url = JsonDocument.Parse(await HTTPUtil.GetAuthenticatedWebSourceAsync(loginUrl)).RootElement.GetProperty("data").GetProperty("url").ToString();
             string qrcodeKey = GetQueryString("qrcode_key", url);
             //Log(oauthKey);
             //Log(url);

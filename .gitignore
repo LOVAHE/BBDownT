@@ -369,6 +369,7 @@ FodyWeavers.xsd
 
 # debug log
 debug_*.json
+BBDownT.web.json
 
 # dotnet run in `BBDownT/` sub folder
 /BBDownT/*.mp4

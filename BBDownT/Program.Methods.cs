@@ -274,6 +274,11 @@ internal partial class Program
             Config.TOKEN = Config.TOKEN.Replace("access_token=", "");
         }
 
+        if (!string.IsNullOrEmpty(Config.COOKIE))
+        {
+            AuthenticatedWebProfileStore.Configure(APP_DIR);
+        }
+
         return webCookieFilePath;
     }
 

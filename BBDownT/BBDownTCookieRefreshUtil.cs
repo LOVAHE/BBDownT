@@ -278,7 +278,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
     private static HttpRequestMessage CreateRequest(HttpMethod method, string url, string cookieHeader)
     {
         var request = new HttpRequestMessage(method, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", HTTPUtil.UserAgent);
+        HTTPUtil.ApplyWebRequestHeaders(request, url, sendCookie: false, forceAuthenticatedProfile: true);
         request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
         request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
         request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");

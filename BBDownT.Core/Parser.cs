@@ -187,7 +187,7 @@ public static partial class Parser
     {
         ParsedResult parsedResult = new();
         riskControlDelay ??= Task.Delay;
-        rotateUserAgent ??= () => HTTPUtil.RotateAutomaticUserAgent(HTTPUtil.UserAgent) is not null;
+        rotateUserAgent ??= HTTPUtil.PrepareRiskControlRetry;
 
         Task<string> FetchPrimaryAsync(string requestedQn) =>
             FetchPlayResponseWithRiskControlRetryAsync(
