@@ -65,14 +65,34 @@ partial class Program
 
     public static Task<int> Main(params string[] args)
     {
-        Console.CancelKeyPress += Console_CancelKeyPress;
-        return InvokeCommandLineAsync(args, RunApp, () => LegacyLocalFileMigration.Run(APP_DIR));
+        if (args is not ["--update"])
+        {
+            Console.CancelKeyPress += Console_CancelKeyPress;
+        }
+        return InvokeCommandLineAsync(
+            args,
+            RunApp,
+            () => LegacyLocalFileMigration.Run(APP_DIR),
+            BBDownTSelfUpdater.RunAsync);
     }
 
     internal static async Task<int> InvokeCommandLineAsync(
-        string[] args, Func<MyOption, Task> runApp, Func<int> migrate)
+        string[] args,
+        Func<MyOption, Task> runApp,
+        Func<int> migrate,
+        Func<Task<int>>? update = null)
     {
         var rootCommand = CommandLineInvoker.GetRootCommand(runApp);
+        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新正式版本；需单独使用")
+        {
+            Arity = ArgumentArity.Zero
+        };
+        const string updateUsageError = "--update需要单独使用，不能与视频地址或其他参数一起传入";
+        updateOption.AddValidator(result =>
+        {
+            if (!result.IsImplicit) result.ErrorMessage = updateUsageError;
+        });
+        rootCommand.AddOption(updateOption);
         var migrateOption = new Option<bool>("--migrate", "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录")
         {
             Arity = ArgumentArity.Zero
@@ -178,6 +198,22 @@ partial class Program
             return await parser.InvokeAsync(args);
         }
 
+        if (args.Any(arg => arg == "-update"))
+        {
+            Console.Error.WriteLine("无法识别选项 '-update'，请使用 '--update'");
+            return 1;
+        }
+
+        if (args.Length == 1 && args[0] == "--update")
+        {
+            if (update is null)
+            {
+                Console.Error.WriteLine("当前命令入口未配置更新程序");
+                return 1;
+            }
+            return await update();
+        }
+
         if (args.Length == 1 && args[0] == "--migrate")
         {
             return migrate();
@@ -185,6 +221,12 @@ partial class Program
 
         var newArgsList = new List<string>();
         var commandLineResult = rootCommand.Parse(args);
+
+        if (commandLineResult.FindResultFor(updateOption) is { IsImplicit: false })
+        {
+            Console.Error.WriteLine(updateUsageError);
+            return 1;
+        }
 
         if (commandLineResult.FindResultFor(migrateOption) is { IsImplicit: false })
         {
