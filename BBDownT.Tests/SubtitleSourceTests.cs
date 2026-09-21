@@ -68,6 +68,38 @@ public class SubtitleSourceTests
     private static byte[] Track(params byte[][] fields) => fields.SelectMany(field => field).ToArray();
 
     [Fact]
+    public async Task DomesticSource_DecodesNewApiAndPreservesTrackMetadata()
+    {
+        var track = Track(StringField(2, "2111863458441397760"), StringField(3, "zh"),
+            StringField(4, "中文"), StringField(5, "//subtitle.bilibili.com/" + SubtitleUrlResolverTests.EncodedPath + "?auth_key=test"));
+        var handler = new SubtitleHandler(Field(1, Field(3, track)));
+        using var client = new HttpClient(handler);
+
+        var subtitle = Assert.Single(await SubUtil.GetDomesticSubtitlesAsync("123", "456", client));
+
+        handler.AssertOnlyNewEndpoint();
+        Assert.Equal("2111863458441397760", subtitle.id);
+        Assert.Equal("zh", subtitle.lan);
+        Assert.Equal("中文", subtitle.lanDoc);
+        Assert.Equal(0, subtitle.type);
+        Assert.False(subtitle.IsAi);
+        Assert.Equal(SubtitleUrlResolverTests.CdnUrl + "?auth_key=test", subtitle.url);
+        Assert.Equal("123/123.456.zh.srt", subtitle.path);
+        Assert.Equal(("chi", "中文"), SubUtil.GetSubtitleCode(subtitle.lan));
+    }
+
+    [Fact]
+    public void Merge_UnsupportedEncodingDoesNotHideAnotherUsableTrackWithSameId()
+    {
+        var broken = new Subtitle { id = "7", lan = "zh", url = "//subtitle.bilibili.com/unknown", path = "" };
+        var valid = new Subtitle { id = "7", lan = "zh", url = SubtitleUrlResolverTests.CdnUrl, path = "" };
+
+        var subtitle = Assert.Single(SubUtil.MergeSubtitleSources([[broken, valid]], "123", "456"));
+
+        Assert.Same(valid, subtitle);
+    }
+
+    [Fact]
     public void Merge_PreservesAssAndAvoidsIdOrLanguageCollisions()
     {
         var subtitles = Enumerable.Range(0, 4).Select(i => new Subtitle
@@ -81,21 +113,55 @@ public class SubtitleSourceTests
         Assert.All(merged, s => Assert.EndsWith(".ass", s.path));
     }
 
-    [Fact]
-    public void JsonParser_PreservesMetadataAndRejectsWrongLegacyPage()
+    [Theory]
+    [InlineData("0A00")]
+    [InlineData("")]
+    public async Task DomesticSource_EmptyResponseDoesNotCallLegacyApis(string hex)
     {
-        const string json = """
-            {"data":{"cid":456,"subtitle":{"list":[
-              {"id":9007199254740993,"lan":"ai-zh","lan_doc":"Chinese","type":"1","ai_type":1,"subtitle_url":"//cdn.test/ai.json"},
-              {"lan":"en","subtitle_url":"//cdn.test/en.json"}
-            ]}}}
-            """;
-        var tracks = SubUtil.ParseJsonSubtitles(json, "list", "456");
-        Assert.Equal("9007199254740993", tracks[0].id);
-        Assert.True(tracks[0].IsAi);
-        Assert.Equal(1, tracks[0].aiType);
-        Assert.Null(tracks[1].type);
-        Assert.Empty(SubUtil.ParseJsonSubtitles(json, "list", "789"));
+        var handler = new SubtitleHandler(Convert.FromHexString(hex));
+        using var client = new HttpClient(handler);
+
+        var subtitles = await SubUtil.GetDomesticSubtitlesAsync("123", "456", client);
+
+        Assert.Empty(subtitles);
+        handler.AssertOnlyNewEndpoint();
+    }
+
+    [Theory]
+    [InlineData(200, "{\"code\":-101,\"message\":\"not logged in\"}")]
+    [InlineData(200, "invalid protobuf")]
+    [InlineData(412, "request was banned")]
+    public async Task DomesticSource_FailedResponseDoesNotCallLegacyApis(int status, string body)
+    {
+        var handler = new SubtitleHandler(System.Text.Encoding.UTF8.GetBytes(body), status);
+        using var client = new HttpClient(handler);
+
+        Assert.Empty(await SubUtil.GetDomesticSubtitlesAsync("123", "456", client));
+        handler.AssertOnlyNewEndpoint();
+    }
+
+    private sealed class SubtitleHandler(byte[] payload, int status = 200) : HttpMessageHandler
+    {
+        private readonly List<(HttpMethod Method, Uri Uri, string Accept)> requests = [];
+
+        public void AssertOnlyNewEndpoint()
+        {
+            var request = Assert.Single(requests);
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.Equal("api.bilibili.com", request.Uri.Host);
+            Assert.Equal("/x/v2/subtitle/web/view", request.Uri.AbsolutePath);
+            Assert.Contains("oid=456&pid=123", request.Uri.Query);
+            Assert.Contains("application/octet-stream", request.Accept);
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            requests.Add((request.Method, request.RequestUri!, request.Headers.Accept.ToString()));
+            return Task.FromResult(new HttpResponseMessage((System.Net.HttpStatusCode)status)
+            {
+                Content = new ByteArrayContent(payload)
+            });
+        }
     }
 
     private static byte[] Field(int number, params byte[][] values)
