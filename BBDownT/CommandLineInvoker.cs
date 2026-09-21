@@ -52,7 +52,7 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> AllowPcdn = new(["--allow-pcdn"], "不替换PCDN域名, 仅在正常情况与--upos-host均无法下载时使用");
     private static readonly Option<string> Language = new(["--language"], "设置混流的音频语言(代码), 如chi, jpn等");
     private static readonly Option<string> AudioLanguage = new(["--audio-language"], "选择配音语言，精确匹配 -info 列出的代码；仅默认WEB/DASH模式，输出文件附加语言后缀");
-    private static readonly Option<string> UserAgent = new(["--user-agent", "-ua"], "指定user-agent, 否则使用随机user-agent");
+    private static readonly Option<string> UserAgent = new(["--user-agent", "-ua"], "指定user-agent；登录态默认使用持久化浏览器配置，匿名默认使用随机user-agent");
     private static readonly Option<string> Cookie = new(["--cookie", "-c"], "设置字符串cookie用以下载网页接口的会员内容");
     private static readonly Option<string> AccessToken = new(["--access-token", "-token"], "设置access_token用以下载TV/APP接口的会员内容");
     private static readonly Option<string> WorkDir = new(["--work-dir"], "设置程序的工作目录");

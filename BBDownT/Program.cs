@@ -20,6 +20,7 @@ using System.Text.Json.Serialization;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using BBDownT.Core.Entity;
+using AudioMaterial = BBDownT.Core.Entity.Entity.AudioMaterial;
 
 namespace BBDownT;
 
