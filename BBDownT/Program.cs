@@ -604,6 +604,24 @@ partial class Program
             }
             if (myOption.OnlyShowInfo && myOption.SubOnly) return DownloadPageOutcome.InfoOnly;
 
+            //调用解析（提前到任何文件写入之前，用于试看检测）
+            ParsedResult parsedResult;
+            if (myOption.SubOnly)
+            {
+                parsedResult = new ParsedResult(); // SubOnly 在字幕处理后提前返回，不使用解析结果
+            }
+            else
+            {
+                parsedResult = languageTracks ?? await FetchTracks(null);
+
+                if (parsedResult.IsPreviewOnly && !myOption.OnlyShowInfo && !myOption.DanmakuOnly && !myOption.CoverOnly)
+                {
+                    LogError("解析到试看片段(is_preview=1)，已中止下载且未写入任何文件；请检查登录Cookie或会员状态");
+                    return DownloadPageOutcome.Failed;
+                }
+                if (parsedResult.IsPreviewOnly) LogWarn("当前内容仅返回试看片段(is_preview=1)");
+            }
+
             //处理封面&&字幕
             if (!myOption.OnlyShowInfo)
             {
@@ -646,8 +664,6 @@ partial class Program
                 }
             }
 
-            //调用解析
-            ParsedResult parsedResult = languageTracks ?? await FetchTracks(null);
             List<AudioMaterial> audioMaterial = [];
             if (!p.points.Any())
             {

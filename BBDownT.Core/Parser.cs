@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.IO;
@@ -111,6 +111,28 @@ public static partial class Parser
             string webSource = await fetch(webUrl);
             webJson = PlayerJsonRegex().Match(webSource).Groups[1].Value;
         }
+
+        // v2接口对部分影视内容返回DRM限制(实测流并未加密), 回退到v1接口重新获取
+        if (bangumi && !tvApi && TryGetPlayBlockInfo(webJson, out var blockReason, out var blockDialog))
+        {
+            Log($"WEB v2接口限制播放({blockReason}){(string.IsNullOrEmpty(blockDialog) ? "" : $": {blockDialog}")}, 尝试回退v1播放接口...");
+            StringBuilder v1Builder = new();
+            v1Builder.Append($"cid={cid}&qn={qn}&fnval=4048&fourk=1&fnver=0&otype=json");
+            if (Config.AREA != "") v1Builder.Append($"&access_key={Config.TOKEN}&area={Config.AREA}");
+            if (!string.IsNullOrEmpty(audioLanguage)) v1Builder.Append($"&cur_language={Uri.EscapeDataString(audioLanguage)}");
+            string v1Api = $"https://{Config.HOST}/pgc/player/web/playurl?{v1Builder}";
+            if (cheese) v1Api = v1Api.Replace("/pgc/", "/pugv/");
+            string v1Json = await fetch(v1Api);
+            if (TryGetPlayBlockInfo(v1Json, out _, out var v1Dialog))
+            {
+                LogWarn($"v1播放接口同样被限制{(string.IsNullOrEmpty(v1Dialog) ? "" : $"({v1Dialog})")}, 该内容可能确实受DRM保护或登录态不足");
+            }
+            else if (IsPreviewOnlyResponse(v1Json))
+            {
+                LogWarn("v1接口仅返回试看片段(is_preview=1), 登录态可能不完整, 请检查Cookie");
+            }
+            return v1Json;
+        }
         return webJson;
     }
 
@@ -220,6 +242,7 @@ public static partial class Parser
                     data,
                     parsedResult,
                     url => BaseUrlRegex().IsMatch(url));
+                parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(parsedResult.WebJsonString);
                 return parsedResult;
             }
         }
@@ -291,6 +314,7 @@ public static partial class Parser
             PlayResponseMapper.MapClipInfo(root, parsedResult);
         }
 
+        parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(parsedResult.WebJsonString);
         return parsedResult;
     }
 
@@ -336,6 +360,95 @@ public static partial class Parser
         {
             return false;
         }
+    }
+
+    // 识别 v2 播放接口的播放限制响应, 如: result.play_check.limit_play_reason=DRM_UNSUPPORTED / result.video_info.is_drm=true
+    internal static bool TryGetPlayBlockInfo(string json, out string? reason, out string? dialogText)
+    {
+        reason = null;
+        dialogText = null;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            foreach (var envelope in EnumerateEnvelopeNodes(document.RootElement))
+            {
+                if (envelope.ValueKind != JsonValueKind.Object) continue;
+
+                if (envelope.TryGetProperty("play_check", out var playCheck)
+                    && playCheck.ValueKind == JsonValueKind.Object
+                    && playCheck.TryGetProperty("limit_play_reason", out var limitReason)
+                    && limitReason.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(limitReason.GetString()))
+                {
+                    reason = limitReason.GetString();
+                }
+
+                if (reason is null
+                    && envelope.TryGetProperty("video_info", out var videoInfo)
+                    && videoInfo.ValueKind == JsonValueKind.Object
+                    && videoInfo.TryGetProperty("is_drm", out var isDrm)
+                    && isDrm.ValueKind == JsonValueKind.True)
+                {
+                    reason = "is_drm";
+                }
+
+                if (reason is null) continue;
+
+                if (envelope.TryGetProperty("view_info", out var viewInfo)
+                    && viewInfo.ValueKind == JsonValueKind.Object
+                    && viewInfo.TryGetProperty("dialog", out var dialog)
+                    && dialog.ValueKind == JsonValueKind.Object
+                    && dialog.TryGetProperty("title", out var title)
+                    && title.ValueKind == JsonValueKind.Object
+                    && title.TryGetProperty("text", out var text)
+                    && text.ValueKind == JsonValueKind.String)
+                {
+                    dialogText = text.GetString();
+                }
+                return true;
+            }
+
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    // 识别仅返回试看片段的响应(登录态不完整时的典型表现); is_preview 可能为布尔 true 或数字 1
+    internal static bool IsPreviewOnlyResponse(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            foreach (var envelope in EnumerateEnvelopeNodes(document.RootElement))
+            {
+                if (envelope.ValueKind != JsonValueKind.Object
+                    || !envelope.TryGetProperty("is_preview", out var preview))
+                {
+                    continue;
+                }
+
+                if (preview.ValueKind == JsonValueKind.True
+                    || (preview.ValueKind == JsonValueKind.Number && preview.GetInt32() == 1))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<JsonElement> EnumerateEnvelopeNodes(JsonElement root)
+    {
+        yield return root;
+        if (root.TryGetProperty("result", out var result)) yield return result;
+        if (root.TryGetProperty("data", out var data)) yield return data;
     }
 
     internal static JsonElement ParseJsonRoot(string json)

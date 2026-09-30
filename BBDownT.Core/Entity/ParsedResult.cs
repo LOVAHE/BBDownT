@@ -1,10 +1,11 @@
-﻿using static BBDownT.Core.Entity.Entity;
+using static BBDownT.Core.Entity.Entity;
 
 namespace BBDownT.Core.Entity;
 
 public class ParsedResult
 {
     public string WebJsonString { get; set; } = string.Empty;
+    public bool IsPreviewOnly { get; set; }
     public List<Video> VideoTracks { get; set; } = new();
     public List<Audio> AudioTracks { get; set; } = new();
     public List<AudioLanguageInfo> AudioLanguages { get; set; } = new();

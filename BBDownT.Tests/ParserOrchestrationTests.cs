@@ -7,6 +7,55 @@ public class ParserOrchestrationTests
     private const string RiskControlVoucher =
         "{\"code\":0,\"message\":\"OK\",\"data\":{\"v_voucher\":\"voucher-test\"}}";
 
+    private const string DrmBlockedJson =
+        "{\"code\":0,\"message\":\"success\",\"result\":{\"play_check\":{\"limit_play_reason\":\"DRM_UNSUPPORTED\",\"play_detail\":\"PLAY_NONE\"},\"video_info\":{\"is_drm\":true}}}";
+
+    private const string V1DashJson =
+        "{\"code\":0,\"message\":\"success\",\"result\":{\"quality\":80,\"dash\":{\"video\":[{\"id\":80,\"baseUrl\":\"https://cdn.test/v.m4s\",\"codecs\":\"avc1.640032\"}],\"audio\":[{\"id\":30280,\"baseUrl\":\"https://cdn.test/a.m4s\"}]}}}";
+
+    private const string V2DashJson =
+        "{\"code\":0,\"message\":\"success\",\"result\":{\"video_info\":{\"is_drm\":false,\"dash\":{\"video\":[],\"audio\":[]}}}}";
+
+    [Fact]
+    public async Task GetPlayJsonAsync_BangumiDrmRefusal_FallsBackToV1PlayUrl()
+    {
+        var requestedUrls = new List<string>();
+        var responses = new Queue<string>([DrmBlockedJson, V1DashJson]);
+
+        var json = await Parser.GetPlayJsonAsync(
+            "", "ep:808545", "538011486", "1387128145", "808545",
+            tvApi: false, intl: false, appApi: false, qn: "0", audioLanguage: null,
+            fetchWeb: url =>
+            {
+                requestedUrls.Add(url);
+                return Task.FromResult(responses.Dequeue());
+            });
+
+        Assert.Equal(V1DashJson, json);
+        Assert.Equal(2, requestedUrls.Count);
+        Assert.Contains("pgc/player/web/v2/playurl", requestedUrls[0]);
+        Assert.Contains("pgc/player/web/playurl?cid=1387128145", requestedUrls[1]);
+        Assert.Contains("fnval=4048", requestedUrls[1]);
+    }
+
+    [Fact]
+    public async Task GetPlayJsonAsync_NormalV2Response_DoesNotFallback()
+    {
+        var requestedUrls = new List<string>();
+
+        var json = await Parser.GetPlayJsonAsync(
+            "", "ep:808545", "538011486", "1387128145", "808545",
+            tvApi: false, intl: false, appApi: false, qn: "0", audioLanguage: null,
+            fetchWeb: url =>
+            {
+                requestedUrls.Add(url);
+                return Task.FromResult(V2DashJson);
+            });
+
+        Assert.Equal(V2DashJson, json);
+        Assert.Single(requestedUrls);
+    }
+
     [Fact]
     public async Task RiskControlVoucher_RotatesUserAgentAndRetriesPrimaryRequest()
     {
@@ -171,6 +220,23 @@ public class ParserOrchestrationTests
 
         Assert.Equal("https://cdn.test/video-first.m4s", Assert.Single(result.VideoTracks).baseUrl);
         Assert.Equal("https://cdn.test/audio-first.m4s", Assert.Single(result.AudioTracks).baseUrl);
+        Assert.False(result.IsPreviewOnly);
+    }
+
+    [Fact]
+    public async Task ExtractTracksWithFetcherAsync_PreviewResponse_MarksIsPreviewOnly()
+    {
+        var previewJson =
+            "{\"code\":0,\"message\":\"success\",\"result\":{\"is_preview\":1,\"type\":\"MP4\",\"quality\":16,\"video_codecid\":7,\"durl\":[{\"url\":\"https://cdn.test/preview.mp4\",\"size\":100,\"length\":1000}]}}";
+
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "ep:808545", "538011486", "1387128145", "808545", false, false, false, "0",
+            _ => Task.FromResult(previewJson),
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
+
+        Assert.True(result.IsPreviewOnly);
+        Assert.Single(result.Clips);
+        Assert.Single(result.VideoTracks);
     }
 
     [Fact]
