@@ -87,7 +87,11 @@ public static partial class Parser
         {
             // 尝试提高可读性
             StringBuilder apiBuilder = new();
-            apiBuilder.Append($"support_multi_audio=true&from_client=BROWSER&avid={aid}&cid={cid}&fnval=4048&fnver=0&fourk=1");
+            apiBuilder.Append("support_multi_audio=true");
+            // Some PGC v2 BROWSER requests return DRM_UNSUPPORTED. Leave this
+            // optional hint unset: this downloader does not implement a CDM.
+            if (!bangumi || cheese) apiBuilder.Append("&from_client=BROWSER");
+            apiBuilder.Append($"&avid={aid}&cid={cid}&fnval=4048&fnver=0&fourk=1");
             if (Config.AREA != "") apiBuilder.Append($"&access_key={Config.TOKEN}&area={Config.AREA}");
             apiBuilder.Append($"&otype=json&qn={qn}");
             if (bangumi) apiBuilder.Append($"&module=bangumi&ep_id={epId}&session=");
@@ -203,6 +207,7 @@ public static partial class Parser
         LogDebug(parsedResult.WebJsonString);
 
         var data = ParseJsonRoot(parsedResult.WebJsonString);
+        parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(data);
 
         //intl接口
         if (IsIntlResponse(data))
@@ -214,6 +219,7 @@ public static partial class Parser
 
             parsedResult.WebJsonString = await FetchIntlVariantAsync(qn, "1");
             data = ParseJsonRoot(parsedResult.WebJsonString);
+            parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(data);
             if (IsIntlResponse(data))
             {
                 PlayResponseMapper.MapIntl(
@@ -247,6 +253,7 @@ public static partial class Parser
             {
                 parsedResult.WebJsonString = await FetchPrimaryAsync(GetMaxQn());
                 data = ParseJsonRoot(parsedResult.WebJsonString);
+                parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(data);
                 root = SelectResponseRoot(data);
                 AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
                 PlayResponseMapper.MapDashVideos(
@@ -280,6 +287,8 @@ public static partial class Parser
             //默认以最高清晰度解析
             parsedResult.WebJsonString = await FetchPrimaryAsync(GetMaxQn());
             data = ParseJsonRoot(parsedResult.WebJsonString);
+            // DURL replaces its initial response rather than accumulating tracks.
+            parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(data);
             root = SelectResponseRoot(data);
             AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
             PlayResponseMapper.MapDurl(root, parsedResult);
@@ -336,6 +345,25 @@ public static partial class Parser
         {
             return false;
         }
+    }
+
+    internal static bool IsPreviewOnlyResponse(JsonElement documentRoot)
+    {
+        static bool HasPreview(JsonElement node)
+        {
+            if (node.ValueKind != JsonValueKind.Object) return false;
+            if (node.TryGetProperty("is_preview", out var preview)
+                && (preview.ValueKind == JsonValueKind.True
+                    || (preview.ValueKind == JsonValueKind.Number
+                        && preview.TryGetInt32(out var value) && value == 1)))
+                return true;
+            return node.TryGetProperty("video_info", out var info) && HasPreview(info);
+        }
+
+        if (HasPreview(documentRoot)) return true;
+        if (documentRoot.ValueKind != JsonValueKind.Object) return false;
+        return (documentRoot.TryGetProperty("result", out var result) && HasPreview(result))
+            || (documentRoot.TryGetProperty("data", out var data) && HasPreview(data));
     }
 
     internal static JsonElement ParseJsonRoot(string json)

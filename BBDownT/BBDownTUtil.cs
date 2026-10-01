@@ -295,52 +295,17 @@ static partial class BBDownTUtil
     /// <param name="outputFilePath"></param>
     public static void CombineMultipleFilesIntoSingleFile(string[] files, string outputFilePath)
     {
-        if (!files.Any()) return;
-        if (files.Length == 1)
+        if (files.Length == 0) return;
+        if (!MediaOutput.Write(outputFilePath, staged =>
         {
-            FileInfo fi = new(files[0]);
-            fi.MoveTo(outputFilePath, true);
-            return;
-        }
-
-        if (!Directory.Exists(Path.GetDirectoryName(outputFilePath)))
-            Directory.CreateDirectory(Path.GetDirectoryName(outputFilePath)!);
-
-        string[] inputFilePaths = files;
-        using var outputStream = File.Create(outputFilePath);
-        foreach (var inputFilePath in inputFilePaths)
-        {
-            if (inputFilePath == "")
-                continue;
-            using var inputStream = File.OpenRead(inputFilePath);
-            // Buffer size can be passed as the second argument.
-            inputStream.CopyTo(outputStream);
-            //Console.WriteLine("The file {0} has been processed.", inputFilePath);
-        }
-        //Global.ExplorerFile(outputFilePath);
-    }
-
-    /// <summary>
-    /// 寻找指定目录下指定后缀的文件的详细路径 如".txt"
-    /// </summary>
-    /// <param name="dir"></param>
-    /// <param name="ext"></param>
-    /// <returns></returns>
-    public static string[] GetFiles(string dir, string ext)
-    {
-        List<string> al = [];
-        StringBuilder sb = new();
-        DirectoryInfo d = new(dir);
-        foreach (FileInfo fi in d.GetFiles())
-        {
-            if (fi.Extension.ToUpper() == ext.ToUpper())
+            using var outputStream = File.Create(staged);
+            foreach (var inputFilePath in files)
             {
-                al.Add(fi.FullName);
+                using var inputStream = File.OpenRead(inputFilePath);
+                inputStream.CopyTo(outputStream);
             }
-        }
-        string[] res = al.ToArray();
-        Array.Sort(res); //排序
-        return res;
+            return 0;
+        })) throw new IOException("合并分片未生成有效文件");
     }
 
     private static readonly char[] InvalidChars = "34,60,62,124,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,58,42,63,92,47"

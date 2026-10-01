@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using static BBDownT.Core.Entity.Entity;
 
@@ -15,8 +16,13 @@ internal sealed class PageDownloadRunner(
 {
     internal async Task RunAsync(
         List<Page> pages, bool saveArchives, int delaySeconds,
-        Func<Page, Task<DownloadPageOutcome>> downloadPage)
+        Func<Page, Task<DownloadPageOutcome>> downloadPage, IReadOnlyCollection<Page>? allPages = null)
     {
+        // A legacy AID cannot prove completion of every page. Only the original
+        // unfiltered list can confirm that an AID still represents one page.
+        var legacySinglePageAids = allPages?.GroupBy(page => page.aid)
+            .Where(group => group.Count() == 1).Select(group => group.Key).ToHashSet()
+            ?? new HashSet<string>();
         foreach (var page in pages)
         {
             // Preserve the existing wait before every selected page, including
@@ -28,9 +34,11 @@ internal sealed class PageDownloadRunner(
             }
             log($"开始解析P{page.index}: {page.aid}... ({pages.IndexOf(page) + 1} of {pages.Count})");
 
-            if (saveArchives && isArchived(page.aid))
+            var archiveKey = $"{page.aid}:{page.cid}";
+            if (saveArchives && (isArchived(archiveKey)
+                || (legacySinglePageAids.Contains(page.aid) && isArchived(page.aid))))
             {
-                log($"aid: {page.aid}已下载过, 跳过下载...");
+                log($"P{page.index}已下载过, 跳过下载...");
                 continue;
             }
 
@@ -39,7 +47,7 @@ internal sealed class PageDownloadRunner(
                 throw new InvalidOperationException($"P{page.index} 下载失败");
 
             if (saveArchives && outcome.ShouldArchive())
-                archive(page.aid);
+                archive(archiveKey);
         }
 
         log("任务完成");

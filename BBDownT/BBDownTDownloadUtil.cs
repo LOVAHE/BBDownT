@@ -207,7 +207,7 @@ internal static class BBDownTDownloadUtil
         }
     }
 
-    public static async Task<bool> MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config)
+    public static async Task<string[]> MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config, HttpClient? httpClient = null)
     {
         if (config.ForceHttp) url = ReplaceUrl(url);
         LogDebug("Start downloading: {0}", url);
@@ -216,12 +216,12 @@ internal static class BBDownTDownloadUtil
             await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
             DeleteStaleClipFiles(path);
             Console.WriteLine();
-            return false;
+            return [];
         }
         long fileSize;
         try
         {
-            fileSize = await GetFileSizeAsync(url);
+            fileSize = await GetFileSizeAsync(url, httpClient);
         }
         catch (InvalidDataException ex)
         {
@@ -232,17 +232,16 @@ internal static class BBDownTDownloadUtil
                 RelatedTask = config.RelatedTask
             });
             DeleteStaleClipFiles(path);
-            return false;
+            return [];
         }
         LogDebug("文件大小：{0} bytes", fileSize);
-        //已下载过, 跳过下载
-        if (File.Exists(path) && new FileInfo(path).Length == fileSize)
-        {
-            LogDebug("文件已下载过, 跳过下载");
-            DeleteStaleClipFiles(path);
-            return false;
-        }
+        // A same-size track can belong to another quality or codec. Completed
+        // tracks have no entity validator; only validated range clips can resume.
         List<Clip> allClips = GetAllClips(fileSize);
+        var clipPaths = allClips.Select(clip => Path.Combine(Path.GetDirectoryName(path)!,
+            clip.index.ToString("00000") + "_" + Path.GetFileNameWithoutExtension(path)
+            + (Path.GetExtension(path).Equals(".mp4", StringComparison.OrdinalIgnoreCase) ? ".vclip" : ".aclip")))
+            .ToArray();
         int total = allClips.Count;
         LogDebug("分段数量：{0}", total);
         ConcurrentDictionary<int, long> clipProgress = new();
@@ -253,7 +252,7 @@ internal static class BBDownTDownloadUtil
         await Parallel.ForEachAsync(allClips, async (clip, _) =>
         {
             int retry = 0;
-            string tmp = Path.Combine(Path.GetDirectoryName(path)!, clip.index.ToString("00000") + "_" + Path.GetFileNameWithoutExtension(path) + (Path.GetExtension(path).EndsWith(".mp4") ? ".vclip" : ".aclip"));
+            string tmp = clipPaths[clip.index];
             reDown:
             try
             {
@@ -261,7 +260,7 @@ internal static class BBDownTDownloadUtil
                 {
                     clipProgress[index] = downloaded;
                     progress.Report((double)clipProgress.Values.Sum() / fileSize, clipProgress.Values.Sum());
-                }, true);
+                }, true, httpClient);
             }
             catch (NotSupportedException)
             {
@@ -274,7 +273,18 @@ internal static class BBDownTDownloadUtil
                 goto reDown;
             }
         });
-        return true;
+        return clipPaths;
+    }
+
+    internal static void MergeTrackClips(string[] files, string destination)
+    {
+        if (files.Length == 0) return;
+        BBDownTUtil.CombineMultipleFilesIntoSingleFile(files, destination);
+        foreach (var file in files)
+        {
+            MediaOutput.DeleteInput(file, destination);
+            File.Delete(file + ".resume");
+        }
     }
 
     private static async Task DownloadWithAria2cAsync(string url, string path, string extraArgs)
@@ -348,7 +358,7 @@ internal static class BBDownTDownloadUtil
         return clips;
     }
 
-    private static async Task<long> GetFileSizeAsync(string url)
+    private static async Task<long> GetFileSizeAsync(string url, HttpClient? httpClient = null)
     {
         using var httpRequestMessage = new HttpRequestMessage();
         if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
@@ -356,7 +366,7 @@ internal static class BBDownTDownloadUtil
         httpRequestMessage.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
         TryAddCookieHeader(httpRequestMessage, url);
         httpRequestMessage.RequestUri = new(url);
-        using var response = (await AppHttpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        using var response = (await (httpClient ?? AppHttpClient).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
         return GetTotalFileSize(
             response.StatusCode,
             response.Content.Headers.ContentLength,

@@ -109,7 +109,7 @@ internal static class AudioLanguageSelection
         return Normalize(language) is not null && audioOnly ? Path.ChangeExtension(output, ".m4a") : output;
     }
 
-    // Existing archives contain only AIDs and cannot distinguish dubbed versions.
+    // Default-audio archives (legacy AIDs and page keys) cannot distinguish dubs.
     // Explicit language downloads use their distinct output-file cache instead.
     internal static bool UseAidArchive(MyOption option) =>
         option.SaveArchivesToFile && Normalize(option.AudioLanguage) is null;

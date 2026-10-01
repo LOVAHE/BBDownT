@@ -9,8 +9,13 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   validate-tag:
+    if: github.event_name != 'push' || github.event.forced == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,15 +53,30 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          title="BBDownT ${tag#v}"
-          notes="Draft release for ${tag}."
           repo="${GITHUB_REPOSITORY}"
+          releases=$(gh api --paginate --slurp "repos/${repo}/releases?per_page=100")
+          state=$(jq -er --arg tag "$tag" '
+            [.[][] | select(.tag_name == $tag)] |
+            if length == 0 then "missing"
+            elif length == 1 and .[0].draft == true then "draft"
+            elif length == 1 and .[0].draft == false then "published"
+            else error("ambiguous release metadata") end' <<< "$releases")
 
-          ls -lah release-assets
+          if [[ "$state" == published ]]; then
+            echo "Release ${tag} is already published; refusing to change it." >&2
+            exit 1
+          fi
 
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            gh release upload "$tag" release-assets/* --clobber --repo "$repo"
-            gh release edit "$tag" --draft --title "$title" --notes "$notes" --repo "$repo"
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if (( ${#assets[@]} == 0 )); then
+            echo "No release assets found." >&2
+            exit 1
+          fi
+
+          if [[ "$state" == draft ]]; then
+            gh release upload "$tag" "${assets[@]}" --clobber --repo "$repo"
           else
-            gh release create "$tag" release-assets/* --draft --title "$title" --notes "$notes" --repo "$repo"
+            gh release create "$tag" "${assets[@]}" --draft --verify-tag \
+              --title "BBDownT ${tag#v}" --notes "" --repo "$repo"
           fi

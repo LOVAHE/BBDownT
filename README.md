@@ -26,6 +26,8 @@ dotnet tool install --global BBDownT
 dotnet tool update --global BBDownT
 ```
 
+独立二进制可运行 `BBDownT --update`（改名后如 `bbd --update`）更新到最新正式版。
+
 # 下载
 Release版本：https://github.com/LOVAHE/BBDownT/releases
 
@@ -113,7 +115,7 @@ Options:
   --aria2c-path <aria2c-path>                    设置aria2c的路径
   --upos-host <upos-host>                        自定义upos服务器
   --force-replace-host                           强制替换下载服务器host(默认开启)
-  --save-archives-to-file                        将下载过的视频记录到本地文件中, 用于后续跳过下载同个视频
+  --save-archives-to-file                        按视频和分P记录下载结果，用于后续跳过已完成的分P
   --delay-per-page <delay-per-page>              设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)
   --download-all                                导出视频地址后下载UP主的全部投稿
   --delay-per-video <delay-per-video>            设置批量下载视频之间的间隔时间(单位: 秒, 默认10秒)
@@ -124,8 +126,9 @@ Options:
   --config-file <config-file>                    读取指定的BBDownT本地配置文件(默认为: BBDownT.config)
   --migrate                                      将程序目录中的旧版BBDown配置、登录文件和下载归档迁移为BBDownT文件
   --api-token <api-token>                        服务器API鉴权Token，监听非本机地址且未配置时会自动生成
-  --version                                      Show version information
-  -?, -h, --help                                 Show help and usage information
+  --version                                      检查当前版本
+  --update                                       更新到最新版本
+  -?, -h, --help                                 帮助
 
 
 Commands:
@@ -217,6 +220,8 @@ BBDownT --migrate
 `--migrate`必须单独使用，不能与视频地址或其他参数同时使用。
 
 </details>
+
+启用 `--save-archives-to-file` 后，新记录使用 `aid:cid`，每个分P独立归档。旧的 aid 记录保留：仅在原始视频页列表确认该 aid 只有一个分P时沿用；多P或页数未知时逐页检查，不把旧记录视为所有分P均已完成。只选一个分P也不会改变原始视频的页数判断。
 
 <details>
 <summary>自定义输出文件名格式 (NEW)</summary> 
@@ -357,7 +362,7 @@ BBDownT --audio-language en-US --audio-only "BVxxxx"
 - 目前仅支持默认 WEB 模式下的 DASH 音视频流，不能与 `-tv`、`-app`、`-intl`、`--sub-only`、`--cover-only`、`--danmaku-only` 一起使用。
 - 找不到语言或接口未确认返回该版本时直接报错，不会静默改回默认版本。选择后重新获取整套音视频地址，视频画面也可能随平台翻译版本变化。
 - 显式选择会在最终输出及主音视频临时文件名中加入后缀，如 `视频.audio-en-us.mp4` 或 `视频.audio-en-us.m4a`，防止和其他配音版本混淆。
-- 配合 `--save-archives-to-file` 时，不读取或写入原来仅按 aid 记录的归档；常规混流模式由带语言后缀的输出文件判断是否已下载，`--skip-mux` 仍走已有原始流下载流程。原有归档文件格式不变。
+- 配合 `--save-archives-to-file` 时，显式配音版本不读写默认配音的下载归档；常规混流模式由带语言后缀的输出文件判断是否已下载，`--skip-mux` 仍走已有原始流下载流程。
 - `--language` 仍只设置封装文件的音轨语言标签，例如 `--language eng`。字幕仍由 `--subtitle-language` 和 AI 字幕策略选择，不会因切换配音自动改选。
 - 参数也可写入配置文件。`-ia` 仍选择音视频规格，配音语言通过 `--audio-language` 指定。
 
@@ -365,6 +370,8 @@ BBDownT --audio-language en-US --audio-only "BVxxxx"
 
 <details>
 <summary>字幕选择</summary>
+
+国内视频字幕使用新版字幕接口，自动解析编码后的字幕地址，不再回退到旧版播放器、视频详情或 gRPC 字幕接口。国际站继续使用其独立字幕接口。
 
 ---
 

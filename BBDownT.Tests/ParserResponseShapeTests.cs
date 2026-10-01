@@ -53,4 +53,23 @@ public class ParserResponseShapeTests
 
         Assert.True(root.TryGetProperty(expectedProperty, out _));
     }
+
+    [Theory]
+    [InlineData("{\"is_preview\":1}", true)]
+    [InlineData("{\"result\":{\"is_preview\":true}}", true)]
+    [InlineData("{\"result\":{\"video_info\":{\"is_preview\":1}}}", true)]
+    [InlineData("{\"data\":{\"video_info\":{\"is_preview\":true}}}", true)]
+    [InlineData("{\"result\":{\"is_preview\":0,\"is_drm\":true}}", false)]
+    [InlineData("{\"data\":{\"is_preview\":false}}", false)]
+    [InlineData("{\"result\":{\"is_preview\":1.25}}", false)]
+    [InlineData("{\"result\":{\"is_preview\":9223372036854775807}}", false)]
+    [InlineData("{\"result\":\"success\",\"is_preview\":1}", true)]
+    [InlineData("[]", false)]
+    [InlineData("null", false)]
+    public void PreviewMetadata_RecognizesSupportedEnvelopesWithoutConfusingDrm(string json, bool expected)
+    {
+        using var document = JsonDocument.Parse(json);
+
+        Assert.Equal(expected, Parser.IsPreviewOnlyResponse(document.RootElement));
+    }
 }

@@ -1,9 +1,93 @@
 using BBDownT.Core;
+using System.Text.Json.Nodes;
 
 namespace BBDownT.Tests;
 
 public class ParserOrchestrationTests
 {
+    [Fact]
+    public async Task PreviewDash_InvalidQualityRefetchKeepsPreviewStatusWithRetainedTracks()
+    {
+        var initial = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
+        initial["data"]!["is_preview"] = 1;
+        var responses = new Queue<string>([initial.ToJsonString(), "{\"code\":-1}"]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+            _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
+
+        Assert.True(result.IsPreviewOnly);
+        Assert.Single(result.VideoTracks);
+        Assert.Single(result.AudioTracks);
+    }
+
+    [Fact]
+    public async Task CompleteDash_PreviewQualityRefetchMarksTheAccumulatedTracks()
+    {
+        var initial = DashFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s");
+        var final = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
+        final["data"]!["is_preview"] = 1;
+        var responses = new Queue<string>([initial, final.ToJsonString()]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+            _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
+
+        Assert.True(result.IsPreviewOnly);
+        Assert.Single(result.VideoTracks);
+        Assert.Single(result.AudioTracks);
+    }
+
+    [Fact]
+    public async Task NestedV2Preview_IsMarkedWhenItsTracksAreMapped()
+    {
+        var initial = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
+        initial["data"]!["is_preview"] = true;
+        var response = new JsonObject { ["result"] = new JsonObject { ["video_info"] = initial["data"]!.DeepClone() } }.ToJsonString();
+
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+            _ => Task.FromResult(response), (_, _) => throw new Exception("No intl requests"));
+
+        Assert.True(result.IsPreviewOnly);
+        Assert.Single(result.VideoTracks);
+        Assert.Single(result.AudioTracks);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task DurlReplacement_PreviewStatusFollowsTheAcceptedResponse(bool initialPreview, bool finalPreview)
+    {
+        string Response(bool preview) => $$$"""
+            {"result":{"is_preview":{{{(preview ? 1 : 0)}}},"quality":16,"video_codecid":7,
+            "durl":[{"url":"https://cdn.test/clip.mp4","size":100,"length":1000}]}}
+            """;
+        var responses = new Queue<string>([Response(initialPreview), Response(finalPreview)]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+            _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
+
+        Assert.Equal(finalPreview, result.IsPreviewOnly);
+        Assert.Single(result.Clips);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task IntlAccumulatedTracks_PreserveEitherVariantsPreviewStatus(bool initialPreview, bool finalPreview)
+    {
+        var initial = JsonNode.Parse(IntlFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
+        initial["data"]!["video_info"]!["is_preview"] = initialPreview;
+        var final = JsonNode.Parse(IntlFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s", 80))!;
+        final["data"]!["video_info"]!["is_preview"] = finalPreview;
+
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, true, false, "0",
+            _ => Task.FromResult(initial.ToJsonString()),
+            (_, _) => Task.FromResult(final.ToJsonString()));
+
+        Assert.True(result.IsPreviewOnly);
+        Assert.Equal(2, result.VideoTracks.Count);
+        Assert.Equal(2, result.AudioTracks.Count);
+    }
+
     private const string RiskControlVoucher =
         "{\"code\":0,\"message\":\"OK\",\"data\":{\"v_voucher\":\"voucher-test\"}}";
 

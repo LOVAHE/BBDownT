@@ -283,17 +283,17 @@ internal partial class Program
     }
 
     private static object fileLock = new object();
-    public static void SaveAidToFile(string aid)
+    public static void SaveAidToFile(string archiveKey)
     {
         lock (fileLock)
         {
             string filePath = Path.Combine(APP_DIR, "BBDownT.archives");
             LogDebug("文件路径：{0}", filePath);
-            File.AppendAllText(filePath, $"{aid}|");
+            File.AppendAllText(filePath, $"{archiveKey}|");
         }
     }
 
-    public static bool CheckAidFromFile(string aid)
+    public static bool CheckAidFromFile(string archiveKey)
     {
         lock (fileLock)
         {
@@ -301,7 +301,7 @@ internal partial class Program
             if (!File.Exists(filePath)) return false;
             LogDebug("文件路径：{0}", filePath);
             var text = File.ReadAllText(filePath);
-            return text.Split('|').Any(item => item == aid);
+            return text.Split('|').Any(item => item == archiveKey);
         }
     }
 
@@ -497,13 +497,11 @@ internal partial class Program
     {
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
-            var downloadedAsClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
-            if (downloadedAsClips)
+            var downloadedClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
+            if (downloadedClips.Length > 0)
             {
                 Log($"合并{(video ? "视频" : "音频")}分片...");
-                CombineMultipleFilesIntoSingleFile(GetFiles(Path.GetDirectoryName(destPath)!, $".{(video ? "v" : "a")}clip"), destPath);
-                Log("清理分片...");
-                foreach (var file in new DirectoryInfo(Path.GetDirectoryName(destPath)!).EnumerateFiles("*.?clip")) file.Delete();
+                MergeTrackClips(downloadedClips, destPath);
             }
         }
         else
@@ -515,6 +513,12 @@ internal partial class Program
             }
             await DownloadFileAsync(url, destPath, downloadConfig);
         }
+    }
+
+    internal static void DeleteEmptyDownloadDirectory(string path)
+    {
+        if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+            Directory.Delete(path);
     }
 
     [GeneratedRegex("://.*:\\d+/")]

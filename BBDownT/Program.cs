@@ -549,10 +549,11 @@ partial class Program
 
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
         if (myOption.SaveArchivesToFile && !useAidArchive)
-            Log("已选择配音版本，不读写按aid记录的归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
+            Log("已选择配音版本，不读写默认配音的下载归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
         await runner.RunAsync(plan.Pages, useAidArchive, delay,
             page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
-                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask));
+                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask),
+            vInfo.PagesInfo);
     }
 
     private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
@@ -568,10 +569,11 @@ partial class Program
         long pubTime = vInfo.PubTime;
         bool selected = false; //用户是否已经手动选择过了轨道
         int retryCount = 0;
+        var progressiveSelection = new ProgressiveStreamSelection();
         var requestedAudioLanguage = AudioLanguageSelection.Normalize(myOption.AudioLanguage);
-        Task<ParsedResult> FetchTracks(string? language, string quality = "0") =>
+        Task<ParsedResult> FetchTracks(string? language, string? quality = null) =>
             ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi,
-                myOption.UseAppApi, firstEncoding ?? string.Empty, quality, language);
+                myOption.UseAppApi, firstEncoding ?? string.Empty, quality ?? progressiveSelection.RequestedQuality, language);
         downloadPage:
         try
         {
@@ -603,6 +605,13 @@ partial class Program
                     subtitleChoices ??= subtitleInfo.Select(s => s.id ?? s.path).ToHashSet(StringComparer.Ordinal);
             }
             if (myOption.OnlyShowInfo && myOption.SubOnly) return DownloadPageOutcome.InfoOnly;
+
+            // Resolve media before creating download artifacts, so a preview
+            // cannot be saved or archived as a completed episode.
+            var parsedResult = myOption.SubOnly ? new ParsedResult()
+                : languageTracks ?? await FetchTracks(null);
+            if (StopPreviewDownload(myOption, parsedResult)) return DownloadPageOutcome.Failed;
+            if (parsedResult.IsPreviewOnly) LogWarn("当前接口仅提供试看片段。");
 
             //处理封面&&字幕
             if (!myOption.OnlyShowInfo)
@@ -641,13 +650,11 @@ partial class Program
 
                 if (myOption.SubOnly)
                 {
-                    if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
+                    DeleteEmptyDownloadDirectory(p.aid);
                     return DownloadPageOutcome.ExclusiveArtifact;
                 }
             }
 
-            //调用解析
-            ParsedResult parsedResult = languageTracks ?? await FetchTracks(null);
             List<AudioMaterial> audioMaterial = [];
             if (!p.points.Any())
             {
@@ -765,10 +772,7 @@ partial class Program
 
                     if (myOption.DanmakuOnly)
                     {
-                        if (Directory.Exists(p.aid))
-                        {
-                            Directory.Delete(p.aid);
-                        }
+                        DeleteEmptyDownloadDirectory(p.aid);
                         return DownloadPageOutcome.ExclusiveArtifact;
                     }
                 }
@@ -788,7 +792,7 @@ partial class Program
                         LogWarn("封面下载未生成有效文件");
                         return DownloadPageOutcome.Failed;
                     }
-                    if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
+                    DeleteEmptyDownloadDirectory(p.aid);
                     relatedTask?.AddSavePath(newCoverPath);
                     return DownloadPageOutcome.ExclusiveArtifact;
                 }
@@ -810,10 +814,7 @@ partial class Program
                     Log($"{savePath}已存在, 跳过下载...");
                     relatedTask?.AddSavePath(savePath);
                     File.Delete(coverPath);
-                    if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0)
-                    {
-                        Directory.Delete(p.aid, true);
-                    }
+                    DeleteEmptyDownloadDirectory(p.aid);
                     return DownloadPageOutcome.AlreadyExists;
                 }
 
@@ -868,28 +869,28 @@ partial class Program
                     savePath = savePath[..^4] + ".m4a";
 
                 var isHevc = selectedVideo?.codecs == "HEVC";
-                int code = BBDownTMuxer.MuxAV(myOption.UseMP4box, p.bvid, videoPath, audioPath, audioMaterial, savePath,
+                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(myOption.UseMP4box, p.bvid, videoPath, audioPath, audioMaterial, staged,
                     desc,
                     title,
                     p.ownerName ?? "",
                     (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
                     File.Exists(coverPath) ? coverPath : "",
                     lang,
-                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc);
-                if (code != 0 || !File.Exists(savePath) || new FileInfo(savePath).Length == 0)
+                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc));
+                if (!muxed)
                 {
                     LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
                 Log("清理临时文件...");
                 Thread.Sleep(200);
-                if (parsedResult.VideoTracks.Any()) File.Delete(videoPath);
-                if (parsedResult.AudioTracks.Any()) File.Delete(audioPath);
+                if (parsedResult.VideoTracks.Any()) MediaOutput.DeleteInput(videoPath, savePath);
+                if (parsedResult.AudioTracks.Any()) MediaOutput.DeleteInput(audioPath, savePath);
                 if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
                 foreach (var s in subtitleInfo) File.Delete(s.path);
-                foreach (var a in audioMaterial) File.Delete(a.path);
+                foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
                 if (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.aid != selectedPagesInfo.Last().aid)
                     File.Delete(coverPath);
-                if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
+                DeleteEmptyDownloadDirectory(p.aid);
             }
             else if (parsedResult.Clips.Any() && parsedResult.Dfns.Any())   //flv
             {
@@ -898,30 +899,17 @@ partial class Program
                     LogError("当前接口仅返回包含音视频的合并流，无法分别下载主视频流和主音频流");
                     return DownloadPageOutcome.Failed;
                 }
-                bool flag = false;
-                var clips = parsedResult.Clips;
-                var dfns = parsedResult.Dfns;
-                reParse:
-                //排序
-                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending, myOption.EncodingPriorityFirst);
-
-                int vIndex = 0;
-                if (myOption.Interactive && !flag && !selected)
+                if (myOption.Interactive && !selected)
                 {
-                    int i = 0;
-                    dfns.ForEach(key => LogColor($"{i++}.{Config.qualitys[key]}"));
-                    Log("请选择最想要的清晰度(输入序号): ", false);
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    vIndex = ParseSelectionIndex(Console.ReadLine(), dfns.Count);
-                    Console.ResetColor();
-                    //重新解析
-                    parsedResult.VideoTracks.Clear();
-                    parsedResult = await FetchTracks(null, dfns[vIndex]);
+                    parsedResult = await progressiveSelection.ChooseAsync(parsedResult,
+                        quality => FetchTracks(null, quality), Console.In, Console.Out);
+                    if (StopPreviewDownload(myOption, parsedResult)) return DownloadPageOutcome.Failed;
                     if (!p.points.Any()) p.points = parsedResult.ExtraPoints;
-                    flag = true;
                     selected = true;
-                    goto reParse;
                 }
+
+                parsedResult.VideoTracks = SortTracks(parsedResult.VideoTracks, dfnPriority, encodingPriority, myOption.VideoAscending, myOption.EncodingPriorityFirst);
+                var clips = parsedResult.Clips;
 
                 Log($"共计{parsedResult.VideoTracks.Count}条流(共有{clips.Count}个分段).");
                 int index = 0;
@@ -940,30 +928,28 @@ partial class Program
                     Console.WriteLine();
                 }
                 if (myOption.OnlyShowInfo) return DownloadPageOutcome.InfoOnly;
-                savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.ElementAtOrDefault(vIndex), null, p, pagesCount, apiType, pubTime);
+                savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.FirstOrDefault(), null, p, pagesCount, apiType, pubTime);
                 if (File.Exists(savePath) && new FileInfo(savePath).Length != 0)
                 {
                     Log($"{savePath}已存在, 跳过下载...");
                     relatedTask?.AddSavePath(savePath);
-                    if (selectedPagesInfo.Count == 1 && Directory.Exists(p.aid))
-                    {
-                        Directory.Delete(p.aid, true);
-                    }
+                    DeleteEmptyDownloadDirectory(p.aid);
                     return DownloadPageOutcome.AlreadyExists;
                 }
                 var pad = string.Empty.PadRight(clips.Count.ToString().Length, '0');
+                var files = new List<string>();
                 for (int i = 0; i < clips.Count; i++)
                 {
                     var link = clips[i];
                     videoPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.{i.ToString(pad)}.mp4";
+                    files.Add(videoPath);
                     Log($"开始下载P{p.index}视频, 片段({(i + 1).ToString(pad)}/{clips.Count})...");
                     await DownloadTrackAsync(link, videoPath, downloadConfig, video: true);
                 }
                 Log($"下载P{p.index}完毕");
                 Log("开始合并分段...");
-                var files = GetFiles(Path.GetDirectoryName(videoPath)!, ".mp4");
                 videoPath = $"{p.aid}/{p.aid}.P{p.index}.{p.cid}.mp4";
-                BBDownTMuxer.MergeFLV(files, videoPath);
+                BBDownTMuxer.MergeFLV(files.ToArray(), videoPath);
                 if (myOption.SkipMux)
                 {
                     RecordDownloadedStreams(relatedTask, videoPath);
@@ -972,27 +958,27 @@ partial class Program
                 Log($"开始混流视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
                 if (myOption.AudioOnly)
                     savePath = savePath[..^4] + ".m4a";
-                int code = BBDownTMuxer.MuxAV(false, p.bvid, videoPath, "", audioMaterial, savePath,
+                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(false, p.bvid, videoPath, "", audioMaterial, staged,
                     desc,
                     title,
                     p.ownerName ?? "",
                     (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
                     File.Exists(coverPath) ? coverPath : "",
                     lang,
-                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux);
-                if (code != 0 || !File.Exists(savePath) || new FileInfo(savePath).Length == 0)
+                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux));
+                if (!muxed)
                 {
                     LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
                 Log("清理临时文件...");
                 Thread.Sleep(200);
-                if (parsedResult.VideoTracks.Count != 0) File.Delete(videoPath);
+                if (parsedResult.VideoTracks.Count != 0) MediaOutput.DeleteInput(videoPath, savePath);
                 foreach (var s in subtitleInfo) File.Delete(s.path);
-                foreach (var a in audioMaterial) File.Delete(a.path);
+                foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
                 if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
                 if (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.aid != selectedPagesInfo.Last().aid)
                     File.Delete(coverPath);
-                if (Directory.Exists(p.aid) && Directory.GetFiles(p.aid).Length == 0) Directory.Delete(p.aid, true);
+                DeleteEmptyDownloadDirectory(p.aid);
             }
             else
             {
@@ -1018,6 +1004,16 @@ partial class Program
             await Task.Delay(3000);
             goto downloadPage;
         }
+    }
+
+    internal static bool StopPreviewDownload(MyOption option, ParsedResult result)
+    {
+        if (!result.IsPreviewOnly || option.OnlyShowInfo || option.SubOnly) return false;
+        // DASH handles attachment-only modes before downloading media. DURL
+        // currently takes the media path even with those options enabled.
+        if ((option.CoverOnly || option.DanmakuOnly) && result.Clips.Count == 0) return false;
+        LogError("当前接口仅返回试看片段，已停止下载；请检查登录状态和会员权限。");
+        return true;
     }
 
     internal static bool IsUsableArtifact(string path)

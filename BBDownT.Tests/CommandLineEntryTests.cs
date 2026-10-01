@@ -26,7 +26,9 @@ public class CommandLineEntryTests
         Assert.Contains("--download-all", result.Output);
         Assert.Contains("--delay-per-video", result.Output);
         Assert.Contains("--migrate", result.Output);
+        Assert.Contains("--update", result.Output);
         Assert.Equal(0, result.MigrationCalls);
+        Assert.Equal(0, result.UpdateCalls);
         Assert.Equal(0, result.DownloadCalls);
     }
 
@@ -148,7 +150,73 @@ public class CommandLineEntryTests
         Assert.Equal(0, result.DownloadCalls);
     }
 
-    private static async Task<InvocationResult> Invoke(string[] args, string? config = null, int migrationExitCode = 0)
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Update_IsExplicitAndReturnsItsResult(int exitCode)
+    {
+        var result = await Invoke(["--update"], updateExitCode: exitCode);
+
+        Assert.Equal(exitCode, result.ExitCode);
+        Assert.Equal(1, result.UpdateCalls);
+        Assert.Equal(0, result.MigrationCalls);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    public static TheoryData<string[]> InvalidUpdateArguments => new()
+    {
+        new[] { "--update", "--help" },
+        new[] { "--update", "--migrate" },
+        new[] { "--update", "fixture" },
+        new[] { "fixture", "--update" },
+        new[] { "--update", "serve" },
+        new[] { "serve", "--update" },
+        new[] { "--update=true" },
+        new[] { "-update" }
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidUpdateArguments))]
+    public async Task UpdateWithOtherArgumentsOrUnsupportedSpelling_IsRejected(string[] args)
+    {
+        var result = await Invoke(args);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.NotEmpty(result.Error);
+        Assert.Equal(0, result.UpdateCalls);
+        Assert.Equal(0, result.MigrationCalls);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    [Fact]
+    public async Task UpdateWithConfigFile_IsRejectedBeforeReadingConfig()
+    {
+        var result = await Invoke(["--update"], config: "--definitely-unknown\n");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("--update", result.Error);
+        Assert.DoesNotContain("--definitely-unknown", result.Error);
+        Assert.Equal(0, result.UpdateCalls);
+        Assert.Equal(0, result.MigrationCalls);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    [Fact]
+    public async Task UpdateInConfig_IsRejectedWithoutUpdateOrDownload()
+    {
+        var result = await Invoke(["fixture"], config: "--update\n");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, result.UpdateCalls);
+        Assert.Equal(0, result.MigrationCalls);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    private static async Task<InvocationResult> Invoke(
+        string[] args,
+        string? config = null,
+        int migrationExitCode = 0,
+        int updateExitCode = 0)
     {
         var originalOutput = Console.Out;
         var originalError = Console.Error;
@@ -156,6 +224,7 @@ public class CommandLineEntryTests
         using var error = new StringWriter();
         string? path = null;
         var migrations = 0;
+        var updates = 0;
         var downloads = 0;
         MyOption? bound = null;
         try
@@ -173,8 +242,13 @@ public class CommandLineEntryTests
                 downloads++;
                 bound = option;
                 return Task.CompletedTask;
-            }, () => { migrations++; return migrationExitCode; });
-            return new InvocationResult(code, output.ToString(), error.ToString(), migrations, downloads, bound);
+            }, () => { migrations++; return migrationExitCode; },
+            () =>
+            {
+                updates++;
+                return Task.FromResult(updateExitCode);
+            });
+            return new InvocationResult(code, output.ToString(), error.ToString(), migrations, updates, downloads, bound);
         }
         finally
         {
@@ -185,5 +259,5 @@ public class CommandLineEntryTests
     }
 
     private sealed record InvocationResult(
-        int ExitCode, string Output, string Error, int MigrationCalls, int DownloadCalls, MyOption? Option);
+        int ExitCode, string Output, string Error, int MigrationCalls, int UpdateCalls, int DownloadCalls, MyOption? Option);
 }

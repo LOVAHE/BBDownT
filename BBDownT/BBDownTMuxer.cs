@@ -223,25 +223,43 @@ static partial class BBDownTMuxer
         return RunExe(FFMPEG, args, FFMPEG != "ffmpeg");
     }
 
-    public static void MergeFLV(string[] files, string outPath)
+    public static void MergeFLV(string[] files, string outPath, Func<string, string, int>? convert = null)
     {
+        if (files.Length == 0) throw new ArgumentException("没有可合并的分段", nameof(files));
         if (files.Length == 1)
         {
-            File.Move(files[0], outPath);
+            CombineMultipleFilesIntoSingleFile(files, outPath);
+            MediaOutput.DeleteInput(files[0], outPath);
         }
         else
         {
-            foreach (var file in files)
+            convert ??= ConvertFlvSegment;
+            var batch = Guid.NewGuid().ToString("N");
+            var converted = files.Select(file => Path.Combine(Path.GetDirectoryName(file)!,
+                Path.GetFileNameWithoutExtension(file) + "." + batch + ".ts")).ToArray();
+            try
             {
-                var tmpFile = Path.Combine(Path.GetDirectoryName(file)!, Path.GetFileNameWithoutExtension(file) + ".ts");
-                List<string> args = ["-loglevel", "warning", "-y", "-i", file, "-map", "0", "-c", "copy", "-f", "mpegts", "-bsf:v", "h264_mp4toannexb", tmpFile];
-                LogDebug("ffmpeg命令: {0}", FormatCommandForLog(args));
-                RunExe("ffmpeg", args);
-                File.Delete(file);
+                for (var i = 0; i < files.Length; i++)
+                {
+                    if (convert(files[i], converted[i]) != 0 || !File.Exists(converted[i])
+                        || new FileInfo(converted[i]).Length == 0)
+                        throw new IOException($"分段转换失败：{Path.GetFileName(files[i])}");
+                }
+                CombineMultipleFilesIntoSingleFile(converted, outPath);
+                foreach (var file in files) MediaOutput.DeleteInput(file, outPath);
             }
-            var f = GetFiles(Path.GetDirectoryName(files[0])!, ".ts");
-            CombineMultipleFilesIntoSingleFile(f, outPath);
-            foreach (var s in f) File.Delete(s);
+            finally
+            {
+                foreach (var file in converted)
+                    if (File.Exists(file)) File.Delete(file);
+            }
         }
+    }
+
+    private static int ConvertFlvSegment(string input, string output)
+    {
+        List<string> args = ["-loglevel", "warning", "-y", "-i", input, "-map", "0", "-c", "copy", "-f", "mpegts", "-bsf:v", "h264_mp4toannexb", output];
+        LogDebug("ffmpeg命令: {0}", FormatCommandForLog(args));
+        return RunExe(FFMPEG, args, FFMPEG != "ffmpeg");
     }
 }

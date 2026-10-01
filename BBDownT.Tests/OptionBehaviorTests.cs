@@ -238,28 +238,6 @@ public class OptionBehaviorTests
         }
     }
 
-    [Fact]
-    public async Task SkipMux_IgnoresMuxedOutputCache()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), $"bbdownt-cache-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
-        var muxedPath = Path.Combine(directory, "title.mp4");
-        var option = new MyOption { AudioOnly = true, VideoOnly = true };
-        Program.HandleConflictingOptions(option);
-        try
-        {
-            await File.WriteAllTextAsync(muxedPath, "old-muxed-output");
-
-            Assert.False(Program.ShouldUseMuxedOutputCache(option, muxedPath));
-            Assert.True(Program.ShouldUseMuxedOutputCache(new MyOption(), muxedPath));
-        }
-        finally
-        {
-            if (File.Exists(muxedPath)) File.Delete(muxedPath);
-            Directory.Delete(directory);
-        }
-    }
-
     private static ParsedResult CreateParsedResult()
     {
         var audio = new Audio

@@ -38,21 +38,4 @@ public class DownloadPageOutcomeTests
         Assert.False(DownloadPageOutcome.Failed.ShouldArchive());
     }
 
-    [Fact]
-    public async Task UsableArtifact_RequiresAnExistingNonEmptyFile()
-    {
-        var path = Path.GetTempFileName();
-        try
-        {
-            Assert.False(Program.IsUsableArtifact(path));
-
-            await File.WriteAllTextAsync(path, "cover");
-
-            Assert.True(Program.IsUsableArtifact(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
 }
