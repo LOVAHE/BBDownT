@@ -12,7 +12,12 @@ public static class FetcherFactory
     public static IFetcher CreateFetcher(string aidOri, bool useIntlApi)
     {
         IFetcher fetcher = new NormalInfoFetcher();
-        if (aidOri.StartsWith("cheese"))
+        if (aidOri.StartsWith("intl:"))
+        {
+            if (!useIntlApi) throw new ArgumentException("国际站链接请使用 -intl 解析");
+            fetcher = new IntlBangumiInfoFetcher();
+        }
+        else if (aidOri.StartsWith("cheese"))
         {
             fetcher = new CheeseInfoFetcher();
         }

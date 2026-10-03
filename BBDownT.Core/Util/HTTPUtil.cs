@@ -7,17 +7,25 @@ namespace BBDownT.Core.Util;
 
 public static class HTTPUtil
 {
-    public static readonly HttpClient AppHttpClient = new(new HttpClientHandler
+    public static readonly HttpClient AppHttpClient = CreateClient(useCookies: true, allowRedirects: true);
+    internal static readonly HttpClient IntlApiHttpClient = CreateClient(useCookies: false, allowRedirects: false);
+    internal static readonly HttpClient IntlMediaHttpClient = CreateClient(useCookies: false, allowRedirects: true);
+
+    private static HttpClient CreateClient(bool useCookies, bool allowRedirects)
+        => new(CreateWebHandler(useCookies, allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
+
+    internal static HttpClientHandler CreateWebHandler(bool useCookies, bool allowRedirects) => new()
     {
-        AllowAutoRedirect = true,
+        AllowAutoRedirect = allowRedirects,
+        UseCookies = useCookies,
         AutomaticDecompression = DecompressionMethods.All,
         MaxConnectionsPerServer = 2048,
         ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
             Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
-    })
-    {
-        Timeout = TimeSpan.FromMinutes(2)
     };
+
+    internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
+    internal static HttpClient GetMediaHttpClient(bool international) => international ? IntlMediaHttpClient : AppHttpClient;
 
     private static readonly object UserAgentLock = new();
     private static readonly string[] AndroidDevices =
@@ -124,14 +132,39 @@ public static class HTTPUtil
         }
 
         var host = uri.Host;
+        if (Config.COOKIE_IS_INTL && !IsIntlCookieDestination(uri))
+            return false;
         return Config.COOKIE_ALLOWED_DOMAINS.Any(domain =>
             string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
             || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool IsIntlCookieDestination(Uri uri)
+    {
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0) return false;
+        if (IsDomain(uri.Host, "bilibili.tv") || IsDomain(uri.Host, "biliintl.com")) return true;
+        // A custom parsing host is an explicit credential-forwarding choice;
+        // an allowed media/CDN host alone is not such authorization.
+        return uri.AbsolutePath.StartsWith("/intl/gateway/", StringComparison.Ordinal)
+            && (MatchesIntlProxy(uri, Config.HOST) || MatchesIntlProxy(uri, Config.EPHOST));
+    }
+
+    private static bool IsDomain(string host, string domain)
+        => host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+
+    private static bool MatchesIntlProxy(Uri target, string configuredHost)
+    {
+        if (!Uri.TryCreate(configuredHost.Contains("://", StringComparison.Ordinal) ? configuredHost : "https://" + configuredHost,
+            UriKind.Absolute, out var configured) || configured.Scheme != Uri.UriSchemeHttps
+            || IsDomain(configured.Host, "bilibili.com") || configured.UserInfo.Length != 0)
+            return false;
+        return target.Host.Equals(configured.Host, StringComparison.OrdinalIgnoreCase) && target.Port == configured.Port;
+    }
+
     public static string GetCookieHeaderValue(string url)
     {
-        return (url.Contains("/ep") || url.Contains("/ss")) ? Config.COOKIE + ";CURRENT_FNVAL=4048;" : Config.COOKIE;
+        return !Config.COOKIE_IS_INTL && (url.Contains("/ep") || url.Contains("/ss")) ? Config.COOKIE + ";CURRENT_FNVAL=4048;" : Config.COOKIE;
     }
 
     public static void TryAddCookieHeader(HttpRequestMessage request, string url)
@@ -167,9 +200,12 @@ public static class HTTPUtil
         bool forceAuthenticatedProfile = false)
     {
         var firstIdentity = ResolveRequestIdentity(url, requestedUserAgent, sendCookie, forceAuthenticatedProfile);
+        // International credentials stay on the checked HTTPS destination;
+        // automatic redirects must never carry the explicit Cookie elsewhere.
+        var httpClient = GetWebHttpClient(Config.COOKIE_IS_INTL);
         using var webRequest = CreateWebRequest(method, url, firstIdentity, sendCookie);
         LogDebug("获取网页内容: Url: {0}, Headers: {1}", url, webRequest.Headers);
-        var response = await AppHttpClient.SendAsync(webRequest, HttpCompletionOption.ResponseHeadersRead);
+        var response = await httpClient.SendAsync(webRequest, HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode != HttpStatusCode.PreconditionFailed || requestedUserAgent is not null)
         {
             return response;
@@ -184,7 +220,7 @@ public static class HTTPUtil
             : "服务端返回HTTP 412，自动更换完整浏览器请求配置后重试");
         using var retryRequest = CreateWebRequest(method, url, retryIdentity.Value, sendCookie);
         LogDebug("重试获取网页内容: Url: {0}, Headers: {1}", url, retryRequest.Headers);
-        return await AppHttpClient.SendAsync(retryRequest, HttpCompletionOption.ResponseHeadersRead);
+        return await httpClient.SendAsync(retryRequest, HttpCompletionOption.ResponseHeadersRead);
     }
 
     internal static void ApplyWebRequestHeaders(
@@ -198,6 +234,7 @@ public static class HTTPUtil
         if (sendCookie) TryAddCookieHeader(request, url);
         if (request.Method == HttpMethod.Get && url.Contains("api.bilibili.com", StringComparison.OrdinalIgnoreCase))
             request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
+        AddIntlReferer(request, url);
     }
 
     private static HttpRequestMessage CreateWebRequest(
@@ -211,6 +248,7 @@ public static class HTTPUtil
         if (sendCookie) TryAddCookieHeader(request, url);
         if (method == HttpMethod.Get && url.Contains("api.bilibili.com"))
             request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
+        AddIntlReferer(request, url);
         request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
         request.Headers.Connection.Clear();
         return request;
@@ -250,11 +288,22 @@ public static class HTTPUtil
         request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
     }
 
+    private static void AddIntlReferer(HttpRequestMessage request, string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (uri.Host.Equals("bilibili.tv", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith(".bilibili.tv", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.Equals("biliintl.com", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith(".biliintl.com", StringComparison.OrdinalIgnoreCase)))
+            request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.tv/");
+    }
+
     private static bool IsBilibiliSameSite(string url)
     {
+        var domain = Config.COOKIE_IS_INTL ? "bilibili.tv" : "bilibili.com";
         return Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && (uri.Host.Equals("bilibili.com", StringComparison.OrdinalIgnoreCase)
-                || uri.Host.EndsWith(".bilibili.com", StringComparison.OrdinalIgnoreCase));
+            && (uri.Host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
     }
 
     private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity)

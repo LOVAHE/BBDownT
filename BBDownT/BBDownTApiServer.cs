@@ -203,6 +203,7 @@ public class BBDownTApiServer
 
     internal string? ValidateAndNormalizeServerRequest(ServeRequestOptions req)
     {
+        req.RestrictedOutputRoot = null;
         if (string.IsNullOrWhiteSpace(req.Url))
         {
             return "Url不能为空";
@@ -259,6 +260,7 @@ public class BBDownTApiServer
         }
 
         req.WorkDir = Path.GetFullPath(serverOptions.DownloadRoot);
+        req.RestrictedOutputRoot = req.WorkDir;
         return null;
     }
 

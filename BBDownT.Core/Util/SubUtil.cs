@@ -225,47 +225,67 @@ public static partial class SubUtil
 
     #region 字幕接口
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string aid, string cid, string epId, int index)
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
     {
         try
         {
-            List<Subtitle> subtitles = new();
-            string api = "https://" + (Config.EPHOST == "api.bilibili.com" ? "api.biliintl.com" : Config.EPHOST) + $"/intl/gateway/web/v2/subtitle?episode_id={epId}";
-            string json = await GetSubtitleWebTextAsync(api);
-            using var infoJson = JsonDocument.Parse(json);
-            var subs = infoJson.RootElement.GetProperty("data").GetProperty("subtitles").EnumerateArray();
-            foreach (var sub in subs)
-            {
-                var lan = sub.GetProperty("lang_key").ToString();
-                var url = sub.GetProperty("url").ToString();
-                Subtitle subtitle = new()
-                {
-                    url = url,
-                    lan = lan,
-                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
-                };
-
-                subtitles.Add(subtitle);
-
-            }
-            return subtitles;
+            string api = "https://" + (Config.EPHOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.EPHOST) + $"/intl/gateway/web/v2/subtitle?episode_id={epId}&platform=web&s_locale=en_US";
+            string json = await fetch(api);
+            return ParseIntlSubtitleResponse(json);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not IntlApiException)
         {
             LogDebug("国际字幕接口1失败: {0}", ex.Message);
             return null;
         }
     }
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, int index)
+    internal static List<Subtitle> ParseIntlSubtitleResponse(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        IntlBangumiWebApi.EnsureSuccess(document.RootElement);
+        var data = document.RootElement.GetProperty("data");
+        List<Subtitle> subtitles = [];
+        foreach (var collection in new[] { "subtitles", "video_subtitle" })
+        {
+            if (!data.TryGetProperty(collection, out var entries) || entries.ValueKind != JsonValueKind.Array) continue;
+            foreach (var entry in entries.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("lang_key", out var language)) continue;
+                var urls = new List<string>();
+                if (entry.TryGetProperty("url", out var direct) && direct.ValueKind == JsonValueKind.String)
+                    urls.Add(direct.GetString()!);
+                foreach (var format in new[] { "ass", "srt" })
+                {
+                    if (entry.TryGetProperty(format, out var track) && track.ValueKind == JsonValueKind.Object
+                        && track.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String)
+                        urls.Add(url.GetString()!);
+                }
+                foreach (var url in urls.Where(url => !string.IsNullOrWhiteSpace(url)))
+                {
+                    subtitles.Add(new Subtitle
+                    {
+                        lan = language.ToString(),
+                        lanDoc = entry.TryGetProperty("lang", out var description) ? description.ToString() : null,
+                        url = url,
+                        path = url.Split('?', '#')[0].EndsWith(".ass", StringComparison.OrdinalIgnoreCase) ? "subtitle.ass" : "subtitle.srt"
+                    });
+                }
+            }
+        }
+        return subtitles;
+    }
+
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
     {
         try
         {
             List<Subtitle> subtitles = new();
             string api = "https://" + (Config.HOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.HOST) +
                          $"/intl/gateway/v2/ogv/view/app/season?ep_id={epId}&platform=android&s_locale=zh_SG" + (Config.TOKEN != "" ? $"&access_key={Config.TOKEN}" : "");
-            string json = await GetSubtitleWebTextAsync(api);
+            string json = await fetch(api);
             using var infoJson = JsonDocument.Parse(json);
+            IntlBangumiWebApi.EnsureSuccess(infoJson.RootElement);
             var subs = infoJson.RootElement.GetProperty("result").GetProperty("modules")[0].GetProperty("data")
                 .GetProperty("episodes")[index - 1].GetProperty("subtitles").EnumerateArray();
             foreach (var sub in subs)
@@ -284,7 +304,7 @@ public static partial class SubUtil
             }
             return subtitles;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not IntlApiException)
         {
             LogDebug("国际字幕接口2失败: {0}", ex.Message);
             return null;
@@ -316,7 +336,9 @@ public static partial class SubUtil
         using var request = new HttpRequestMessage(HttpMethod.Get, api);
         ApplyWebRequestHeaders(request, api);
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
-        using var response = (await AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        var client = !Config.COOKIE_IS_INTL ? AppHttpClient
+            : ShouldSendCookie(api) ? GetWebHttpClient(true) : GetMediaHttpClient(true);
+        using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync();
     }
 
@@ -422,17 +444,18 @@ public static partial class SubUtil
     {
         if (intl)
         {
-            var firstIntl = await GetIntlSubtitlesFromApi1Async(aid, cid, epId, index);
-            var intlSources = new List<List<Subtitle>?>
-            {
-                firstIntl
-            };
-            if (!HasUsableSubtitle(firstIntl))
-                intlSources.Add(await GetIntlSubtitlesFromApi2Async(aid, cid, epId, index));
-            return MergeSubtitleSources(intlSources, aid, cid);
+            return await GetIntlSubtitlesAsync(aid, cid, epId, index, url => GetSubtitleWebTextAsync(url));
         }
 
         return await GetDomesticSubtitlesAsync(aid, cid, AppHttpClient);
+    }
+
+    internal static async Task<List<Subtitle>> GetIntlSubtitlesAsync(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
+    {
+        var first = await GetIntlSubtitlesFromApi1Async(aid, cid, epId, index, fetch);
+        List<List<Subtitle>?> sources = [first];
+        if (!HasUsableSubtitle(first)) sources.Add(await GetIntlSubtitlesFromApi2Async(aid, cid, epId, index, fetch));
+        return MergeSubtitleSources(sources, aid, cid);
     }
 
     // Domestic subtitles use the current web endpoint exclusively. Do not fall back

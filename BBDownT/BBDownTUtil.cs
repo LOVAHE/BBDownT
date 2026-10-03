@@ -48,6 +48,7 @@ static partial class BBDownTUtil
 
     public static async Task<string> GetAvIdAsync(string input)
     {
+        if (IntlBangumiUrl.TryParse(input, out var internationalId)) return internationalId;
         var avid = input;
         if (input.StartsWith("http"))
         {
@@ -57,7 +58,11 @@ static partial class BBDownTUtil
                 if (tmp == input) throw new Exception("无限重定向");
                 input = tmp;
             }
-            if (input.Contains("video/av"))
+            if (IntlBangumiUrl.TryParse(input, out internationalId))
+            {
+                avid = internationalId;
+            }
+            else if (input.Contains("video/av"))
             {
                 avid = AvRegex().Match(input).Groups[1].Value;
             }
@@ -147,11 +152,6 @@ static partial class BBDownTUtil
             else if (input.Contains("ep_id="))
             {
                 string epId = GetQueryString("ep_id", input);
-                avid = $"ep:{epId}";
-            }
-            else if (GlobalEpRegex().Match(input).Success)
-            {
-                string epId = GlobalEpRegex().Match(input).Groups[1].Value;
                 avid = $"ep:{epId}";
             }
             else if (BangumiMdRegex().Match(input).Success)
@@ -585,8 +585,6 @@ static partial class BBDownTUtil
     private static partial Regex SsRegex();
     [GeneratedRegex(@"space\.bilibili\.com/(\d+)")]
     private static partial Regex UidRegex();
-    [GeneratedRegex(@"\.bilibili\.tv\/\w+\/play\/\d+\/(\d+)")]
-    private static partial Regex GlobalEpRegex();
     [GeneratedRegex("bangumi/media/(md\\d+)")]
     private static partial Regex BangumiMdRegex();
     [GeneratedRegex(@"window.__INITIAL_STATE__=([\s\S].*?);\(function\(\)")]

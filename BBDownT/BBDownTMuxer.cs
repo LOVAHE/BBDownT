@@ -19,6 +19,13 @@ static partial class BBDownTMuxer
     public static string FFMPEG = "ffmpeg";
     public static string MP4BOX = "mp4box";
 
+    internal static string GetChapterPath(string videoPath, string audioPath, string? restrictedOutputRoot, Func<string, bool>? isLink = null)
+    {
+        var mediaPath = string.IsNullOrEmpty(videoPath) ? audioPath : videoPath;
+        var path = Path.Combine(Path.GetDirectoryName(mediaPath)!, "chapters");
+        return OutputPathPolicy.ResolveArtifact(path, restrictedOutputRoot, isLink);
+    }
+
     private static int RunExe(string app, IEnumerable<string> args, bool customBin = false)
     {
         int code = 0;
@@ -62,7 +69,7 @@ static partial class BBDownTMuxer
             : arg;
     }
 
-    private static int MuxByMp4box(string videoPath, string audioPath, string outPath, string desc, string title, string author, string episodeId, string pic, string lang, List<Subtitle>? subs, bool audioOnly, bool videoOnly, List<ViewPoint>? points)
+    private static int MuxByMp4box(string videoPath, string audioPath, string outPath, string desc, string title, string author, string episodeId, string pic, string lang, List<Subtitle>? subs, bool audioOnly, bool videoOnly, List<ViewPoint>? points, string? restrictedOutputRoot)
     {
         List<string> args = [];
         List<string> metaTags = [];
@@ -82,7 +89,7 @@ static partial class BBDownTMuxer
         if (points != null && points.Any())
         {
             var meta = GetMp4boxMetaString(points);
-            var metaFile = Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters");
+            var metaFile = GetChapterPath(videoPath, audioPath, restrictedOutputRoot);
             File.WriteAllText(metaFile, meta);
             args.AddRange(["-chap", metaFile]);
         }
@@ -124,15 +131,16 @@ static partial class BBDownTMuxer
         return RunExe(MP4BOX, args, MP4BOX != "mp4box");
     }
 
-    public static int MuxAV(bool useMp4box, string bvid, string videoPath, string audioPath, List<AudioMaterial> audioMaterial, string outPath, string desc = "", string title = "", string author = "", string episodeId = "", string pic = "", string lang = "", List<Subtitle>? subs = null, bool audioOnly = false, bool videoOnly = false, List<ViewPoint>? points = null, long pubTime = 0, bool simplyMux = false, bool isHevc = false)
+    public static int MuxAV(bool useMp4box, string bvid, string videoPath, string audioPath, List<AudioMaterial> audioMaterial, string outPath, string desc = "", string title = "", string author = "", string episodeId = "", string pic = "", string lang = "", List<Subtitle>? subs = null, bool audioOnly = false, bool videoOnly = false, List<ViewPoint>? points = null, long pubTime = 0, bool simplyMux = false, bool isHevc = false, string? restrictedOutputRoot = null)
     {
+        outPath = OutputPathPolicy.ResolveArtifact(outPath, restrictedOutputRoot);
         if (audioOnly && audioPath != "")
             videoPath = "";
         if (videoOnly)
             audioPath = "";
         if (useMp4box)
         {
-            return MuxByMp4box(videoPath, audioPath, outPath, desc, title, author, episodeId, pic, lang, subs, audioOnly, videoOnly, points);
+            return MuxByMp4box(videoPath, audioPath, outPath, desc, title, author, episodeId, pic, lang, subs, audioOnly, videoOnly, points, restrictedOutputRoot);
         }
 
         if (outPath.Contains('/') && ! Directory.Exists(Path.GetDirectoryName(outPath)))
@@ -188,7 +196,7 @@ static partial class BBDownTMuxer
         if (points != null && points.Any())
         {
             var meta = GetFFmpegMetaString(points);
-            var metaFile = Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters");
+            var metaFile = GetChapterPath(videoPath, audioPath, restrictedOutputRoot);
             File.WriteAllText(metaFile, meta);
             inputArgs.AddRange(["-i", metaFile, "-map_chapters", inputCount.ToString()]);
         }

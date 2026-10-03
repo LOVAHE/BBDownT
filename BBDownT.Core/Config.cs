@@ -4,6 +4,7 @@ public static class Config
 {
     //For WEB
     public static string COOKIE { get; set; } = "";
+    internal static bool COOKIE_IS_INTL { get; set; }
     //For APP/TV
     public static string TOKEN { get; set; } = "";
     //日志级别

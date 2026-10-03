@@ -26,7 +26,14 @@ internal class MyOption
     public bool SkipMux { get; set; }
     public bool SkipSubtitle { get; set; }
     public bool SkipCover { get; set; }
-    public bool ForceHttp { get; set; } = true;
+    private bool? forceHttp;
+    // Keep the domestic default, but preserve international HTTPS unless the
+    // caller explicitly requests a transport override (CLI or JSON).
+    public bool ForceHttp
+    {
+        get => forceHttp ?? !UseIntlApi;
+        set => forceHttp = value;
+    }
     public bool DownloadDanmaku { get; set; } = false;
     public string? DownloadDanmakuFormats { get; set; }
     public bool SkipAi { get; set; } = true;
@@ -48,6 +55,8 @@ internal class MyOption
     public string AccessToken { get; set; } = "";
     public string Aria2cArgs { get; set; } = "";
     public string WorkDir { get; set; } = "";
+    // Server-owned boundary, excluded from JSON and preserved by batch clones.
+    internal string? RestrictedOutputRoot { get; set; }
     public string FFmpegPath { get; set; } = "";
     public string Mp4boxPath { get; set; } = "";
     public string Aria2cPath { get; set; } = "";

@@ -235,6 +235,7 @@ internal partial class Program
             //解释环境变量
             myOption.WorkDir = Environment.ExpandEnvironmentVariables(myOption.WorkDir);
             var dir = Path.GetFullPath(myOption.WorkDir);
+            OutputPathPolicy.ResolveArtifact(dir, myOption.RestrictedOutputRoot);
             if (!Directory.Exists(dir))
             {
                 Directory.CreateDirectory(dir);
@@ -251,13 +252,13 @@ internal partial class Program
     /// <param name="myOption"></param>
     private static string? LoadCredentials(MyOption myOption)
     {
-        string? webCookieFilePath = null;
-        if (string.IsNullOrEmpty(Config.COOKIE) && File.Exists(Path.Combine(APP_DIR, "BBDownT.data")))
+        var loaded = IntlCookieStore.Load(Config.COOKIE, APP_DIR, myOption.UseIntlApi);
+        string? webCookieFilePath = loaded.FilePath;
+        if (webCookieFilePath is not null)
         {
-            Log("加载本地cookie...");
-            webCookieFilePath = Path.Combine(APP_DIR, "BBDownT.data");
+            Log(myOption.UseIntlApi ? "加载本地国际站 Cookie..." : "加载本地cookie...");
             LogDebug("文件路径：{0}", webCookieFilePath);
-            Config.COOKIE = File.ReadAllText(webCookieFilePath);
+            Config.COOKIE = loaded.Cookie;
         }
         if (string.IsNullOrEmpty(Config.TOKEN) && File.Exists(Path.Combine(APP_DIR, "BBDownTTV.data")) && myOption.UseTvApi)
         {
@@ -346,8 +347,14 @@ internal partial class Program
     /// <param name="myOption"></param>
     /// <param name="video"></param>
     /// <param name="audio"></param>
-    private static void HandlePcdn(MyOption myOption, Video? selectedVideo, Audio? selectedAudio)
+    internal static void HandlePcdn(MyOption myOption, Video? selectedVideo, Audio? selectedAudio)
     {
+        // International WEB URLs can be signed for the returned CDN host.
+        // Only an explicitly supplied host may override that choice.
+        if (myOption.UseIntlApi && string.IsNullOrEmpty(myOption.UposHost)) return;
+        if (myOption.ForceReplaceHost && string.IsNullOrEmpty(myOption.UposHost))
+            myOption.UposHost = BACKUP_HOST;
+
         if (myOption.UposHost == "")
         {
             //处理PCDN

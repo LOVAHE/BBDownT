@@ -22,6 +22,7 @@ internal static class BBDownTDownloadUtil
         public bool ForceHttp { get; set; } = false;
         public bool MultiThread { get; set; } = false;
         public DownloadTask? RelatedTask { get; set; } = null;
+        internal string? RestrictedOutputRoot { get; set; }
     }
 
     internal static async Task RangeDownloadToTmpAsync(
@@ -32,9 +33,12 @@ internal static class BBDownTDownloadUtil
         long? toPosition,
         Action<int, long, long> onProgress,
         bool failOnRangeNotSupported = false,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        string? restrictedOutputRoot = null)
     {
+        tmpName = OutputPathPolicy.ResolveArtifact(tmpName, restrictedOutputRoot);
         var validatorPath = tmpName + ".resume";
+        OutputPathPolicy.ResolveArtifact(validatorPath, restrictedOutputRoot);
         var resumeValidator = await DownloadResumeValidator.LoadAsync(validatorPath);
         using var fileStream = new FileStream(tmpName, FileMode.OpenOrCreate);
         fileStream.Seek(0, SeekOrigin.End);
@@ -53,19 +57,14 @@ internal static class BBDownTDownloadUtil
         var existingLength = fileStream.Position;
         var downloadedBytes = fromPosition + existingLength;
 
-        using var httpRequestMessage = new HttpRequestMessage();
-        if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
-            httpRequestMessage.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
-        httpRequestMessage.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        TryAddCookieHeader(httpRequestMessage, url);
-        httpRequestMessage.Headers.Range = new(downloadedBytes, toPosition);
+        var international = BBDownT.Core.Config.COOKIE_IS_INTL;
+        using var httpRequestMessage = MediaRequestPolicy.CreateRequest(url,
+            international, downloadedBytes, toPosition);
         if (existingLength > 0)
         {
             resumeValidator?.Apply(httpRequestMessage);
         }
-        httpRequestMessage.RequestUri = new(url);
-
-        using var response = await (httpClient ?? AppHttpClient).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await (httpClient ?? GetMediaHttpClient(international)).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
         {
             var remoteLength = response.Content.Headers.ContentRange?.Length;
@@ -181,6 +180,8 @@ internal static class BBDownTDownloadUtil
     public static async Task DownloadFileAsync(string url, string path, DownloadConfig config)
     {
         if (string.IsNullOrEmpty(url)) return;
+        path = OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot);
+        OutputPathPolicy.ResolveArtifact(path + ".aria2", config.RestrictedOutputRoot);
         if (config.ForceHttp) url = ReplaceUrl(url);
         LogDebug("Start downloading: {0}", url);
         string desDir = Path.GetDirectoryName(path)!;
@@ -197,7 +198,7 @@ internal static class BBDownTDownloadUtil
         try
         {
             using var progress = new ProgressBar(config.RelatedTask);
-            await RangeDownloadToTmpAsync(0, url, tmpName, 0, null, (_, downloaded, total) => progress.Report((double)downloaded / total, downloaded));
+            await RangeDownloadToTmpAsync(0, url, tmpName, 0, null, (_, downloaded, total) => progress.Report((double)downloaded / total, downloaded), restrictedOutputRoot: config.RestrictedOutputRoot);
             File.Move(tmpName, path, true);
         }
         catch (Exception)
@@ -209,6 +210,8 @@ internal static class BBDownTDownloadUtil
 
     public static async Task<string[]> MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config, HttpClient? httpClient = null)
     {
+        path = OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot);
+        OutputPathPolicy.ResolveArtifact(path + ".aria2", config.RestrictedOutputRoot);
         if (config.ForceHttp) url = ReplaceUrl(url);
         LogDebug("Start downloading: {0}", url);
         if (config.UseAria2c)
@@ -229,7 +232,8 @@ internal static class BBDownTDownloadUtil
             await DownloadFileAsync(url, path, new DownloadConfig
             {
                 ForceHttp = false,
-                RelatedTask = config.RelatedTask
+                RelatedTask = config.RelatedTask,
+                RestrictedOutputRoot = config.RestrictedOutputRoot
             });
             DeleteStaleClipFiles(path);
             return [];
@@ -260,7 +264,7 @@ internal static class BBDownTDownloadUtil
                 {
                     clipProgress[index] = downloaded;
                     progress.Report((double)clipProgress.Values.Sum() / fileSize, clipProgress.Values.Sum());
-                }, true, httpClient);
+                }, true, httpClient, config.RestrictedOutputRoot);
             }
             catch (NotSupportedException)
             {
@@ -358,15 +362,12 @@ internal static class BBDownTDownloadUtil
         return clips;
     }
 
-    private static async Task<long> GetFileSizeAsync(string url, HttpClient? httpClient = null)
+    internal static async Task<long> GetFileSizeAsync(string url, HttpClient? httpClient = null,
+        bool? international = null)
     {
-        using var httpRequestMessage = new HttpRequestMessage();
-        if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
-            httpRequestMessage.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
-        httpRequestMessage.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        TryAddCookieHeader(httpRequestMessage, url);
-        httpRequestMessage.RequestUri = new(url);
-        using var response = (await (httpClient ?? AppHttpClient).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
+        var intl = international ?? BBDownT.Core.Config.COOKIE_IS_INTL;
+        using var httpRequestMessage = MediaRequestPolicy.CreateRequest(url, intl);
+        using var response = (await (httpClient ?? GetMediaHttpClient(intl)).SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
         return GetTotalFileSize(
             response.StatusCode,
             response.Content.Headers.ContentLength,

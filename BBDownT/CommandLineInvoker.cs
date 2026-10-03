@@ -34,7 +34,7 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> SkipMux = new(["--skip-mux"], "跳过混流步骤");
     private static readonly Option<bool> SkipSubtitle = new(["--skip-subtitle"], "跳过字幕下载");
     private static readonly Option<bool> SkipCover = new(["--skip-cover"], "跳过封面下载");
-    private static readonly Option<bool> ForceHttp = new(["--force-http"], "下载音视频时强制使用HTTP协议替换HTTPS(默认开启)");
+    private static readonly Option<bool> ForceHttp = new(["--force-http"], "下载音视频时强制使用HTTP协议替换HTTPS（国内模式默认开启，国际模式默认关闭）");
     private static readonly Option<bool> DownloadDanmaku = new(["--download-danmaku", "-dd"], "下载弹幕");
     private static readonly Option<string> DownloadDanmakuFormats = new(["--download-danmaku-formats", "-ddf"], $"指定需下载的弹幕格式, 用逗号分隔, 可选 {string.Join('/', BBDownTDanmakuFormatInfo.AllFormatNames)}, 默认: \"{string.Join(',', BBDownTDanmakuFormatInfo.AllFormatNames)}\"");
     private static readonly Option<bool> SkipAi = new(["--skip-ai"], description: "跳过AI字幕下载(默认开启)");

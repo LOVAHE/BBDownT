@@ -22,13 +22,18 @@ static class BBDownTAria2c
     }
 
     public static async Task<int> DownloadFileByAria2cAsync(string url, string path, string extraArgs)
+        => await RunCommandCodeAsync(ARIA2C, BuildDownloadArguments(url, path, extraArgs));
+
+    internal static string BuildDownloadArguments(string url, string path, string extraArgs,
+        bool? international = null)
     {
         var headerArgs = "";
-        if (!url.Contains("platform=android_tv_yst") && !url.Contains("platform=android"))
-            headerArgs += " --header=\"Referer: https://www.bilibili.com\"";
+        var intl = international ?? BBDownT.Core.Config.COOKIE_IS_INTL;
+        var referer = MediaRequestPolicy.GetReferer(url, intl);
+        if (referer is not null) headerArgs += $" --header=\"Referer: {referer}\"";
         headerArgs += " --header=\"User-Agent: Mozilla/5.0\"";
-        if (HTTPUtil.ShouldSendCookie(url))
+        if (!intl && HTTPUtil.ShouldSendCookie(url))
             headerArgs += $" --header=\"Cookie: {HTTPUtil.GetCookieHeaderValue(url)}\"";
-        return await RunCommandCodeAsync(ARIA2C, $" --auto-file-renaming=false --download-result=hide --allow-overwrite=true --console-log-level=warn -x16 -s16 -j16 -k5M {headerArgs} {extraArgs} \"{url}\" -d \"{Path.GetDirectoryName(path)}\" -o \"{Path.GetFileName(path)}\"");
+        return $" --auto-file-renaming=false --download-result=hide --allow-overwrite=true --console-log-level=warn -x16 -s16 -j16 -k5M {headerArgs} {extraArgs} \"{url}\" -d \"{Path.GetDirectoryName(path)}\" -o \"{Path.GetFileName(path)}\"";
     }
 }

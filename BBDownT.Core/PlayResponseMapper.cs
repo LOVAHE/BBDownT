@@ -7,6 +7,77 @@ namespace BBDownT.Core;
 
 internal static class PlayResponseMapper
 {
+    // Current BiliBili WEB and yt-dlp's BiliIntl extractor both consume
+    // playurl.video[].video_resource and playurl.audio_resource[].
+    internal static void MapIntlWeb(JsonElement playurl, ParsedResult result, Func<string, bool> isExcludedUrl)
+    {
+        var duration = playurl.TryGetProperty("duration", out var time) ? (int)(time.GetDouble() / 1000) : 0;
+        if (playurl.TryGetProperty("video", out var streams) && streams.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (!stream.TryGetProperty("video_resource", out var resource) || resource.ValueKind != JsonValueKind.Object
+                    || ReadText(resource, "url").Length == 0) continue;
+                var quality = ReadText(resource, "quality");
+                var description = stream.TryGetProperty("stream_info", out var info) && info.ValueKind == JsonValueKind.Object
+                    ? ReadText(info, "desc_words") : "";
+                if (quality.Length == 0 && info.ValueKind == JsonValueKind.Object) quality = ReadText(info, "quality");
+                if (description.Length == 0) description = Config.qualitys.GetValueOrDefault(quality, quality);
+                var video = new Video
+                {
+                    id = quality,
+                    dfn = description,
+                    dur = duration,
+                    baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
+                    bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
+                    codecs = ReadIntlVideoCodec(resource),
+                    size = ReadNumber(resource, "size"),
+                    res = resource.TryGetProperty("width", out var width) && resource.TryGetProperty("height", out var height)
+                        ? $"{width}x{height}" : "",
+                    fps = ReadText(resource, "frame_rate")
+                };
+                if (!result.VideoTracks.Contains(video)) result.VideoTracks.Add(video);
+            }
+        }
+        if (playurl.TryGetProperty("audio_resource", out var audios) && audios.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var resource in audios.EnumerateArray())
+            {
+                if (resource.ValueKind != JsonValueKind.Object || ReadText(resource, "url").Length == 0) continue;
+                var id = ReadText(resource, "quality");
+                if (id.Length == 0) id = ReadText(resource, "id");
+                var codec = ReadText(resource, "codecs");
+                var audio = new Audio
+                {
+                    id = id,
+                    dfn = id,
+                    dur = duration,
+                    baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
+                    bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
+                    codecs = codec switch { "mp4a.40.2" or "mp4a.40.5" => "M4A", "ec-3" => "E-AC-3", "fLaC" => "FLAC", _ => codec }
+                };
+                if (!result.AudioTracks.Contains(audio)) result.AudioTracks.Add(audio);
+            }
+        }
+    }
+
+    private static string ReadText(JsonElement node, string property)
+        => node.TryGetProperty(property, out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : "";
+
+    private static double ReadNumber(JsonElement node, string property)
+        => node.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
+
+    private static string ReadIntlVideoCodec(JsonElement resource)
+    {
+        var codec = GetVideoCodec(ReadText(resource, "codec_id"));
+        if (codec != "UNKNOWN") return codec;
+        var name = ReadText(resource, "codecs");
+        if (name.StartsWith("avc", StringComparison.OrdinalIgnoreCase)) return "AVC";
+        if (name.StartsWith("hev1", StringComparison.OrdinalIgnoreCase) || name.StartsWith("hvc1", StringComparison.OrdinalIgnoreCase)) return "HEVC";
+        if (name.StartsWith("av01", StringComparison.OrdinalIgnoreCase)) return "AV1";
+        return "UNKNOWN";
+    }
+
     internal static void MapIntl(
         JsonElement documentRoot,
         ParsedResult parsedResult,
@@ -320,9 +391,9 @@ internal static class PlayResponseMapper
         };
     }
 
-    private static string SelectPreferredUrl(JsonElement node, Func<string, bool> isExcludedUrl)
+    private static string SelectPreferredUrl(JsonElement node, Func<string, bool> isExcludedUrl, string urlProperty = "base_url")
     {
-        var urls = new List<string> { node.GetProperty("base_url").ToString() };
+        var urls = new List<string> { node.GetProperty(urlProperty).ToString() };
         if (node.TryGetProperty("backup_url", out var backupUrl)
             && backupUrl.ValueKind == JsonValueKind.Array)
         {

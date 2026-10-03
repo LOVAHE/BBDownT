@@ -21,8 +21,9 @@ public static class Entity
         public string? ownerMid;
         public string bvid
         {
-            get => BilibiliBvConverter.Encode(long.Parse(aid));
+            get => string.IsNullOrEmpty(aid) ? "" : BilibiliBvConverter.Encode(long.Parse(aid));
         }
+        internal string DownloadId => string.IsNullOrEmpty(aid) ? $"intl_{epid}" : aid;
         public List<ViewPoint> points = new();
 
         [SetsRequiredMembers]

@@ -20,7 +20,7 @@ internal sealed class PageDownloadRunner(
     {
         // A legacy AID cannot prove completion of every page. Only the original
         // unfiltered list can confirm that an AID still represents one page.
-        var legacySinglePageAids = allPages?.GroupBy(page => page.aid)
+        var legacySinglePageAids = allPages?.GroupBy(page => page.DownloadId)
             .Where(group => group.Count() == 1).Select(group => group.Key).ToHashSet()
             ?? new HashSet<string>();
         foreach (var page in pages)
@@ -32,11 +32,11 @@ internal sealed class PageDownloadRunner(
                 log($"停顿{delaySeconds}秒...");
                 await delayMilliseconds(delaySeconds * 1000);
             }
-            log($"开始解析P{page.index}: {page.aid}... ({pages.IndexOf(page) + 1} of {pages.Count})");
+            log($"开始解析P{page.index}: {page.DownloadId}... ({pages.IndexOf(page) + 1} of {pages.Count})");
 
-            var archiveKey = $"{page.aid}:{page.cid}";
+            var archiveKey = $"{page.DownloadId}:{page.cid}";
             if (saveArchives && (isArchived(archiveKey)
-                || (legacySinglePageAids.Contains(page.aid) && isArchived(page.aid))))
+                || (legacySinglePageAids.Contains(page.DownloadId) && isArchived(page.DownloadId))))
             {
                 log($"P{page.index}已下载过, 跳过下载...");
                 continue;

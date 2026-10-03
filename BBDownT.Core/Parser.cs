@@ -59,7 +59,7 @@ public static partial class Parser
         ValidateAudioLanguageMode(audioLanguage, tvApi, intl, appApi);
         LogDebug("aid={0},cid={1},epId={2},tvApi={3},IntlApi={4},appApi={5},qn={6}", aid, cid, epId, tvApi, intl, appApi, qn);
 
-        if (intl) return await GetPlayJsonAsync(aid, cid, epId, qn);
+        if (intl) return await GetPlayJsonAsync(aid, cid, epId, qn, fetchWeb: fetchWeb);
 
 
         bool cheese = aidOri.StartsWith("cheese:");
@@ -118,8 +118,10 @@ public static partial class Parser
         return webJson;
     }
 
-    private static async Task<string> GetPlayJsonAsync(string aid, string cid, string epId, string qn, string code = "0")
+    private static async Task<string> GetPlayJsonAsync(string aid, string cid, string epId, string qn, string code = "0", Func<string, Task<string>>? fetchWeb = null)
     {
+        var fetch = fetchWeb ?? (url => GetWebSourceAsync(url));
+        if (string.IsNullOrEmpty(aid)) return await IntlBangumiWebApi.GetPlayJsonAsync(epId, qn, fetch);
         bool isBiliPlus = Config.HOST != "api.bilibili.com";
         string api = $"https://{(isBiliPlus ? Config.HOST : "api.biliintl.com")}/intl/gateway/v2/ogv/playurl?";
 
@@ -134,7 +136,7 @@ public static partial class Parser
         string param = paramBuilder.ToString();
         api += (isBiliPlus ? $"{param}&sign={GetSign(param, true)}" : param);
 
-        string webJson = await GetWebSourceAsync(api);
+        string webJson = await fetch(api);
         return webJson;
     }
 
@@ -207,7 +209,18 @@ public static partial class Parser
         LogDebug(parsedResult.WebJsonString);
 
         var data = ParseJsonRoot(parsedResult.WebJsonString);
+        if (intlApi) IntlBangumiWebApi.EnsureSuccess(data);
         parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(data);
+
+        if (intlApi && data.TryGetProperty("data", out var webData)
+            && webData.ValueKind == JsonValueKind.Object
+            && webData.TryGetProperty("playurl", out var playurl) && playurl.ValueKind == JsonValueKind.Object)
+        {
+            PlayResponseMapper.MapIntlWeb(playurl, parsedResult, url => BaseUrlRegex().IsMatch(url));
+            if (parsedResult.VideoTracks.Count == 0 && parsedResult.AudioTracks.Count == 0)
+                throw new InvalidDataException("国际站未返回可用音视频流");
+            return parsedResult;
+        }
 
         //intl接口
         if (IsIntlResponse(data))
@@ -219,6 +232,7 @@ public static partial class Parser
 
             parsedResult.WebJsonString = await FetchIntlVariantAsync(qn, "1");
             data = ParseJsonRoot(parsedResult.WebJsonString);
+            if (intlApi) IntlBangumiWebApi.EnsureSuccess(data);
             parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(data);
             if (IsIntlResponse(data))
             {
@@ -357,7 +371,8 @@ public static partial class Parser
                     || (preview.ValueKind == JsonValueKind.Number
                         && preview.TryGetInt32(out var value) && value == 1)))
                 return true;
-            return node.TryGetProperty("video_info", out var info) && HasPreview(info);
+            return (node.TryGetProperty("video_info", out var info) && HasPreview(info))
+                || (node.TryGetProperty("playurl", out var playurl) && HasPreview(playurl));
         }
 
         if (HasPreview(documentRoot)) return true;
