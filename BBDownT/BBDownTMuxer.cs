@@ -202,7 +202,7 @@ static partial class BBDownTMuxer
         List<string> args = ["-loglevel", Config.DEBUG_LOG ? "verbose" : "warning", "-y"];
         args.AddRange(inputArgs);
         args.AddRange(metaArgs);
-        args.AddRange(["-map_metadata", "-1"]);
+        args.AddRange(["-map_metadata:g", "-1"]);
         if (!simplyMux) {
             args.AddRange(["-metadata", $"title={(episodeId == "" ? title : episodeId)}"]);
             args.AddRange(["-metadata", $"comment={desc}"]);

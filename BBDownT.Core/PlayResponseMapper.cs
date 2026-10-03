@@ -240,15 +240,21 @@ internal static class PlayResponseMapper
 
     internal static void MapClipInfo(JsonElement root, ParsedResult parsedResult)
     {
-        if (!root.TryGetProperty("clip_info_list", out var clipList)
-            || clipList.ValueKind != JsonValueKind.Array)
+        if (!root.TryGetProperty("clip_info_list", out var clipList))
         {
             return;
         }
 
-        parsedResult.ExtraPoints.AddRange(clipList.EnumerateArray().Select(clip => new ViewPoint
+        //番剧接口的 clip_info_list 兼容数组与单个对象两种形态
+        var clips = clipList.ValueKind switch
         {
-            title = clip.GetProperty("toastText").ToString().Replace("即将跳过", ""),
+            JsonValueKind.Array => clipList.EnumerateArray().ToList(),
+            JsonValueKind.Object => [clipList],
+            _ => new List<JsonElement>()
+        };
+        parsedResult.ExtraPoints.AddRange(clips.Select(clip => new ViewPoint
+        {
+            title = GetClipTitle(clip),
             start = clip.GetProperty("start").GetInt32(),
             end = clip.GetProperty("end").GetInt32()
         }));
@@ -271,6 +277,34 @@ internal static class PlayResponseMapper
             lastEnd = point.end;
         }
         parsedResult.ExtraPoints = pointsWithMainSegments;
+    }
+
+    /// <summary>
+    /// 番剧分段标题: 片头/片尾统一使用原有中文命名, 其它回退接口文案
+    /// </summary>
+    private static string GetClipTitle(JsonElement clip)
+    {
+        if (clip.TryGetProperty("clipType", out var clipType) && clipType.ValueKind == JsonValueKind.String)
+        {
+            switch (clipType.GetString())
+            {
+                case "CLIP_TYPE_OP": return "片头";
+                case "CLIP_TYPE_ED": return "片尾";
+            }
+        }
+
+        var raw = clip.TryGetProperty("toastText", out var toastText) ? toastText.GetString() ?? "" : "";
+        if (raw.Contains("片头", StringComparison.Ordinal)
+            || raw.Contains("OP", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("Intro", StringComparison.OrdinalIgnoreCase))
+            return "片头";
+        if (raw.Contains("片尾", StringComparison.Ordinal)
+            || raw.Contains("ED", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("Outro", StringComparison.OrdinalIgnoreCase))
+            return "片尾";
+
+        var title = raw.Replace("即将跳过", "").Trim();
+        return string.IsNullOrEmpty(title) ? "正片" : title;
     }
 
     internal static string GetVideoCodec(string code)

@@ -463,27 +463,59 @@ static partial class BBDownTUtil
     /// <returns></returns>
     public static async Task<List<ViewPoint>> FetchPointsAsync(string cid, string aid)
     {
-        var ponints = new List<ViewPoint>();
         try
         {
-            string api = $"https://api.bilibili.com/x/player/wbi/v2?cid={cid}&aid={aid}";
-            string json = await GetWebSourceAsync(api);
-            using var infoJson = JsonDocument.Parse(json);
-            if (infoJson.RootElement.GetProperty("data").TryGetProperty("view_points", out JsonElement vPoint))
+            string query = $"cid={cid}&aid={aid}";
+            var points = ParseViewPoints(await GetWebSourceAsync($"https://api.bilibili.com/x/player/wbi/v2?{query}"));
+            if (points.Count == 0 && !string.IsNullOrEmpty(Core.Config.WBI))
             {
-                foreach (var point in vPoint.EnumerateArray())
+                // 兜底: 追加 wts 并做 WBI 签名后重试
+                var signed = Core.Parser.WbiSign($"{query}&wts={DateTimeOffset.Now.ToUnixTimeSeconds()}");
+                points = ParseViewPoints(await GetWebSourceAsync($"https://api.bilibili.com/x/player/wbi/v2?{signed}"));
+            }
+            return points;
+        }
+        catch (Exception) { return []; }
+    }
+
+    /// <summary>
+    /// 解析 view_points 章节, 兼容数组/单个对象, 标题取 content(回退 title)
+    /// </summary>
+    internal static List<ViewPoint> ParseViewPoints(string json)
+    {
+        var points = new List<ViewPoint>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("data", out var data)
+                || !data.TryGetProperty("view_points", out var vPoint))
+                return points;
+
+            var items = vPoint.ValueKind switch
+            {
+                JsonValueKind.Array => vPoint.EnumerateArray().ToList(),
+                JsonValueKind.Object => [vPoint],
+                _ => new List<JsonElement>()
+            };
+            foreach (var point in items)
+            {
+                var title = point.TryGetProperty("content", out var content) ? content.GetString() : null;
+                if (string.IsNullOrWhiteSpace(title)
+                    && point.TryGetProperty("title", out var pointTitle))
                 {
-                    ponints.Add(new ViewPoint()
-                    {
-                        title = point.GetProperty("content").GetString()!,
-                        start = int.Parse(point.GetProperty("from").ToString()),
-                        end = int.Parse(point.GetProperty("to").ToString())
-                    });
+                    title = pointTitle.GetString();
                 }
+                if (string.IsNullOrWhiteSpace(title)) continue;
+                points.Add(new ViewPoint()
+                {
+                    title = title,
+                    start = point.GetProperty("from").GetInt32(),
+                    end = point.GetProperty("to").GetInt32()
+                });
             }
         }
         catch (Exception) { }
-        return ponints;
+        return points;
     }
 
     /// <summary>
