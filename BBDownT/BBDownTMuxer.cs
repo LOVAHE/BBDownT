@@ -210,7 +210,8 @@ static partial class BBDownTMuxer
         List<string> args = ["-loglevel", Config.DEBUG_LOG ? "verbose" : "warning", "-y"];
         args.AddRange(inputArgs);
         args.AddRange(metaArgs);
-        args.AddRange(["-map_metadata", "-1"]);
+        // Keep input global/stream metadata disabled while copying chapter titles.
+        args.AddRange(["-map_metadata:g", "-1", "-map_metadata:s", "-1"]);
         if (!simplyMux) {
             args.AddRange(["-metadata", $"title={(episodeId == "" ? title : episodeId)}"]);
             args.AddRange(["-metadata", $"comment={desc}"]);
