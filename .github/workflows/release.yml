@@ -78,5 +78,5 @@ jobs:
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$repo"
           else
             gh release create "$tag" "${assets[@]}" --draft --verify-tag \
-              --title "BBDownT ${tag#v}" --notes "" --repo "$repo"
+              --title "BBDownT ${tag#v}" --notes-from-tag --repo "$repo"
           fi

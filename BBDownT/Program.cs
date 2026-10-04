@@ -257,12 +257,14 @@ partial class Program
             return 1;
         }
 
+        Config.DEBUG_LOG = commandLineResult.GetValueForOption(CommandLineInvoker.Debug);
+
         if (commandLineResult.CommandResult.Command.Name == "loginintl")
         {
             if (!args.Any(argument => argument is "--help" or "-h" or "-?"))
                 return await parser.InvokeAsync(args);
             var parentSymbols = rootCommand.Arguments.Cast<Symbol>().Concat(rootCommand.Options)
-                .Where(symbol => symbol.Name != "help")
+                .Where(symbol => symbol.Name is not "help" and not "debug")
                 .Select(symbol => (Symbol: symbol, WasHidden: symbol.IsHidden)).ToArray();
             try
             {
@@ -301,11 +303,6 @@ partial class Program
         {
             newArgsList.Add("--" + o.Option.Name);
             newArgsList.AddRange(o.Tokens.Select(t => t.Value));
-        }
-
-        if (newArgsList.Contains("--debug"))
-        {
-            Config.DEBUG_LOG = true;
         }
 
         Console.BackgroundColor = ConsoleColor.DarkBlue;
@@ -595,24 +592,24 @@ partial class Program
         var runner = new PageDownloadRunner(
             CheckAidFromFile, SaveAidToFile,
             milliseconds => Task.Delay(milliseconds), message => Log(message));
+        var subtitleSession = new SubtitleSelection.Session();
 
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
         if (myOption.SaveArchivesToFile && !useAidArchive)
             Log("已选择配音版本，不读写默认配音的下载归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
         await runner.RunAsync(plan.Pages, useAidArchive, delay,
             page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
-                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask),
+                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask, subtitleSession),
             vInfo.PagesInfo);
     }
 
     private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
-        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, string apiType, DownloadTask? relatedTask = null)
+        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, string apiType, DownloadTask? relatedTask = null, SubtitleSelection.Session? subtitleSession = null)
     {
         string desc = string.IsNullOrEmpty(p.desc) ? vInfo.Desc : p.desc;
         bool bangumi = vInfo.IsBangumi;
         var pagesCount = vInfo.PagesInfo.Count;
         List<Subtitle> subtitleInfo = [];
-        HashSet<string>? subtitleChoices = null;
         string title = vInfo.Title;
         string pic = vInfo.Pic;
         long pubTime = vInfo.PubTime;
@@ -642,7 +639,8 @@ partial class Program
             {
                 videoPath = OutputPathPolicy.ResolveArtifact(videoPath, myOption.RestrictedOutputRoot);
                 audioPath = OutputPathPolicy.ResolveArtifact(audioPath, myOption.RestrictedOutputRoot);
-                coverPath = OutputPathPolicy.ResolveArtifact(coverPath, myOption.RestrictedOutputRoot);
+                if (!myOption.SkipCover)
+                    coverPath = OutputPathPolicy.ResolveArtifact(coverPath, myOption.RestrictedOutputRoot);
             }
 
             //处理文件夹以.结尾导致的异常情况
@@ -653,11 +651,7 @@ partial class Program
             if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
             {
                 var availableSubtitles = await SubUtil.GetSubtitlesAsync(p.DownloadId, p.cid, p.epid, p.index, myOption.UseIntlApi);
-                subtitleInfo = subtitleChoices is null
-                    ? SubtitleSelection.Choose(availableSubtitles, myOption, Console.In, Console.Out)
-                    : availableSubtitles.Where(s => subtitleChoices.Contains(s.id ?? s.path)).ToList();
-                if (myOption.Interactive && !myOption.OnlyShowInfo)
-                    subtitleChoices ??= subtitleInfo.Select(s => s.id ?? s.path).ToHashSet(StringComparer.Ordinal);
+                subtitleInfo = SubtitleSelection.Choose(availableSubtitles, myOption, Console.In, Console.Out, subtitleSession);
                 if (!myOption.OnlyShowInfo)
                     foreach (var subtitle in subtitleInfo)
                         subtitle.path = OutputPathPolicy.ResolveArtifact(subtitle.path, myOption.RestrictedOutputRoot);
@@ -682,12 +676,12 @@ partial class Program
                 var coverDestination = Path.ChangeExtension(
                     FormatSavePath(savePathFormat, title, null, null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot),
                     Path.GetExtension(new Uri(coverUrl).AbsolutePath));
-                await DownloadFileAsync(coverUrl, coverDestination, new DownloadConfig
+                if (!await DownloadCoverAsync(myOption, coverUrl, coverDestination, new DownloadConfig
                 {
                     UseAria2c = myOption.UseAria2c, Aria2cArgs = myOption.Aria2cArgs,
                     ForceHttp = myOption.ForceHttp, MultiThread = myOption.MultiThread, RelatedTask = relatedTask,
                     RestrictedOutputRoot = myOption.RestrictedOutputRoot
-                });
+                })) return DownloadPageOutcome.Failed;
                 if (!IsUsableArtifact(coverDestination)) return DownloadPageOutcome.Failed;
                 relatedTask?.AddSavePath(coverDestination);
                 return DownloadPageOutcome.ExclusiveArtifact;
@@ -709,7 +703,8 @@ partial class Program
                 }
                 if (!myOption.SkipCover && !myOption.SubOnly && !File.Exists(coverPath) && !myOption.DanmakuOnly && !myOption.CoverOnly)
                 {
-                    await DownloadFileAsync(pic == "" ? p.cover! : pic, coverPath, new DownloadConfig { RestrictedOutputRoot = myOption.RestrictedOutputRoot });
+                    await DownloadCoverAsync(myOption, pic == "" ? p.cover! : pic, coverPath,
+                        new DownloadConfig { RestrictedOutputRoot = myOption.RestrictedOutputRoot });
                 }
 
                 if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
@@ -876,7 +871,8 @@ partial class Program
                         return DownloadPageOutcome.Failed;
                     }
                     var newCoverPath = Path.ChangeExtension(savePath, Path.GetExtension(coverUrl));
-                    await DownloadFileAsync(coverUrl, newCoverPath, downloadConfig);
+                    if (!await DownloadCoverAsync(myOption, coverUrl, newCoverPath, downloadConfig))
+                        return DownloadPageOutcome.Failed;
                     if (!IsUsableArtifact(newCoverPath))
                     {
                         LogWarn("封面下载未生成有效文件");
@@ -897,7 +893,7 @@ partial class Program
                 {
                     Log($"{savePath}已存在, 跳过下载...");
                     relatedTask?.AddSavePath(savePath);
-                    File.Delete(coverPath);
+                    if (!myOption.SkipCover) File.Delete(coverPath);
                     DeleteEmptyDownloadDirectory(p.DownloadId);
                     return DownloadPageOutcome.AlreadyExists;
                 }
@@ -958,7 +954,7 @@ partial class Program
                     title,
                     p.ownerName ?? "",
                     (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
-                    File.Exists(coverPath) ? coverPath : "",
+                    GetCoverForMux(myOption, coverPath),
                     lang,
                     subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc, myOption.RestrictedOutputRoot));
                 if (!muxed)
@@ -972,7 +968,7 @@ partial class Program
                 if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
                 foreach (var s in subtitleInfo) File.Delete(s.path);
                 foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
-                if (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId)
+                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
                     File.Delete(coverPath);
                 DeleteEmptyDownloadDirectory(p.DownloadId);
             }
@@ -1047,7 +1043,7 @@ partial class Program
                     title,
                     p.ownerName ?? "",
                     (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
-                    File.Exists(coverPath) ? coverPath : "",
+                    GetCoverForMux(myOption, coverPath),
                     lang,
                     subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, restrictedOutputRoot: myOption.RestrictedOutputRoot));
                 if (!muxed)
@@ -1060,7 +1056,7 @@ partial class Program
                 foreach (var s in subtitleInfo) File.Delete(s.path);
                 foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
                 if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
-                if (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId)
+                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
                     File.Delete(coverPath);
                 DeleteEmptyDownloadDirectory(p.DownloadId);
             }

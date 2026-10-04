@@ -85,7 +85,7 @@ public class IntlLoginTests
 
         var result = await client.PollAsync(ticket);
 
-        Assert.Equal(Enum.Parse<IntlQrStatus>(expected), result.Status);
+        Assert.Equal(Enum.Parse<QrLoginStatus>(expected), result.Status);
         if (code == 0) Assert.Equal("www.biliintl.com", result.GoUrl!.Host);
         else Assert.Null(result.GoUrl);
     }
@@ -247,7 +247,7 @@ public class IntlLoginTests
         using var client = new IntlLoginClient(handler, false);
 
         var qr = await client.GenerateAsync();
-        Assert.Equal(IntlQrStatus.Waiting, (await client.PollAsync(qr.Ticket)).Status);
+        Assert.Equal(QrLoginStatus.Waiting, (await client.PollAsync(qr.Ticket)).Status);
     }
 
     [Fact]
@@ -437,7 +437,7 @@ public class IntlLoginTests
     {
         using var handler = new StubHandler((_, _) => throw new TaskCanceledException("synthetic-secret-ticket"));
         using var client = new IntlLoginClient(handler, false);
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GenerateAsync());
+        var error = await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.GenerateAsync());
         Assert.DoesNotContain("synthetic-secret", error.ToString());
         var saves = 0;
         var output = new List<string>();
@@ -456,7 +456,7 @@ public class IntlLoginTests
         });
         using var client = new IntlLoginClient(handler, false);
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GenerateAsync());
+        var error = await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.GenerateAsync());
 
         Assert.Contains("超时", error.Message);
         Assert.DoesNotContain("synthetic-secret", error.ToString());
@@ -646,6 +646,328 @@ public class IntlLoginTests
         using (var client = new IntlLoginClient(handler, ownsHandler)) { }
 
         Assert.Equal(ownsHandler, handler.Disposed);
+    }
+
+    [Theory]
+    [InlineData("timeout")]
+    [InlineData("network")]
+    [InlineData("503")]
+    public async Task TrustedSsoTransportFailure_ContinuesOtherTargetsAndRequiresApiConfirmation(string failure)
+    {
+        var diagnostics = new List<string>();
+        using var handler = new StubHandler((request, index) => index switch
+        {
+            0 => Json(SsoResponse("https://api.bilibili.tv/sso/optional?ticket=synthetic-secret",
+                "https://api.bilibili.tv/sso/required")),
+            1 => failure switch
+            {
+                "timeout" => throw new TaskCanceledException("synthetic-secret-ticket"),
+                "network" => throw new HttpRequestException("synthetic-secret-cookie"),
+                _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                {
+                    Content = new StringContent("synthetic-secret-response")
+                }
+            },
+            2 => WithCookie(Json("{}"), "intl_auth=synthetic-session; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure"),
+            3 => ConfirmUserWithCookie(request),
+            _ => throw new Exception("Unexpected request")
+        });
+        using var client = new IntlLoginClient(handler, false, diagnostics.Add);
+
+        Assert.Equal("intl_auth=synthetic-session", await client.CompleteAsync(null));
+        Assert.Equal(4, handler.Requests.Count);
+        Assert.Contains(diagnostics, line => line.Contains("transport_failure=continue"));
+        Assert.Contains(diagnostics, line => line.Contains("stage=Verify is_login=True"));
+        Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic") || line.Contains("https://"));
+    }
+
+    [Fact]
+    public async Task TrustedSsoFailure_WithUnconfirmedApiLoginNeverSavesCredential()
+    {
+        using var handler = new StubHandler((_, index) => index switch
+        {
+            0 => Json(QrResponse()),
+            1 => Json(PollResponse(0)),
+            2 => Json(SsoResponse("https://api.bilibili.tv/sso/optional", "https://api.bilibili.tv/sso/required")),
+            3 => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            4 => WithCookie(Json("{}"), "intl_auth=synthetic-session; Domain=.bilibili.tv; Path=/; Secure"),
+            5 => Json(UserResponse(false)),
+            _ => throw new Exception("Unexpected request")
+        });
+        using var client = new IntlLoginClient(handler, false);
+        var oldCookie = "old-cookie";
+        var output = new List<string>();
+
+        Assert.Equal(1, await Run(client, cookie => { oldCookie = cookie; return Task.CompletedTask; }, output));
+        Assert.Equal("old-cookie", oldCookie);
+        Assert.Contains(output, line => line.Contains("验证登录状态失败"));
+        Assert.Equal(6, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task ApiConfirmedLogin_SkipsExtraGoUrlNavigationThatWouldFail()
+    {
+        using var handler = new StubHandler((request, index) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/after-login")
+                throw new HttpRequestException("synthetic-secret-navigation");
+            return index == 0
+                ? WithCookie(Json(SsoResponse()), "intl_auth=synthetic-session; Domain=.bilibili.tv; Path=/; Secure")
+                : Json(UserResponse(true));
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        Assert.Equal("intl_auth=synthetic-session", await client.CompleteAsync(new Uri("https://www.biliintl.com/after-login")));
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.DoesNotContain(handler.Requests, uri => uri.AbsolutePath == "/after-login");
+    }
+
+    [Fact]
+    public async Task UnconfirmedApiLogin_UsesGoUrlFallbackThenVerifiesAgain()
+    {
+        using var handler = new StubHandler((_, index) => index switch
+        {
+            0 => Json(SsoResponse()),
+            1 => Json(UserResponse(false)),
+            2 => WithCookie(Json("{}"), "intl_auth=synthetic-session; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure"),
+            3 => Json(UserResponse(true)),
+            _ => throw new Exception("Unexpected request")
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        Assert.Equal("intl_auth=synthetic-session", await client.CompleteAsync(new Uri("https://api.bilibili.tv/after-login")));
+        Assert.Equal("/after-login", handler.Requests[2].AbsolutePath);
+        Assert.Equal("/intl/gateway/web/v2/user", handler.Requests[3].AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData("redirect")]
+    [InlineData("cookie")]
+    public async Task SecurityFailureAtOneSsoTarget_StopsBeforeOtherTargetsOrApiVerification(string failure)
+    {
+        using var handler = new StubHandler((_, index) => index switch
+        {
+            0 => Json(SsoResponse("https://api.bilibili.tv/sso/first", "https://api.bilibili.tv/sso/second")),
+            1 => failure == "redirect" ? Redirect("https://evil.test/?ticket=synthetic-secret")
+                : WithCookie(Json("{}"), "auth=synthetic-secret; Domain=.evil.test; Path=/"),
+            _ => throw new Exception("No other target or verification expected")
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CompleteAsync(null));
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.DoesNotContain("synthetic", error.ToString());
+    }
+
+    [Fact]
+    public async Task CallerCancellationAtSsoTarget_IsNotTreatedAsOptionalTransportFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var handler = new StubHandler((_, index) =>
+        {
+            if (index == 0) return Json(SsoResponse("https://api.bilibili.tv/sso/first", "https://api.bilibili.tv/sso/second"));
+            cancellation.Cancel();
+            throw new OperationCanceledException("synthetic-secret-cancellation");
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.CompleteAsync(null, cancellation.Token));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task CookieScopedOnlyToUserEndpoint_IsNotExportedAsPlaybackCredential()
+    {
+        using var handler = new StubHandler((_, index) => index == 0
+            ? WithCookie(Json(SsoResponse()), "auth=synthetic-session; Domain=.bilibili.tv; Path=/intl/gateway/web/v2/user; Secure")
+            : Json(UserResponse(true)));
+        using var client = new IntlLoginClient(handler, false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.CompleteAsync(null));
+        Assert.Equal(IntlLoginStage.Verify, client.CurrentStage);
+    }
+
+    [Fact]
+    public async Task RootAnonymousCookie_WithV2OnlyAuthenticationNeverReplacesSavedCredential()
+    {
+        using var handler = new StubHandler((request, index) => index switch
+        {
+            0 => Json(QrResponse()),
+            1 => Json(PollResponse(0)),
+            2 => WithCookie(WithCookie(Json(SsoResponse()),
+                "device_id=synthetic-anonymous; Domain=.bilibili.tv; Path=/; Secure"),
+                "auth=synthetic-v2-session; Domain=.bilibili.tv; Path=/intl/gateway/web/v2; Secure"),
+            3 => UserStateFromExportedHeader(request),
+            _ => throw new Exception("Unexpected request")
+        });
+        using var client = new IntlLoginClient(handler, false);
+        var saved = "old-cookie";
+        var output = new List<string>();
+
+        Assert.Equal(1, await Run(client, cookie => { saved = cookie; return Task.CompletedTask; }, output));
+        Assert.Equal("old-cookie", saved);
+        Assert.Contains(output, line => line.Contains("验证登录状态失败"));
+        Assert.Equal(4, handler.Requests.Count);
+    }
+
+    private static HttpResponseMessage UserStateFromExportedHeader(HttpRequestMessage request)
+    {
+        var header = Assert.Single(request.Headers.GetValues("Cookie"));
+        Assert.Contains("device_id=synthetic-anonymous", header);
+        Assert.DoesNotContain("auth=synthetic-v2-session", header);
+        return Json(UserResponse(header.Contains("auth=synthetic-v2-session", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task VerificationCookieRotation_ReverifiesTheExactHeaderBeforeReturningIt()
+    {
+        using var handler = new StubHandler((request, index) =>
+        {
+            if (index == 0) return WithCookie(Json(SsoResponse()),
+                "auth=synthetic-initial; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure");
+            var header = Assert.Single(request.Headers.GetValues("Cookie"));
+            Assert.Equal(index == 1 ? "auth=synthetic-initial" : "auth=synthetic-rotated", header);
+            return index == 1 ? WithCookie(Json(UserResponse(true)),
+                "auth=synthetic-rotated; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure")
+                : Json(UserResponse(true));
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        Assert.Equal("auth=synthetic-rotated", await client.CompleteAsync(null));
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task RepeatedVerificationCookieRotation_FailsWithoutUnboundedRequests()
+    {
+        using var handler = new StubHandler((_, index) => WithCookie(Json(index == 0 ? SsoResponse() : UserResponse(true)),
+            $"auth=synthetic-{index}; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure"));
+        using var client = new IntlLoginClient(handler, false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.CompleteAsync(null));
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(IntlLoginStage.Verify, client.CurrentStage);
+    }
+
+    [Fact]
+    public async Task GoUrlTransportFailure_StillAllowsFinalApiConfirmation()
+    {
+        using var handler = new StubHandler((_, index) => index switch
+        {
+            0 => WithCookie(Json(SsoResponse()), "auth=synthetic-session; Domain=.bilibili.tv; Path=/; Secure"),
+            1 => Json(UserResponse(false)),
+            2 => throw new HttpRequestException("synthetic-secret-navigation"),
+            3 => Json(UserResponse(true)),
+            _ => throw new Exception("Unexpected request")
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        Assert.Equal("auth=synthetic-session", await client.CompleteAsync(new Uri("https://www.biliintl.com/after-login")));
+        Assert.Equal(4, handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(403)]
+    [InlineData(429)]
+    public async Task HttpFailureDiagnostics_ExposeOnlyStageStatusAndExceptionCategory(int status)
+    {
+        var diagnostics = new List<string>();
+        using var handler = new StubHandler((_, _) => new HttpResponseMessage((HttpStatusCode)status)
+        {
+            Content = new StringContent("synthetic-secret-cookie username=synthetic-user")
+        });
+        using var client = new IntlLoginClient(handler, false, diagnostics.Add);
+
+        await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.GenerateAsync());
+        Assert.Contains($"国际站登录 stage=Generate HTTP={status}", diagnostics);
+        Assert.Contains(diagnostics, line => line.Contains("exception=TransportFailure"));
+        Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic") || line.Contains("https://"));
+    }
+
+    [Fact]
+    public async Task InvalidJsonDiagnostics_DoNotExposeResponseBody()
+    {
+        var diagnostics = new List<string>();
+        using var handler = new StubHandler((_, _) => Json("synthetic-secret-non-json"));
+        using var client = new IntlLoginClient(handler, false, diagnostics.Add);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GenerateAsync());
+        Assert.Contains("国际站登录 stage=Generate exception=JsonException", diagnostics);
+        Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic"));
+    }
+
+    [Fact]
+    public async Task UnknownApiCodeDiagnostics_DoNotExposeTicketCookieOrUpstreamMessage()
+    {
+        var diagnostics = new List<string>();
+        using var handler = new StubHandler((_, _) => Json("{\"code\":987654,\"message\":\"synthetic-secret-cookie\",\"username\":\"synthetic-user\"}"));
+        using var client = new IntlLoginClient(handler, false, diagnostics.Add);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.PollAsync("synthetic-secret-ticket"));
+        Assert.Contains("国际站登录 stage=Poll API=987654", diagnostics);
+        Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic") || line.Contains("ticket="));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DefaultDiagnostics_UseTheExistingDebugLoggerOnlyWhenEnabled(bool enabled)
+    {
+        var oldDebug = BBDownT.Core.Config.DEBUG_LOG;
+        var oldOutput = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            BBDownT.Core.Config.DEBUG_LOG = enabled;
+            Console.SetOut(output);
+            using var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.Forbidden));
+            using var client = new IntlLoginClient(handler, false);
+            await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.GenerateAsync());
+            if (enabled) Assert.Contains("stage=Generate HTTP=403", output.ToString());
+            else Assert.Equal("", output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(oldOutput);
+            BBDownT.Core.Config.DEBUG_LOG = oldDebug;
+        }
+    }
+
+    [Theory]
+    [InlineData(true, "UnauthorizedAccessException")]
+    [InlineData(false, "IOException")]
+    public async Task SaveFailure_HasFixedStageAndCategoryAndPreservesOldCredential(bool permission, string category)
+    {
+        var path = Path.Combine("/in-memory", IntlCookieStore.FileName);
+        var files = new Dictionary<string, string> { [path] = "old-cookie" };
+        var attempts = 0;
+        var diagnostics = new List<string>();
+        var output = new List<string>();
+        Exception failure = permission ? new UnauthorizedAccessException("synthetic-secret-path")
+            : new IOException("synthetic-secret-path");
+
+        var exit = await BBDownTIntlLoginUtil.RunWithDependenciesAsync(true, null,
+            cookie => IntlCookieStore.SaveAsync("/in-memory", cookie, (destination, content) =>
+            {
+                Assert.Equal(path, destination);
+                Assert.Equal("auth=synthetic-secret-cookie", content);
+                attempts++;
+                return Task.FromException(failure);
+            }), () => "auth=synthetic-secret-cookie", output.Add,
+            _ => throw new Exception("No QR expected"), _ => Task.CompletedTask, diagnostic: diagnostics.Add);
+
+        Assert.Equal(1, exit);
+        Assert.Equal(1, attempts);
+        Assert.Equal("old-cookie", files[path]);
+        Assert.Contains(output, line => line.Contains("保存登录文件失败") && line.Contains("现有登录文件未被替换"));
+        Assert.Contains($"国际站登录 stage=Save exception={category}", diagnostics);
+        Assert.DoesNotContain(output.Concat(diagnostics), line => line.Contains("synthetic"));
+    }
+
+    private static HttpResponseMessage ConfirmUserWithCookie(HttpRequestMessage request)
+    {
+        Assert.Contains("intl_auth=synthetic-session", Assert.Single(request.Headers.GetValues("Cookie")));
+        return Json(UserResponse(true));
     }
 
     private static Task<int> Run(IntlLoginClient client, Func<string, Task> save, List<string> output)

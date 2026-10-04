@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using QRCoder;
+using BBDownT.Core;
 
 namespace BBDownT;
 
@@ -16,10 +17,11 @@ internal static class BBDownTIntlLoginUtil
             using var client = importCookie ? null : new IntlLoginClient();
             return await RunWithDependenciesAsync(importCookie, client,
                 cookie => IntlCookieStore.SaveAsync(Program.APP_DIR, cookie), ReadHiddenCookie,
-                Console.WriteLine, ShowQrCode, Task.Delay);
+                Console.WriteLine, BBDownTLoginUtil.PrintQrCode, Task.Delay);
         }
-        catch (Exception)
+        catch (Exception error)
         {
+            Logger.LogDebug("国际站登录 stage=Initialize exception={0}", IntlLoginClient.ExceptionCategory(error));
             Console.WriteLine("国际站登录初始化失败，请重试");
             return 1;
         }
@@ -27,8 +29,11 @@ internal static class BBDownTIntlLoginUtil
 
     internal static async Task<int> RunWithDependenciesAsync(bool importCookie, IntlLoginClient? client,
         Func<string, Task> saveCookie, Func<string?> readCookie, Action<string> write,
-        Action<Uri> showQrCode, Func<TimeSpan, Task> delay, int maxPolls = 150)
+        Action<Uri> showQrCode, Func<TimeSpan, Task> delay, int maxPolls = 150,
+        Action<string>? diagnostic = null)
     {
+        diagnostic ??= message => Logger.LogDebug("{0}", message);
+        var stage = importCookie ? IntlLoginStage.Import : IntlLoginStage.Generate;
         try
         {
             if (importCookie)
@@ -36,7 +41,10 @@ internal static class BBDownTIntlLoginUtil
                 write("请输入国际站Cookie（输入隐藏，空输入取消）：");
                 var input = readCookie();
                 if (string.IsNullOrWhiteSpace(input)) { write("已取消导入国际站Cookie"); return 1; }
-                await saveCookie(IntlCookieStore.Normalize(input));
+                var cookie = IntlCookieStore.Normalize(input);
+                stage = IntlLoginStage.Save;
+                diagnostic("国际站登录 stage=Save begin");
+                await saveCookie(cookie);
                 write("已保存国际站Cookie，-intl将自动使用");
                 return 0;
             }
@@ -46,70 +54,54 @@ internal static class BBDownTIntlLoginUtil
             var qrCode = await client.GenerateAsync();
             showQrCode(qrCode.Url);
             write("请使用国际站APP扫描二维码并确认登录");
-            var scannedMessageShown = false;
-            for (var poll = 0; poll < maxPolls; poll++)
+            IntlQrPollResult? pollResult = null;
+            stage = IntlLoginStage.Poll;
+            var status = await BBDownTLoginUtil.WaitForQrLoginAsync(async () =>
             {
-                await delay(TimeSpan.FromSeconds(2));
-                var result = await client.PollAsync(qrCode.Ticket);
-                switch (result.Status)
-                {
-                    case IntlQrStatus.Waiting: break;
-                    case IntlQrStatus.Scanned:
-                        if (!scannedMessageShown) { write("扫码成功，请在国际站APP确认登录"); scannedMessageShown = true; }
-                        break;
-                    case IntlQrStatus.Expired:
-                        write("国际站二维码已过期，请重新执行loginintl");
-                        return 1;
-                    case IntlQrStatus.Success:
-                        var cookie = await client.CompleteAsync(result.GoUrl);
-                        await saveCookie(cookie);
-                        write("国际站登录成功，-intl将自动使用");
-                        return 0;
-                }
+                stage = IntlLoginStage.Poll;
+                pollResult = await client.PollAsync(qrCode.Ticket);
+                return pollResult.Status;
+            }, delay, TimeSpan.FromSeconds(2), () => write("扫码成功，请在国际站APP确认登录"), maxPolls);
+            if (status == QrLoginStatus.Expired)
+            {
+                write("国际站二维码已过期，请重新执行loginintl");
+                return 1;
             }
-            write("国际站扫码登录超时，请重新执行loginintl");
-            return 1;
+            if (status != QrLoginStatus.Success)
+            {
+                write("国际站扫码登录超时，请重新执行loginintl");
+                return 1;
+            }
+            stage = IntlLoginStage.Sync;
+            var loginCookie = await client.CompleteAsync(pollResult!.GoUrl);
+            stage = IntlLoginStage.Save;
+            diagnostic("国际站登录 stage=Save begin");
+            await saveCookie(loginCookie);
+            write("国际站登录成功，-intl将自动使用");
+            return 0;
         }
-        catch (Exception)
+        catch (Exception error)
         {
             // Responses and exception details may contain tickets or cookies.
-            write("国际站登录或保存失败，现有登录文件未被替换，请重试");
+            var failedStage = stage == IntlLoginStage.Sync && client is not null ? client.CurrentStage : stage;
+            diagnostic($"国际站登录 stage={failedStage} exception={IntlLoginClient.ExceptionCategory(error)}");
+            var description = failedStage switch
+            {
+                IntlLoginStage.Import => "导入 Cookie",
+                IntlLoginStage.Generate => "生成登录二维码",
+                IntlLoginStage.Poll => "轮询扫码状态",
+                IntlLoginStage.Sync => "同步登录状态",
+                IntlLoginStage.Verify => "验证登录状态",
+                IntlLoginStage.Save => "保存登录文件",
+                _ => "初始化登录"
+            };
+            write($"国际站{description}失败，现有登录文件未被替换，请重试或手动导入 Cookie");
             return 1;
         }
-    }
-
-    private static void ShowQrCode(Uri url)
-    {
-        using var generator = new QRCodeGenerator();
-        using var data = generator.CreateQrCode(url.AbsoluteUri, QRCodeGenerator.ECCLevel.Q);
-        // Two vertical pixels per character keep the ticket QR within the
-        // width of a typical terminal without wrapping and corrupting it.
-        try
-        {
-            Console.ForegroundColor = ConsoleColor.Black;
-            Console.BackgroundColor = ConsoleColor.White;
-            foreach (var row in CreateQrRows(data)) Console.WriteLine(row);
-        }
-        finally { Console.ResetColor(); }
     }
 
     internal static string[] CreateQrRows(QRCodeData data)
-    {
-        var matrix = data.ModuleMatrix;
-        var rows = new string[(matrix.Count + 1) / 2];
-        for (var y = 0; y < matrix.Count; y += 2)
-        {
-            var row = new char[matrix.Count];
-            for (var x = 0; x < matrix.Count; x++)
-            {
-                var top = matrix[y][x];
-                var bottom = y + 1 < matrix.Count && matrix[y + 1][x];
-                row[x] = top ? bottom ? '█' : '▀' : bottom ? '▄' : ' ';
-            }
-            rows[y / 2] = new string(row);
-        }
-        return rows;
-    }
+        => BBDownTLoginUtil.CreateQrRows(data);
 
     private static string? ReadHiddenCookie()
     {

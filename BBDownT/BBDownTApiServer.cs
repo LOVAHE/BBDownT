@@ -213,6 +213,8 @@ public class BBDownTApiServer
         if (batchValidation is not null) return batchValidation;
         var subtitleValidation = SubtitleSelection.ValidateOptions(req);
         if (subtitleValidation is not null) return subtitleValidation;
+        var coverValidation = Program.ValidateCoverOptions(req);
+        if (coverValidation is not null) return coverValidation;
         var audioValidation = AudioLanguageSelection.ValidateOptions(req);
         if (audioValidation is not null) return audioValidation;
         if (req.Interactive && !req.OnlyShowInfo)

@@ -14,6 +14,20 @@ public class SubtitleSelectionTests
         Assert.Equal(["zh-Hans", "en", "en-GB"], selected.Select(s => s.lan));
     }
 
+    [Fact]
+    public void CandidateAndDefaultSelection_PreserveDomesticLanguageAndAiBehavior()
+    {
+        var option = new MyOption { SubtitleLanguage = "en", AiSubtitlePolicy = "include" };
+
+        var candidates = SubtitleSelection.FilterCandidates(Tracks(), option);
+        var defaults = SubtitleSelection.SelectDefaults(candidates, option);
+
+        Assert.Equal(new[] { "en", "ai-en", "en-GB" }, candidates.Select(subtitle => subtitle.lan));
+        Assert.Equal(candidates, defaults);
+        Assert.Equal(defaults.Select(subtitle => subtitle.lan),
+            SubtitleSelection.Filter(Tracks(), option).Select(subtitle => subtitle.lan));
+    }
+
     [Theory]
     [InlineData("exclude", "zh-Hans,en,en-GB")]
     [InlineData("include", "zh-Hans,ai-zh,en,ai-en,en-GB,ai-fr")]
@@ -155,6 +169,7 @@ public class SubtitleSelectionTests
         Assert.Contains("2. ai-zh", text);
         Assert.Contains("已选", text);
         Assert.Contains("未选", text);
+        Assert.Contains("SRT", text);
     }
 
     [Fact]
@@ -234,4 +249,5 @@ public class SubtitleSelectionTests
     {
         public override string? ReadLine() => throw new Xunit.Sdk.XunitException("Info mode read input.");
     }
+
 }

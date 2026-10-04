@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace BBDownT;
@@ -40,41 +39,9 @@ internal static class IntlCookieStore
         return (international ? Normalize(cookie) : cookie, path);
     }
 
-    internal static async Task SaveAsync(string directory, string input, Func<string, string, Task>? write = null)
+    internal static Task SaveAsync(string directory, string input, Func<string, string, Task>? write = null)
     {
         var cookie = Normalize(input);
-        var path = Path.Combine(directory, FileName);
-        if (write is not null)
-        {
-            await write(path, cookie);
-            return;
-        }
-
-        var temporary = path + $".writing-{Guid.NewGuid():N}";
-        var options = new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew,
-            Access = FileAccess.Write,
-            Share = FileShare.None,
-            Options = FileOptions.Asynchronous
-        };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        var created = false;
-        try
-        {
-            await using (var stream = new FileStream(temporary, options))
-            {
-                created = true;
-                await stream.WriteAsync(Encoding.UTF8.GetBytes(cookie));
-                await stream.FlushAsync();
-            }
-            // Replace only after validation and the complete write; a failed
-            // login or write keeps the previous international credential file.
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (created && File.Exists(temporary)) File.Delete(temporary);
-        }
+        return BBDownTLoginUtil.SaveLoginDataAsync(directory, FileName, cookie, write);
     }
 }
