@@ -40,10 +40,14 @@ internal static class SubtitleUrlResolver
             if (!plain.StartsWith(prefix, StringComparison.Ordinal)) continue;
 
             string path = plain[prefix.Length..];
-            if (!path.StartsWith("/bfs/subtitle/", StringComparison.Ordinal)
-                || path.Length == "/bfs/subtitle/".Length
+            bool hasSubtitlePath = (path.StartsWith("/bfs/subtitle/", StringComparison.Ordinal)
+                    && path.Length > "/bfs/subtitle/".Length)
+                || (path.StartsWith("/bfs/ai_subtitle/prod/", StringComparison.Ordinal)
+                    && path.Length > "/bfs/ai_subtitle/prod/".Length);
+            // Reject '%' so URI parsing cannot decode the path a second time.
+            if (!hasSubtitlePath
                 || path.Any(char.IsControl)
-                || path.IndexOfAny(['?', '#', '\\']) >= 0
+                || path.IndexOfAny(['%', '?', '#', '\\']) >= 0
                 || path.Split('/').Any(segment => segment is "." or ".."))
                 throw new FormatException("字幕地址解码后的路径无效");
 

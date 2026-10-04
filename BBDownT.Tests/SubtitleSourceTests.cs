@@ -89,6 +89,26 @@ public class SubtitleSourceTests
     }
 
     [Fact]
+    public async Task DomesticSource_KeepsAiChineseTrackWithProductionObjectUrl()
+    {
+        var track = Track(StringField(2, "1658661002293866240"), StringField(3, "ai-zh"),
+            StringField(4, "中文"),
+            StringField(5, "//subtitle.bilibili.com/" + SubtitleUrlResolverTests.AiProductionEncodedPath + "?auth_key=test"),
+            VarintField(7, 1));
+        var handler = new SubtitleHandler(Field(1, Field(3, track)));
+        using var client = new HttpClient(handler);
+
+        var subtitle = Assert.Single(await SubUtil.GetDomesticSubtitlesAsync("123", "456", client));
+
+        handler.AssertOnlyNewEndpoint();
+        Assert.Equal("1658661002293866240", subtitle.id);
+        Assert.Equal("ai-zh", subtitle.lan);
+        Assert.True(subtitle.IsAi);
+        Assert.Equal(SubtitleUrlResolverTests.AiProductionCdnUrl + "?auth_key=test", subtitle.url);
+        Assert.Equal("123/123.456.ai-zh.srt", subtitle.path);
+    }
+
+    [Fact]
     public void Merge_UnsupportedEncodingDoesNotHideAnotherUsableTrackWithSameId()
     {
         var broken = new Subtitle { id = "7", lan = "zh", url = "//subtitle.bilibili.com/unknown", path = "" };
