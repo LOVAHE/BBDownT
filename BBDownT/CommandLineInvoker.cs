@@ -30,7 +30,7 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> DanmakuOnly = new(["--danmaku-only"], "仅下载弹幕");
     private static readonly Option<bool> CoverOnly = new(["--cover-only"], "仅下载封面");
     private static readonly Option<bool> SubOnly = new(["--sub-only"], "仅下载字幕");
-    private static readonly Option<bool> Debug = new(["--debug"], "输出调试日志");
+    internal static readonly Option<bool> Debug = new(["--debug"], "输出调试日志");
     private static readonly Option<bool> SkipMux = new(["--skip-mux"], "跳过混流步骤");
     private static readonly Option<bool> SkipSubtitle = new(["--skip-subtitle"], "跳过字幕下载");
     private static readonly Option<bool> SkipCover = new(["--skip-cover"], "跳过封面下载");
@@ -206,7 +206,6 @@ internal static class CommandLineInvoker
             DanmakuOnly,
             SubOnly,
             CoverOnly,
-            Debug,
             SkipMux,
             SkipSubtitle,
             SkipCover,
@@ -252,6 +251,7 @@ internal static class CommandLineInvoker
         };
 
         rootCommand.AddGlobalOption(ConfigFile);
+        rootCommand.AddGlobalOption(Debug);
         rootCommand.SetHandler(async (myOption) => await action(myOption), new MyOptionBinder());
 
         return rootCommand;

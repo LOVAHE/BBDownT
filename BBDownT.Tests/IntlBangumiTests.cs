@@ -498,6 +498,11 @@ public class IntlBangumiTests
         Assert.Equal(new[] { "https://cdn.test/en.ass", "https://cdn.test/en.json" }, result.Select(subtitle => subtitle.url));
         Assert.EndsWith(".ass", result[0].path);
         Assert.EndsWith(".srt", result[1].path);
+        Assert.NotNull(result[0].FormatVariantGroup);
+        Assert.Equal(result[0].FormatVariantGroup, result[1].FormatVariantGroup);
+        var selected = SubtitleSelection.Choose(result, new MyOption { UseIntlApi = true },
+            TextReader.Null, TextWriter.Null);
+        Assert.Equal("https://cdn.test/en.json", Assert.Single(selected).url);
     }
 
     [Fact]

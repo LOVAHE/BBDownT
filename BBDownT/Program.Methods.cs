@@ -202,12 +202,27 @@ internal partial class Program
             || myOption.DanmakuOnly);
     }
 
+    internal static string? ValidateCoverOptions(MyOption option) => option.CoverOnly && option.SkipCover
+        ? "--cover-only 与 --skip-cover 不能同时使用" : null;
+
+    internal static async Task<bool> DownloadCoverAsync(MyOption option, string url, string path,
+        DownloadConfig config, Func<string, string, DownloadConfig, Task>? download = null)
+    {
+        if (option.SkipCover || option.OnlyShowInfo) return false;
+        await (download ?? DownloadFileAsync)(url, path, config);
+        return true;
+    }
+
+    internal static string GetCoverForMux(MyOption option, string path, Func<string, bool>? exists = null)
+        => !option.SkipCover && (exists ?? File.Exists)(path) ? path : "";
+
     /// <summary>
     /// 处理有冲突的选项
     /// </summary>
     /// <param name="myOption"></param>
     internal static void HandleConflictingOptions(MyOption myOption)
     {
+        if (ValidateCoverOptions(myOption) is { } coverError) throw new ArgumentException(coverError);
         //手动选择时不能隐藏流
         if (myOption.Interactive)
         {

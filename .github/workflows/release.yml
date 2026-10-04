@@ -41,6 +41,11 @@ jobs:
       - build
 
     steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: Download release assets
         uses: actions/download-artifact@v8
         with:
@@ -78,5 +83,5 @@ jobs:
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$repo"
           else
             gh release create "$tag" "${assets[@]}" --draft --verify-tag \
-              --title "BBDownT ${tag#v}" --notes "" --repo "$repo"
+              --title "BBDownT ${tag#v}" --notes-from-tag
           fi

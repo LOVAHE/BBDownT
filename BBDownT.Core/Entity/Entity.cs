@@ -190,6 +190,10 @@ public static class Entity
         public int? type;
         public int? aiType;
 
+        // Alternative encodings of one logical subtitle track. This is local
+        // selection metadata, not part of the public subtitle JSON contract.
+        internal string? FormatVariantGroup { get; set; }
+
         public bool IsAi => type.HasValue ? type == 1 : lan.StartsWith("ai-", StringComparison.OrdinalIgnoreCase);
     }
 

@@ -261,19 +261,34 @@ public static partial class SubUtil
                         && track.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String)
                         urls.Add(url.GetString()!);
                 }
-                foreach (var url in urls.Where(url => !string.IsNullOrWhiteSpace(url)))
+                var usableUrls = urls.Where(url => !string.IsNullOrWhiteSpace(url)).ToList();
+                // The shared ASS URL links the legacy list to video_subtitle's
+                // ASS/JSON variants without collapsing independent same-language tracks.
+                var anchor = usableUrls.FirstOrDefault(url => url.Split('?', '#')[0]
+                    .EndsWith(".ass", StringComparison.OrdinalIgnoreCase)) ?? usableUrls.FirstOrDefault();
+                var group = anchor is null ? null : "intl:" + NormalizeIntlVariantAnchor(anchor);
+                foreach (var url in usableUrls)
                 {
                     subtitles.Add(new Subtitle
                     {
                         lan = language.ToString(),
                         lanDoc = entry.TryGetProperty("lang", out var description) ? description.ToString() : null,
+                        id = collection == "subtitles" && url == usableUrls[0] && entry.TryGetProperty("subtitle_id", out var id)
+                            && id.ValueKind != JsonValueKind.Null ? id.ToString() : null,
                         url = url,
-                        path = url.Split('?', '#')[0].EndsWith(".ass", StringComparison.OrdinalIgnoreCase) ? "subtitle.ass" : "subtitle.srt"
+                        path = url.Split('?', '#')[0].EndsWith(".ass", StringComparison.OrdinalIgnoreCase) ? "subtitle.ass" : "subtitle.srt",
+                        FormatVariantGroup = group
                     });
                 }
             }
         }
         return subtitles;
+    }
+
+    private static string NormalizeIntlVariantAnchor(string url)
+    {
+        try { return NormalizeSubtitleUrl(url); }
+        catch (FormatException) { return url; } // The existing merge path rejects unusable URLs.
     }
 
     private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
