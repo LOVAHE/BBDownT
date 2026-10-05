@@ -615,6 +615,7 @@ partial class Program
         long pubTime = vInfo.PubTime;
         bool selected = false; //用户是否已经手动选择过了轨道
         int retryCount = 0;
+        int transientRetryCount = 0;
         var progressiveSelection = new ProgressiveStreamSelection();
         var requestedAudioLanguage = AudioLanguageSelection.Normalize(myOption.AudioLanguage);
         Task<ParsedResult> FetchTracks(string? language, string? quality = null) =>
@@ -1078,10 +1079,14 @@ partial class Program
         }
         catch (Exception ex) when (ex is not AudioLanguageUnavailableException and not IntlApiException)
         {
-            if (++retryCount > 2) throw;
-            LogError(ex.Message);
-            LogWarn("下载出现异常, 3秒后将进行自动重试...");
-            await Task.Delay(3000);
+            var decision = DecidePageRetry(ex, retryCount, transientRetryCount);
+            if (NetworkRetry.IsTransientNetworkError(ex)) transientRetryCount = decision.Attempt;
+            else retryCount = decision.Attempt;
+            LogError(WithRootCause(ex.Message, ex, "｜根因: "));
+            LogDebug("{0}", ex.ToString());
+            if (!decision.ShouldRetry) throw;
+            LogWarn($"下载出现异常, 第{decision.Attempt}次重试将在{decision.DelayMilliseconds / 1000}秒后开始(已下载分片会续传)...");
+            await Task.Delay(decision.DelayMilliseconds);
             goto downloadPage;
         }
     }
@@ -1156,15 +1161,28 @@ partial class Program
         {
             Console.BackgroundColor = ConsoleColor.Red;
             Console.ForegroundColor = ConsoleColor.White;
-            var msg = Config.DEBUG_LOG ? e.ToString() : e.Message;
+            var msg = Config.DEBUG_LOG ? e.ToString() : DescribeFailure(e);
             Console.Write($"{msg}{Environment.NewLine}");
-            if (e is not IntlApiException) Console.Write("请尝试升级到最新版本后重试!");
+            if (e is not IntlApiException) Console.Write(DescribeFailureHint(e));
             Console.ResetColor();
             Console.WriteLine();
             Thread.Sleep(1);
             Environment.Exit(1);
         }
     }
+
+    /// <summary>
+    /// 非 --debug 的失败描述: 除顶层消息外再补一行根因。分片/接口失败常被逐层包装,
+    /// 只打印 e.Message 会让使用者和开发者都看不到真正的原因。
+    /// </summary>
+    internal static string DescribeFailure(Exception e) =>
+        WithRootCause(e.Message, e, Environment.NewLine + "根因: ");
+
+    /// <summary>顶层失败提示: 网络类故障说明重跑即可续传, 其余保持原有升级提示。</summary>
+    internal static string DescribeFailureHint(Exception e) =>
+        NetworkRetry.IsTransientNetworkError(e)
+            ? "本机网络或 DNS 暂时无法解析 bilibili/CDN 域名(断网、代理出口或 DNS 抖动的典型表现)。已下载分片会保留, 网络恢复后用同一条命令重跑即可续传!"
+            : "请尝试升级到最新版本后重试!";
 
     internal static List<Video> SortTracks(List<Video> videoTracks, Dictionary<string, int> dfnPriority, Dictionary<string, byte> encodingPriority, bool videoAscending, bool encodingPriorityFirst)
     {
