@@ -161,6 +161,7 @@ internal static class BBDownTDownloadUtil
     /// <summary>
     /// 用单字节探针确认远端实体仍是校验器所指的那一份。服务端不支持条件请求时会返回整份资源(200),
     /// 因此只认 206 + 校验器一致 + Content-Range 起点正确, 其余情况一律判为"已变化"并回到重下路径。
+    /// 链路故障(断网/DNS 失败)不构成"实体已变"的证据: 此时原样抛出, 让已下完的分片留给重试而不是被清空。
     /// </summary>
     private static async Task<bool> IsRemoteClipUnchanged(
         string url,
@@ -178,6 +179,11 @@ internal static class BBDownTDownloadUtil
             return response.StatusCode == HttpStatusCode.PartialContent
                 && validator.Matches(response)
                 && response.Content.Headers.ContentRange?.From == fromPosition;
+        }
+        catch (Exception ex) when (NetworkRetry.IsTransientNetworkError(ex))
+        {
+            LogDebug("分片探活遇到网络故障, 已下载分片保留并交由重试: {0}", ex.Message);
+            throw;
         }
         catch (Exception ex)
         {
@@ -337,8 +343,12 @@ internal static class BBDownTDownloadUtil
             // 必须在返回分片清单之前抛出: 缺片的分片清单会让上层继续合并出损坏文件
             var failure = clipFailures.OrderBy(item => item.Key).First();
             if (failure.Value is NotSupportedException) throw failure.Value;
+            // 网络类失败不会丢弃已下完的分片, 明确告诉用户重跑即可续传
+            var preservedHint = NetworkRetry.IsTransientNetworkError(failure.Value)
+                ? ", 已下载分片均已保留, 网络恢复后重跑即可续传"
+                : "";
             throw new Exception(
-                $"分片 {failure.Key} 下载失败(已重试{ClipMaxAttempts}次): {NetworkRetry.DescribeRootCause(failure.Value)}",
+                $"分片 {failure.Key} 下载失败(已重试{ClipMaxAttempts}次): {NetworkRetry.DescribeRootCause(failure.Value)}{preservedHint}",
                 failure.Value);
         }
         return clipPaths;

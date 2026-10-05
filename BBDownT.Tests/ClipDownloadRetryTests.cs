@@ -61,6 +61,42 @@ public class ClipDownloadRetryTests
     }
 
     [Fact]
+    public async Task TransientProbeFailure_KeepsCompletedClipAndSaysSo()
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.FilePath("track.mp4");
+        var expectedClip = files.Write("00000_track.vclip", "ABCD");
+        var sidecar = files.FilePath("00000_track.vclip.resume");
+        await new DownloadResumeValidator("\"v1\"", null).SaveAsync(sidecar);
+        var delays = new List<int>();
+        var probeAttempts = 0;
+        var refetchRequests = 0;
+        using var client = new HttpClient(new Handler(request =>
+        {
+            var range = request.Headers.Range?.Ranges.FirstOrDefault();
+            if (range is null)
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent("NEW!"u8.ToArray()) };
+            if (range.To == 0)
+            {
+                probeAttempts++;
+                throw new HttpRequestException("不知道这样的主机。 (upos.test:443)", new SocketException(11001));
+            }
+            refetchRequests++;
+            return Partial("NEW!"u8.ToArray(), 0, 3, 4);
+        }));
+
+        var error = await Assert.ThrowsAsync<Exception>(() => BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
+            "https://cdn.test/track.m4s", destination, new(), client, Record(delays)));
+
+        Assert.Contains("已下载分片均已保留", error.Message);
+        Assert.IsType<HttpRequestException>(error.InnerException);
+        Assert.Equal(BBDownTDownloadUtil.ClipMaxAttempts, probeAttempts);
+        // 链路故障期间不应把已下完的分片清零重下
+        Assert.Equal(0, refetchRequests);
+        Assert.Equal("ABCD", File.ReadAllText(expectedClip));
+    }
+
+    [Fact]
     public async Task UnsupportedRange_ThrowsActionableHintWithoutBackoff()
     {
         using var files = new MediaTestDirectory();

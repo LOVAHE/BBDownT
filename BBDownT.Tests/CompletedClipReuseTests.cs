@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 
 namespace BBDownT.Tests;
 
@@ -51,6 +52,54 @@ public class CompletedClipReuseTests
         await BBDownTDownloadUtil.RangeDownloadToTmpAsync(
             0, "https://cdn.test/track.m4s", clip, 0, 3, (_, _, _) => { }, httpClient: client);
 
+        Assert.Equal(new[] { "bytes=0-0", "bytes=0-3" }, ranges);
+        Assert.Equal("NEW!", File.ReadAllText(clip));
+    }
+
+    [Fact]
+    public async Task CompletedClipWithTransientProbeError_IsPreservedAndRethrown()
+    {
+        using var files = new MediaTestDirectory();
+        var clip = files.Write("00000_track.vclip", "ABCD");
+        var sidecar = files.FilePath("00000_track.vclip.resume");
+        await new DownloadResumeValidator("\"v1\"", null).SaveAsync(sidecar);
+        var ranges = new List<string>();
+        using var client = new HttpClient(new Handler(request =>
+        {
+            ranges.Add(request.Headers.Range?.ToString() ?? "-");
+            // 链路故障(DNS 解析失败)不代表远端实体已变, 不能据此丢弃已下完的分片
+            throw new HttpRequestException("不知道这样的主机。 (upos.test:443)", new SocketException(11001));
+        }));
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
+            0, "https://cdn.test/track.m4s", clip, 0, 3, (_, _, _) => { }, httpClient: client));
+
+        Assert.Equal("ABCD", File.ReadAllText(clip));
+        Assert.True(File.Exists(sidecar));
+        // 只发了探活请求: 网络恢复之前不会把整片清零重下
+        Assert.Equal(new[] { "bytes=0-0" }, ranges);
+    }
+
+    [Fact]
+    public async Task CompletedClipWithNonTransientProbeError_IsRedownloadedFromScratch()
+    {
+        using var files = new MediaTestDirectory();
+        var clip = files.Write("00000_track.vclip", "ABCD");
+        var sidecar = files.FilePath("00000_track.vclip.resume");
+        await new DownloadResumeValidator("\"v1\"", null).SaveAsync(sidecar);
+        var ranges = new List<string>();
+        using var client = new HttpClient(new Handler(request =>
+        {
+            var range = request.Headers.Range?.Ranges.FirstOrDefault();
+            ranges.Add(range is null ? "-" : $"bytes={range.From}-{range.To}");
+            if (range?.To == 0) throw new InvalidDataException("探活响应无法解析");
+            return Partial("NEW!"u8.ToArray(), 0, 3, 4, "\"v1\"");
+        }));
+
+        await BBDownTDownloadUtil.RangeDownloadToTmpAsync(
+            0, "https://cdn.test/track.m4s", clip, 0, 3, (_, _, _) => { }, httpClient: client);
+
+        // 探活拿到确定答复(非链路故障)时, 仍按"实体可能已变"截断重下
         Assert.Equal(new[] { "bytes=0-0", "bytes=0-3" }, ranges);
         Assert.Equal("NEW!", File.ReadAllText(clip));
     }
