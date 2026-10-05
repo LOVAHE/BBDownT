@@ -274,20 +274,8 @@ internal sealed class IntlLoginClient : IDisposable
             response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             diagnostic($"国际站登录 stage={CurrentStage} HTTP={(int)response.StatusCode}");
             if (response.Headers.TryGetValues("Set-Cookie", out var values))
-            {
-                foreach (var value in values)
-                {
-                    ValidateCookieDomain(value);
-                    cookies.SetCookies(uri, value);
-                }
-            }
+                CollectCookies(uri, values);
             return response;
-        }
-        catch (CookieException error)
-        {
-            response?.Dispose();
-            ReportFailure(error);
-            throw new InvalidOperationException("国际站登录Cookie响应无效");
         }
         catch (HttpRequestException error)
         {
@@ -321,17 +309,83 @@ internal sealed class IntlLoginClient : IDisposable
     private static bool TrustedHost(string host, string domain) => host.Equals(domain, StringComparison.OrdinalIgnoreCase)
         || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
 
-    private static void ValidateCookieDomain(string header)
+    private void CollectCookies(Uri uri, IEnumerable<string> headers)
     {
+        var accepted = 0;
+        var domainRejected = 0;
+        var invalid = 0;
+        foreach (var header in headers)
+        foreach (var value in SplitCookieHeader(header))
+        {
+            if (!HasValidCookieName(value)) { invalid++; continue; }
+            // Browsers ignore an unusable Set-Cookie independently. Never rebase
+            // a sibling/cross-domain cookie onto its requested domain to accept it.
+            if (!CookieDomainMatches(uri, value)) { domainRejected++; continue; }
+            try
+            {
+                // Parse in an isolated jar first, so a malformed header cannot
+                // partially mutate the live session. Reapply unchanged to retain
+                // implicit host domains, paths, secure flags and expiry deletions.
+                new CookieContainer().SetCookies(uri, value);
+                cookies.SetCookies(uri, value);
+                accepted++;
+            }
+            catch (CookieException) { invalid++; }
+        }
+        diagnostic($"国际站登录 stage={CurrentStage} cookies_accepted={accepted} cookies_domain_rejected={domainRejected} cookies_invalid={invalid}");
+    }
+
+    private static bool CookieDomainMatches(Uri uri, string header)
+    {
+        var hasDomain = false;
         var attributes = header.Split(';');
         for (var index = 1; index < attributes.Length; index++)
         {
             var parts = attributes[index].Split('=', 2);
             if (parts.Length != 2 || !parts[0].Trim().Equals("Domain", StringComparison.OrdinalIgnoreCase)) continue;
+            if (hasDomain) return false;
+            hasDomain = true;
             var domain = parts[1].Trim().Trim('"').TrimStart('.');
-            if (!TrustedHost(domain, "bilibili.tv") && !TrustedHost(domain, "biliintl.com"))
-                throw new CookieException();
+            if (domain.Length == 0 || domain.EndsWith('.')
+                || !(TrustedHost(domain, "bilibili.tv") || TrustedHost(domain, "biliintl.com"))
+                || !TrustedHost(uri.IdnHost, domain)) return false;
         }
+        return true;
+    }
+
+    private static IEnumerable<string> SplitCookieHeader(string header)
+    {
+        // Some servers combine Set-Cookie lines. Only a comma followed by a
+        // cookie-name '=' starts another cookie; the comma in Expires does not.
+        var start = 0;
+        var quoted = false;
+        for (var index = 0; index < header.Length; index++)
+        {
+            if (header[index] == '"') quoted = !quoted;
+            if (quoted || header[index] != ',') continue;
+            var next = index + 1;
+            while (next < header.Length && char.IsWhiteSpace(header[next])) next++;
+            var nameStart = next;
+            while (next < header.Length && IsCookieNameCharacter(header[next])) next++;
+            if (next == nameStart || next >= header.Length || header[next] != '=') continue;
+            yield return header[start..index].Trim();
+            start = index + 1;
+        }
+        yield return header[start..].Trim();
+    }
+
+    private static bool IsCookieNameCharacter(char value) => char.IsAsciiLetterOrDigit(value)
+        || "!#$%&'*+-.^_`|~".Contains(value);
+
+    private static bool HasValidCookieName(string header)
+    {
+        var end = header.IndexOf(';');
+        var pair = end < 0 ? header : header[..end];
+        var equals = pair.IndexOf('=');
+        if (equals < 1) return false;
+        for (var index = 0; index < equals; index++)
+            if (!IsCookieNameCharacter(pair[index])) return false;
+        return true;
     }
 
     public void Dispose() => client.Dispose();

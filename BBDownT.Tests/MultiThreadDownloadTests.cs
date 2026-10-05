@@ -11,6 +11,8 @@ public class MultiThreadDownloadTests
         using var files = new MediaTestDirectory();
         var destination = files.Write("track.mp4", "OLD!");
         var expectedClip = files.FilePath("00000_track.vclip");
+        files.FilePath("00000_track.vclip.resume");
+        files.FilePath("track.mp4.resume");
         var requests = new List<string>();
         using var client = new HttpClient(new Handler(request =>
         {

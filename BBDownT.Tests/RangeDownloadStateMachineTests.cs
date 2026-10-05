@@ -10,7 +10,7 @@ public class RangeDownloadStateMachineTests
     {
         var path = Path.GetTempFileName();
         await File.WriteAllBytesAsync(path, [1, 2]);
-        await new DownloadResumeValidator("\"entity-v1\"", null).SaveAsync(path + ".resume");
+        await SavePartialState(path, 4);
         try
         {
             using var client = CreateClient(request =>
@@ -49,6 +49,7 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -57,7 +58,7 @@ public class RangeDownloadStateMachineTests
     {
         var path = Path.GetTempFileName();
         await File.WriteAllBytesAsync(path, [9, 9]);
-        await new DownloadResumeValidator("\"entity-v1\"", null).SaveAsync(path + ".resume");
+        await SavePartialState(path, 4);
         try
         {
             using var client = CreateClient(request =>
@@ -83,7 +84,7 @@ public class RangeDownloadStateMachineTests
     {
         var path = Path.GetTempFileName();
         await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
-        await new DownloadResumeValidator("\"entity-v1\"", null).SaveAsync(path + ".resume");
+        await SavePartialState(path, 4);
         try
         {
             using var client = CreateClient(request =>
@@ -98,7 +99,7 @@ public class RangeDownloadStateMachineTests
                 0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client);
 
             Assert.Equal(new byte[] { 1, 2, 3, 4 }, await File.ReadAllBytesAsync(path));
-            Assert.False(File.Exists(path + ".resume"));
+            Assert.True((await DownloadResumeState.LoadAsync(path + ".resume"))!.Complete);
         }
         finally
         {
@@ -108,11 +109,11 @@ public class RangeDownloadStateMachineTests
     }
 
     [Fact]
-    public async Task InvalidRangeAtEof_ClearsTemporaryFileForSafeRetry()
+    public async Task InvalidRangeAtEof_PreservesTemporaryFileForReparse()
     {
         var path = Path.GetTempFileName();
         await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
-        await new DownloadResumeValidator("\"entity-v1\"", null).SaveAsync(path + ".resume");
+        await SavePartialState(path, 4);
         try
         {
             using var client = CreateClient(_ =>
@@ -126,8 +127,8 @@ public class RangeDownloadStateMachineTests
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(
                     0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
 
-            Assert.Empty(await File.ReadAllBytesAsync(path));
-            Assert.False(File.Exists(path + ".resume"));
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, await File.ReadAllBytesAsync(path));
+            Assert.True(File.Exists(path + ".resume"));
         }
         finally
         {
@@ -151,6 +152,7 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -171,6 +173,7 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -183,13 +186,14 @@ public class RangeDownloadStateMachineTests
             using var client = CreateClient(_ =>
                 CreateResponse(HttpStatusCode.OK, [1, 2], declaredLength: 4));
 
-            await Assert.ThrowsAsync<Exception>(() =>
+            await Assert.ThrowsAsync<IOException>(() =>
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(
                     0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
         }
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -208,6 +212,7 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -227,6 +232,7 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
     }
 
@@ -247,7 +253,18 @@ public class RangeDownloadStateMachineTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".resume");
         }
+    }
+
+    private static async Task SavePartialState(string path, long total)
+    {
+        const string url = "https://example.test/media";
+        var bytes = await File.ReadAllBytesAsync(path);
+        await new DownloadResumeState(DownloadResumeState.Scope(url, null), DownloadResumeState.SourceHash(url),
+            0, null, total, false, bytes.Length,
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)), new("\"entity-v1\"", null))
+            .SaveAsync(path + ".resume");
     }
 
     private static HttpClient CreateClient(Func<HttpRequestMessage, HttpResponseMessage> responder)

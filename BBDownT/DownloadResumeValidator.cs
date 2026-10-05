@@ -32,18 +32,7 @@ internal sealed record DownloadResumeValidator(string? EntityTag, DateTimeOffset
     }
 
     public bool Matches(HttpResponseMessage response)
-    {
-        if (!string.IsNullOrEmpty(EntityTag))
-        {
-            return string.Equals(
-                EntityTag,
-                response.Headers.ETag?.ToString(),
-                StringComparison.Ordinal);
-        }
-
-        return LastModified is not null
-            && response.Content.Headers.LastModified == LastModified;
-    }
+        => Matches(FromResponse(response));
 
     public static async Task<DownloadResumeValidator?> LoadAsync(string path)
     {
@@ -52,14 +41,22 @@ internal sealed record DownloadResumeValidator(string? EntityTag, DateTimeOffset
             return null;
         }
 
-        var lines = await File.ReadAllLinesAsync(path);
-        if (lines.Length != 2)
+        return Parse(await File.ReadAllTextAsync(path));
+    }
+
+    internal static DownloadResumeValidator? Parse(string text)
+    {
+        if (text.TrimStart().StartsWith('{')) return DownloadResumeState.Parse(text)?.Validator;
+        using var reader = new StringReader(text);
+        var tagLine = reader.ReadLine();
+        var dateLine = reader.ReadLine();
+        if (tagLine is null || dateLine is null || reader.ReadLine() is not null)
         {
             return null;
         }
 
-        var entityTag = Decode(lines[0]);
-        DateTimeOffset? lastModified = DateTimeOffset.TryParse(lines[1], out var parsed)
+        var entityTag = Decode(tagLine);
+        DateTimeOffset? lastModified = DateTimeOffset.TryParse(dateLine, out var parsed)
             ? parsed
             : null;
         var validator = new DownloadResumeValidator(entityTag, lastModified);
@@ -72,6 +69,15 @@ internal sealed record DownloadResumeValidator(string? EntityTag, DateTimeOffset
             path,
             [Encode(EntityTag), LastModified?.ToString("O") ?? ""]);
     }
+
+    internal bool Matches(DownloadResumeValidator other)
+        => !string.IsNullOrEmpty(EntityTag) ? EntityTag == other.EntityTag
+            : string.IsNullOrEmpty(other.EntityTag) && LastModified is not null && LastModified == other.LastModified;
+
+    internal bool KnownChanged(DownloadResumeValidator other)
+        => !string.IsNullOrEmpty(EntityTag) && !string.IsNullOrEmpty(other.EntityTag) ? EntityTag != other.EntityTag
+            : string.IsNullOrEmpty(EntityTag) && string.IsNullOrEmpty(other.EntityTag)
+                && LastModified is not null && other.LastModified is not null && LastModified != other.LastModified;
 
     private static string Encode(string? value)
     {

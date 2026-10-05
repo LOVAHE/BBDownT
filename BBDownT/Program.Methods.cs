@@ -209,7 +209,7 @@ internal partial class Program
         DownloadConfig config, Func<string, string, DownloadConfig, Task>? download = null)
     {
         if (option.SkipCover || option.OnlyShowInfo) return false;
-        await (download ?? DownloadFileAsync)(url, path, config);
+        await (download ?? ((source, destination, settings) => DownloadFileAsync(source, destination, settings)))(url, path, config);
         return true;
     }
 
@@ -515,15 +515,38 @@ internal partial class Program
     /// 下载轨道
     /// </summary>
     /// <returns></returns>
-    private static async Task DownloadTrackAsync(string url, string destPath, DownloadConfig downloadConfig, bool video)
+    internal static string GetTrackResumeIdentity(Page page, string apiType, string role,
+        Video? video = null, Audio? audio = null, string? variant = null)
     {
+        var fields = new[]
+        {
+            apiType, page.aid, page.cid, page.epid, role, variant ?? "",
+            video?.id ?? audio?.id ?? "", video?.codecs ?? audio?.codecs ?? "",
+            video?.res ?? "", video?.fps ?? "",
+            (video?.bandwith ?? audio?.bandwith ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)
+        };
+        var identity = string.Concat(fields.Select(value => value.Length + ":" + value));
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
+    }
+
+    private static async Task DownloadTrackAsync(string url, string destPath, DownloadConfig downloadConfig,
+        bool video, string resourceIdentity)
+    {
+        downloadConfig = new DownloadConfig
+        {
+            UseAria2c = downloadConfig.UseAria2c, Aria2cArgs = downloadConfig.Aria2cArgs,
+            ForceHttp = downloadConfig.ForceHttp, MultiThread = downloadConfig.MultiThread,
+            RelatedTask = downloadConfig.RelatedTask, RestrictedOutputRoot = downloadConfig.RestrictedOutputRoot,
+            ResourceIdentity = resourceIdentity
+        };
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
             var downloadedClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
             if (downloadedClips.Length > 0)
             {
                 Log($"合并{(video ? "视频" : "音频")}分片...");
-                MergeTrackClips(downloadedClips, destPath);
+                await MergeTrackClipsAsync(downloadedClips, destPath, downloadConfig);
             }
         }
         else

@@ -275,16 +275,128 @@ public class IntlLoginTests
     [InlineData(".evil.test")]
     [InlineData(".tv")]
     [InlineData(".biliintl.com")]
-    public async Task CookieDomainErrors_AreRejectedWithoutExposingCookieValues(string domain)
+    [InlineData("passport.bilibili.tv")]
+    public async Task CookieDomainErrors_AreIgnoredWithoutStoringOrSendingTheirValues(string domain)
     {
-        using var handler = new StubHandler((_, index) => index == 0 ? Json(SsoResponse("https://api.bilibili.tv/sso"))
-            : WithCookie(Json("{}"), "intl_auth=synthetic-secret; Domain=" + domain + "; Path=/; Secure"));
+        using var handler = new StubHandler((request, index) =>
+        {
+            Assert.False(request.Headers.Contains("Cookie"));
+            return index switch
+            {
+                0 => Json(SsoResponse("https://api.bilibili.tv/sso")),
+                1 => WithCookie(Json("{}"), "intl_auth=synthetic-secret; Domain=" + domain + "; Path=/; Secure"),
+                2 => Json(UserResponse(false)),
+                _ => throw new Exception("Unexpected request")
+            };
+        });
         using var client = new IntlLoginClient(handler, false);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CompleteAsync(null));
 
         Assert.DoesNotContain("synthetic-secret", error.ToString());
         Assert.DoesNotContain(domain, error.ToString());
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SuccessfulPoll_IgnoresForeignAndMalformedCookiesButKeepsAllApplicableCookies(bool combined)
+    {
+        var diagnostics = new List<string>();
+        var lines = new[]
+        {
+            "sibling=synthetic-foreign; Domain=api.bilibili.tv; Path=/; Secure",
+            "crossrealm=synthetic-foreign; Domain=.biliintl.com; Path=/; Secure",
+            "evil=synthetic-foreign; Domain=.evil.test; Path=/; Secure",
+            "broken=synthetic-invalid; Path=/; Secure; Expires=not-a-date",
+            "intl_auth=synthetic-session; Domain=.bilibili.tv; Path=/intl/gateway/web; Secure",
+            "device_context=synthetic-device; Domain=.bilibili.tv; Path=/; Secure; Expires=Wed, 21 Oct 2037 07:28:00 GMT",
+            "quoted_context=\"synthetic,quoted\"; Domain=.bilibili.tv; Path=/; Secure"
+        };
+        using var handler = new StubHandler((request, index) =>
+        {
+            if (index == 0)
+            {
+                var response = Json(PollResponse(0));
+                if (combined) response.Headers.TryAddWithoutValidation("Set-Cookie", string.Join(", ", lines));
+                else foreach (var line in lines) response.Headers.TryAddWithoutValidation("Set-Cookie", line);
+                return response;
+            }
+            var cookie = string.Join("; ", request.Headers.GetValues("Cookie"));
+            Assert.DoesNotContain("synthetic-foreign", cookie);
+            Assert.DoesNotContain("synthetic-invalid", cookie);
+            Assert.Contains("device_context=synthetic-device", cookie);
+            if (index == 1)
+            {
+                Assert.DoesNotContain("intl_auth", cookie); // Passport path does not match the auth path.
+                return Json(SsoResponse());
+            }
+            Assert.Contains("intl_auth=synthetic-session", cookie);
+            return Json(UserResponse(true));
+        });
+        using var client = new IntlLoginClient(handler, false, diagnostics.Add);
+
+        var poll = await client.PollAsync("synthetic-ticket");
+        var saved = await client.CompleteAsync(poll.GoUrl);
+
+        Assert.Contains("intl_auth=synthetic-session", saved);
+        Assert.Contains("device_context=synthetic-device", saved);
+        Assert.Contains("quoted_context=\"synthetic,quoted\"", saved);
+        Assert.DoesNotContain("synthetic-foreign", saved);
+        Assert.DoesNotContain("synthetic-invalid", saved);
+        Assert.Contains(diagnostics, line => line.Contains("cookies_domain_rejected=3"));
+        Assert.Contains(diagnostics, line => line.Contains("cookies_invalid=1"));
+        Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic") || line.Contains("https://") || line.Contains("ticket="));
+        Assert.Equal(3, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task InvalidPollCookiesWithoutAuthentication_DoNotReplacePreviousLogin()
+    {
+        var saved = "old=synthetic-old";
+        using var handler = new StubHandler((request, index) =>
+        {
+            Assert.False(request.Headers.Contains("Cookie"));
+            return index switch
+            {
+                0 => Json(QrResponse()),
+                1 => WithCookie(WithCookie(Json(PollResponse(0)),
+                    "foreign=synthetic-rejected; Domain=.evil.test; Path=/"),
+                    "bad name=synthetic-invalid; Path=/"),
+                2 => Json(SsoResponse()),
+                3 => Json(UserResponse(false)),
+                _ => throw new Exception("Unexpected request")
+            };
+        });
+        using var client = new IntlLoginClient(handler, false);
+
+        Assert.Equal(1, await Run(client, value => { saved = value; return Task.CompletedTask; }, []));
+        Assert.Equal("old=synthetic-old", saved);
+        Assert.Equal(4, handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("bad name")]
+    [InlineData("bad\tname")]
+    [InlineData("bad/name")]
+    [InlineData("\"quoted\"")]
+    public async Task NonTokenCookieNames_AreRejectedEvenWhenTheContainerWouldAcceptThem(string name)
+    {
+        using var handler = new StubHandler((request, index) =>
+        {
+            if (index == 0)
+                return WithCookie(WithCookie(Json(PollResponse(0)),
+                    name + "=synthetic-rejected; Domain=.bilibili.tv; Path=/; Secure"),
+                    "auth=synthetic-valid; Domain=.bilibili.tv; Path=/; Secure");
+            Assert.Equal("auth=synthetic-valid", Assert.Single(request.Headers.GetValues("Cookie")));
+            return Json(index == 1 ? SsoResponse() : UserResponse(true));
+        });
+        using var client = new IntlLoginClient(handler, false);
+        var poll = await client.PollAsync("synthetic-ticket");
+        Assert.Equal("auth=synthetic-valid", await client.CompleteAsync(poll.GoUrl));
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Fact]
@@ -740,16 +852,13 @@ public class IntlLoginTests
         Assert.Equal("/intl/gateway/web/v2/user", handler.Requests[3].AbsolutePath);
     }
 
-    [Theory]
-    [InlineData("redirect")]
-    [InlineData("cookie")]
-    public async Task SecurityFailureAtOneSsoTarget_StopsBeforeOtherTargetsOrApiVerification(string failure)
+    [Fact]
+    public async Task SecurityFailureAtOneSsoRedirect_StopsBeforeOtherTargetsOrApiVerification()
     {
         using var handler = new StubHandler((_, index) => index switch
         {
             0 => Json(SsoResponse("https://api.bilibili.tv/sso/first", "https://api.bilibili.tv/sso/second")),
-            1 => failure == "redirect" ? Redirect("https://evil.test/?ticket=synthetic-secret")
-                : WithCookie(Json("{}"), "auth=synthetic-secret; Domain=.evil.test; Path=/"),
+            1 => Redirect("https://evil.test/?ticket=synthetic-secret"),
             _ => throw new Exception("No other target or verification expected")
         });
         using var client = new IntlLoginClient(handler, false);
@@ -757,6 +866,30 @@ public class IntlLoginTests
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.CompleteAsync(null));
         Assert.Equal(2, handler.Requests.Count);
         Assert.DoesNotContain("synthetic", error.ToString());
+    }
+
+    [Fact]
+    public async Task ForeignCookieAtOneSsoTarget_IsNotStoredOrSentAndValidSsoCanStillAuthenticate()
+    {
+        using var handler = new StubHandler((request, index) =>
+        {
+            Assert.Equal(index == 0 ? "passport.bilibili.tv" : "api.bilibili.tv", request.RequestUri!.Host);
+            var sentCookie = request.Headers.Contains("Cookie")
+                ? string.Join("; ", request.Headers.GetValues("Cookie")) : "";
+            Assert.DoesNotContain("synthetic-rejected-secret", sentCookie);
+            Assert.Equal(index == 3 ? "auth=synthetic-valid" : "", sentCookie);
+            return index switch
+            {
+                0 => Json(SsoResponse("https://api.bilibili.tv/sso/first", "https://api.bilibili.tv/sso/second")),
+                1 => WithCookie(Json("{}"), "auth=synthetic-rejected-secret; Domain=.evil.test; Path=/"),
+                2 => WithCookie(Json("{}"), "auth=synthetic-valid; Domain=.bilibili.tv; Path=/; Secure"),
+                3 => Json(UserResponse(true)),
+                _ => throw new Exception("Unexpected request")
+            };
+        });
+        using var client = new IntlLoginClient(handler, false);
+        Assert.Equal("auth=synthetic-valid", await client.CompleteAsync(null));
+        Assert.Equal(4, handler.Requests.Count);
     }
 
     [Fact]

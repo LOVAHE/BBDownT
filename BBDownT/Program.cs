@@ -818,6 +818,8 @@ partial class Program
                 Video? selectedVideo = parsedResult.VideoTracks.ElementAtOrDefault(vIndex);
                 Audio? selectedAudio = parsedResult.AudioTracks.ElementAtOrDefault(aIndex);
                 Audio? selectedBackgroundAudio = parsedResult.BackgroundAudioTracks.ElementAtOrDefault(aIndex);
+                var actualAudioLanguage = AudioLanguageSelection.Normalize(parsedResult.CurrentAudioLanguage)
+                    ?? AudioLanguageSelection.Normalize(parsedResult.DefaultAudioLanguage) ?? requestedAudioLanguage;
 
                 LogDebug("Format Before: " + savePathFormat);
                 savePath = FormatSavePath(savePathFormat, title, selectedVideo, selectedAudio, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
@@ -907,20 +909,24 @@ partial class Program
                         myOption.UseMP4box = true;
                     }
                     Log($"开始下载P{p.index}视频...");
-                    await DownloadTrackAsync(selectedVideo.baseUrl, videoPath, downloadConfig, video: true);
+                    await DownloadTrackAsync(selectedVideo.baseUrl, videoPath, downloadConfig, video: true,
+                        resourceIdentity: GetTrackResumeIdentity(p, apiType, "video", video: selectedVideo));
                 }
 
                 if (selectedAudio != null)
                 {
                     Log($"开始下载P{p.index}音频...");
-                    await DownloadTrackAsync(selectedAudio.baseUrl, audioPath, downloadConfig, video: false);
+                    await DownloadTrackAsync(selectedAudio.baseUrl, audioPath, downloadConfig, video: false,
+                        resourceIdentity: GetTrackResumeIdentity(p, apiType, "audio", audio: selectedAudio, variant: actualAudioLanguage));
                 }
 
                 if (selectedBackgroundAudio != null)
                 {
                     var backgroundPath = $"{p.DownloadId}/{p.DownloadId}.{p.cid}.P{p.index}.back_ground.m4a";
                     Log($"开始下载P{p.index}背景配音...");
-                    await DownloadTrackAsync(selectedBackgroundAudio.baseUrl, backgroundPath, downloadConfig, video: false);
+                    await DownloadTrackAsync(selectedBackgroundAudio.baseUrl, backgroundPath, downloadConfig, video: false,
+                        resourceIdentity: GetTrackResumeIdentity(p, apiType, "background-audio", audio: selectedBackgroundAudio,
+                            variant: actualAudioLanguage));
                     audioMaterial.Add(new AudioMaterial("背景音频", "", backgroundPath));
                 }
 
@@ -929,7 +935,9 @@ partial class Program
                     foreach (var role in parsedResult.RoleAudioList)
                     {
                         Log($"开始下载P{p.index}配音[{role.title}]...");
-                        await DownloadTrackAsync(role.audio[aIndex].baseUrl, role.path, downloadConfig, video: false);
+                        await DownloadTrackAsync(role.audio[aIndex].baseUrl, role.path, downloadConfig, video: false,
+                            resourceIdentity: GetTrackResumeIdentity(p, apiType, "role-audio", audio: role.audio[aIndex],
+                                variant: (actualAudioLanguage ?? "") + ":" + role.title + ":" + role.personName));
                         audioMaterial.Add(new AudioMaterial(role));
                     }
                 }
@@ -1024,7 +1032,9 @@ partial class Program
                     videoPath = $"{p.DownloadId}/{p.DownloadId}.P{p.index}.{p.cid}.{i.ToString(pad)}.mp4";
                     files.Add(videoPath);
                     Log($"开始下载P{p.index}视频, 片段({(i + 1).ToString(pad)}/{clips.Count})...");
-                    await DownloadTrackAsync(link, videoPath, downloadConfig, video: true);
+                    await DownloadTrackAsync(link, videoPath, downloadConfig, video: true,
+                        resourceIdentity: GetTrackResumeIdentity(p, apiType, "progressive-video",
+                            video: parsedResult.VideoTracks.FirstOrDefault(), variant: i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 }
                 Log($"下载P{p.index}完毕");
                 Log("开始合并分段...");
