@@ -6,8 +6,10 @@ using static BBDownT.Core.Entity.Entity;
 
 namespace BBDownT;
 
-// Owns serial scheduling and archive outcomes only. Network, files, credentials,
-// selection and per-page retries belong to the injected page operation.
+// Owns serial scheduling, archive outcomes and cross-page fault tolerance only.
+// Network, files, credentials, selection and per-page retries belong to the
+// injected page operation. A page that ultimately fails is recorded and the
+// remaining pages still run; failures are reported once at the end.
 internal sealed class PageDownloadRunner(
     Func<string, bool> isArchived,
     Action<string> archive,
@@ -23,6 +25,7 @@ internal sealed class PageDownloadRunner(
         var legacySinglePageAids = allPages?.GroupBy(page => page.DownloadId)
             .Where(group => group.Count() == 1).Select(group => group.Key).ToHashSet()
             ?? new HashSet<string>();
+        var failedPages = new List<string>();
         foreach (var page in pages)
         {
             // Preserve the existing wait before every selected page, including
@@ -42,13 +45,32 @@ internal sealed class PageDownloadRunner(
                 continue;
             }
 
-            var outcome = await downloadPage(page);
+            DownloadPageOutcome outcome;
+            try
+            {
+                outcome = await downloadPage(page);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 单个分P失败(如需会员、CDN 持续不可用)不该牵连后面的分P: 记录后继续, 失败分P不写归档。
+                log($"P{page.index} 下载失败: {ex.Message}");
+                failedPages.Add($"P{page.index}");
+                continue;
+            }
             if (!outcome.IsSuccessful())
-                throw new InvalidOperationException($"P{page.index} 下载失败");
+            {
+                log($"P{page.index} 下载失败");
+                failedPages.Add($"P{page.index}");
+                continue;
+            }
 
             if (saveArchives && outcome.ShouldArchive())
                 archive(archiveKey);
         }
+
+        // 仍要让调用方(与退出码)知道有分P没跑完, 批量任务不会把部分失败当成功。
+        if (failedPages.Count > 0)
+            throw new InvalidOperationException($"共{failedPages.Count}个分P下载失败: {string.Join(", ", failedPages)}");
 
         log("任务完成");
     }

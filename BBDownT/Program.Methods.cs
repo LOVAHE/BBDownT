@@ -9,6 +9,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using BBDownT.Core;
 using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using static BBDownT.BBDownTDownloadUtil;
 
 namespace BBDownT;
@@ -509,6 +510,45 @@ internal partial class Program
         return int.TryParse(input, out var index) && index >= 0 && index < itemCount
             ? index
             : 0;
+    }
+
+    /// <summary>
+    /// 顶层消息之外补一句根因。包装层常常只是重复外层文案, 因此根因与消息相同(或已被包含)时不补充。
+    /// </summary>
+    internal static string WithRootCause(string message, Exception error, string separator)
+    {
+        if (ReferenceEquals(NetworkRetry.RootCause(error), error)) return message;
+        var rootCause = NetworkRetry.DescribeRootCause(error);
+        return message.Contains(rootCause, StringComparison.Ordinal) ? message : $"{message}{separator}{rootCause}";
+    }
+
+    internal const int PageOrdinaryMaxRetries = 2;
+    internal const int PageTransientMaxRetries = 6;
+    private const int PageOrdinaryRetryDelayMilliseconds = 3000;
+    private const int PageTransientBaseDelayMilliseconds = 5000;
+    private const int PageTransientMaxDelayMilliseconds = 60000;
+
+    internal readonly record struct PageRetryDecision(bool ShouldRetry, int Attempt, int DelayMilliseconds);
+
+    /// <summary>
+    /// 页面级重试预算: 网络类错误(断网/DNS 抖动)给长退避等链路自己恢复, 其余错误维持 2 次 3 秒快速重试。
+    /// 两类预算各自计数, 一次长中断不会把普通错误的额度吃光。
+    /// </summary>
+    internal static PageRetryDecision DecidePageRetry(Exception error, int ordinaryRetries, int transientRetries)
+    {
+        if (NetworkRetry.IsTransientNetworkError(error))
+        {
+            var attempt = transientRetries + 1;
+            return attempt > PageTransientMaxRetries
+                ? new PageRetryDecision(false, attempt, 0)
+                : new(true, attempt, NetworkRetry.GetBackoffMilliseconds(
+                    attempt, PageTransientBaseDelayMilliseconds, PageTransientMaxDelayMilliseconds));
+        }
+
+        var ordinaryAttempt = ordinaryRetries + 1;
+        return ordinaryAttempt > PageOrdinaryMaxRetries
+            ? new PageRetryDecision(false, ordinaryAttempt, 0)
+            : new(true, ordinaryAttempt, PageOrdinaryRetryDelayMilliseconds);
     }
 
     /// <summary>

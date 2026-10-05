@@ -139,37 +139,56 @@ public class PageDownloadRunnerTests
     }
 
     [Fact]
-    public async Task FailedOutcomeStopsLaterPagesWithoutArchiveOrCompletion()
+    public async Task FailedOutcomeStillRunsLaterPagesAndReportsFailuresAtEnd()
     {
         var events = new List<string>();
-        var runner = new PageDownloadRunner(_ => false,
-            _ => throw new Exception("Failure must not archive"), _ => Task.CompletedTask, events.Add);
+        var runner = new PageDownloadRunner(_ => false, _ => { },
+            _ => Task.CompletedTask, events.Add);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(Pages(2), true, 0, page =>
         {
             events.Add("download:" + page.cid);
-            return Task.FromResult(DownloadPageOutcome.Failed);
+            return Task.FromResult(page.index == 1 ? DownloadPageOutcome.Failed : DownloadPageOutcome.Completed);
         }));
 
-        Assert.Equal("P1 下载失败", error.Message);
-        Assert.Equal(new[] { "开始解析P1: 10... (1 of 2)", "download:1" }, events);
+        // 一个分P失败不该牵连后面的分P: 失败只记录, 最后统一报失败以保留非 0 退出码
+        Assert.Equal("共1个分P下载失败: P1", error.Message);
+        Assert.Equal(new[]
+        {
+            "开始解析P1: 10... (1 of 2)", "download:1", "P1 下载失败",
+            "开始解析P2: 10... (2 of 2)", "download:2"
+        }, events);
+        Assert.DoesNotContain("任务完成", events);
     }
 
     [Fact]
-    public async Task PropagatesPageExceptionWithoutAddingRetries()
+    public async Task PageExceptionIsRecordedAndRemainingPagesStillRun()
     {
-        var failure = new IOException("page failure");
-        var attempts = 0;
-        var runner = new PageDownloadRunner(_ => false, _ => throw new Exception("Failure must not archive"), _ => Task.CompletedTask, _ => { });
+        var downloaded = new List<string>();
+        var runner = new PageDownloadRunner(_ => false, _ => { }, _ => Task.CompletedTask, _ => { });
 
-        var actual = await Assert.ThrowsAsync<IOException>(() => runner.RunAsync(Pages(2), true, 0, _ =>
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(Pages(2), true, 0, page =>
         {
-            attempts++;
-            return Task.FromException<DownloadPageOutcome>(failure);
+            if (page.index == 1) return Task.FromException<DownloadPageOutcome>(new IOException("页面下载异常"));
+            downloaded.Add(page.cid);
+            return Task.FromResult(DownloadPageOutcome.Completed);
         }));
 
-        Assert.Same(failure, actual);
-        Assert.Equal(1, attempts);
+        Assert.Equal("共1个分P下载失败: P1", error.Message);
+        Assert.Equal(new[] { "2" }, downloaded);
+    }
+
+    [Fact]
+    public async Task FailedPageIsNotArchivedSoRerunWillTryItAgain()
+    {
+        var archive = new HashSet<string>();
+        var runner = new PageDownloadRunner(archive.Contains, key => archive.Add(key),
+            _ => Task.CompletedTask, _ => { });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync(Pages(2), true, 0, page =>
+            Task.FromResult(page.index == 1 ? DownloadPageOutcome.Failed : DownloadPageOutcome.Completed)));
+
+        Assert.Equal(new[] { "10:2" }, archive);
     }
 
     [Fact]

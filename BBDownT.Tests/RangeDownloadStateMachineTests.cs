@@ -175,7 +175,7 @@ public class RangeDownloadStateMachineTests
     }
 
     [Fact]
-    public async Task ResponseShorterThanDeclaredLength_IsRejected()
+    public async Task ResponseShorterThanDeclaredLength_IsRejectedWithBothLengths()
     {
         var path = Path.GetTempFileName();
         try
@@ -183,9 +183,13 @@ public class RangeDownloadStateMachineTests
             using var client = CreateClient(_ =>
                 CreateResponse(HttpStatusCode.OK, [1, 2], declaredLength: 4));
 
-            await Assert.ThrowsAsync<Exception>(() =>
+            var error = await Assert.ThrowsAsync<IOException>(() =>
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(
                     0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
+
+            // 长度不符会触发上层退避重试, 消息必须说清期望与实际, 否则无法判断是不是被截断
+            Assert.Contains("期望4", error.Message);
+            Assert.Contains("实际2", error.Message);
         }
         finally
         {
