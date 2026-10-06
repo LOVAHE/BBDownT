@@ -90,7 +90,7 @@ public class IntlAppPlaybackTests
     }
 
     [Fact]
-    public async Task PremiumPermissionFailureIsActionableAndDoesNotRequestCodecVariants()
+    public async Task PermissionFailurePreservesConciseReasonAndDoesNotRequestCodecVariants()
     {
         var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksWithFetcherAsync(
             "intl:2309571", "", "", "26223058", false, true, true, "0",
@@ -98,8 +98,7 @@ public class IntlAppPlaybackTests
             (_, _) => throw new Exception("Permission failures must not fetch codec variants")));
 
         Assert.Equal(10015002, error.ApiCode);
-        Assert.Contains("权限不足", error.Message);
-        Assert.Contains("Premium", error.Message);
+        Assert.Equal("国际站请求失败：访问权限不足（错误码 10015002）", error.Message);
         Assert.DoesNotContain("private", error.Message);
         Assert.Equal(error.Message, NetworkRetry.Describe(new IOException("wrapped", error)));
         Assert.False(NetworkRetry.IsTransient(error));
