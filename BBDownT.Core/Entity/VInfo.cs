@@ -4,6 +4,8 @@ namespace BBDownT.Core.Entity;
 
 public class VInfo
 {
+    internal string? IntlSeasonId { get; set; }
+
     /// <summary>
     /// 视频标题
     /// </summary>

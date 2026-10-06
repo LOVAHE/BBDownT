@@ -1,5 +1,6 @@
 using BBDownT.Core.Fetcher;
 using BBDownT.Core.Util;
+using BBDownT.Core;
 
 namespace BBDownT.Tests;
 
@@ -8,6 +9,62 @@ namespace BBDownT.Tests;
 // never authenticate an account, and never save cookies or QR images.
 public class IntlProtocolLiveTests
 {
+    [IntlLiveFact]
+    public async Task Issue24_AppOnlyFreeEpisodeUsesAppPlaybackAndMapsGrantedStreams()
+    {
+        var host = Config.HOST;
+        var token = Config.TOKEN;
+        var cookie = Config.COOKIE;
+        var international = Config.COOKIE_IS_INTL;
+        try
+        {
+            Config.HOST = "api.bilibili.com";
+            Config.TOKEN = "";
+            Config.COOKIE = "";
+            Config.COOKIE_IS_INTL = true;
+            var result = await Parser.ExtractTracksAsync("intl:2309571:26222855", "", "", "26222855",
+                false, true, true, "");
+            Assert.NotEmpty(result.VideoTracks);
+            Assert.NotEmpty(result.AudioTracks);
+            Assert.Contains(result.VideoTracks, video => video.id == "16");
+            Assert.All(result.VideoTracks, video => Assert.True(int.Parse(video.id) <= 16));
+        }
+        finally
+        {
+            Config.HOST = host;
+            Config.TOKEN = token;
+            Config.COOKIE = cookie;
+            Config.COOKIE_IS_INTL = international;
+        }
+    }
+
+    [IntlLiveFact]
+    public async Task Issue24_AppOnlyPremiumEpisodeReportsPermissionAfterAppFallback()
+    {
+        var host = Config.HOST;
+        var token = Config.TOKEN;
+        var cookie = Config.COOKIE;
+        var international = Config.COOKIE_IS_INTL;
+        try
+        {
+            Config.HOST = "api.bilibili.com";
+            Config.TOKEN = "";
+            Config.COOKIE = "";
+            Config.COOKIE_IS_INTL = true;
+            var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksAsync(
+                "intl:2309571:26223058", "", "", "26223058", false, true, false, ""));
+            Assert.Equal(10015002, error.ApiCode);
+            Assert.Contains("权限不足", NetworkRetry.Describe(error));
+        }
+        finally
+        {
+            Config.HOST = host;
+            Config.TOKEN = token;
+            Config.COOKIE = cookie;
+            Config.COOKIE_IS_INTL = international;
+        }
+    }
+
     [IntlLiveFact]
     public async Task OfficialQrProtocol_GeneratesATicketAndReportsWaitingForScan()
     {

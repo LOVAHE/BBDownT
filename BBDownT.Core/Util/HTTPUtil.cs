@@ -191,6 +191,26 @@ public static class HTTPUtil
         return htmlCode;
     }
 
+    internal static async Task<string> GetIntlAppSourceAsync(
+        string url,
+        HttpClient? httpClient = null,
+        CancellationToken cancellationToken = default,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
+    {
+        // App credentials never share the domestic cookie jar or redirect policy.
+        var json = await ExecuteWebRequestAsync(httpClient ?? IntlApiHttpClient, HttpMethod.Get, url,
+            "Bilibili Freedoooooom/MarkII", Config.COOKIE_IS_INTL, false,
+            (response, token) => response.Content.ReadAsStringAsync(token), cancellationToken, delay, null,
+            configureRequest: request =>
+            {
+                request.Headers.TryAddWithoutValidation("APP-KEY", "bstar_a");
+                request.Headers.TryAddWithoutValidation("ENV", "prod");
+            });
+        // Successful responses include signed media URLs; leave their contents out of logs.
+        LogDebug("国际站 App 响应: {0} 字符", json.Length);
+        return json;
+    }
+
     internal static Task<string> GetWebSourceAsync(
         HttpClient httpClient,
         string url,
@@ -216,7 +236,8 @@ public static class HTTPUtil
         CancellationToken cancellationToken,
         Func<TimeSpan, CancellationToken, Task>? delay,
         Action<string>? log,
-        Func<RequestIdentity, RequestIdentity?>? rotateIdentity = null)
+        Func<RequestIdentity, RequestIdentity?>? rotateIdentity = null,
+        Action<HttpRequestMessage>? configureRequest = null)
     {
         // Capture once per logical request; ordinary network retries keep all identity headers.
         var identity = ResolveRequestIdentity(url, requestedUserAgent, sendCookie, forceAuthenticatedProfile);
@@ -233,6 +254,7 @@ public static class HTTPUtil
                 while (true)
                 {
                     using var request = CreateWebRequest(method, url, identity, sendCookie);
+                    configureRequest?.Invoke(request);
                     LogDebug("获取网页内容: Url: {0}, Headers: {1}", url, request.Headers);
                     using var response = await httpClient.SendAsync(request,
                         HttpCompletionOption.ResponseHeadersRead, deadline.Token);

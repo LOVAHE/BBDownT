@@ -275,14 +275,16 @@ internal partial class Program
             LogDebug("文件路径：{0}", webCookieFilePath);
             Config.COOKIE = loaded.Cookie;
         }
-        if (string.IsNullOrEmpty(Config.TOKEN) && File.Exists(Path.Combine(APP_DIR, "BBDownTTV.data")) && myOption.UseTvApi)
+        if (!myOption.UseIntlApi && myOption.UseTvApi && string.IsNullOrEmpty(Config.TOKEN)
+            && File.Exists(Path.Combine(APP_DIR, "BBDownTTV.data")))
         {
             Log("加载本地token...");
             LogDebug("文件路径：{0}", Path.Combine(APP_DIR, "BBDownTTV.data"));
             Config.TOKEN = File.ReadAllText(Path.Combine(APP_DIR, "BBDownTTV.data"));
             Config.TOKEN = Config.TOKEN.Replace("access_token=", "");
         }
-        if (string.IsNullOrEmpty(Config.TOKEN) && File.Exists(Path.Combine(APP_DIR, "BBDownTApp.data")) && myOption.UseAppApi)
+        if (!myOption.UseIntlApi && myOption.UseAppApi && string.IsNullOrEmpty(Config.TOKEN)
+            && File.Exists(Path.Combine(APP_DIR, "BBDownTApp.data")))
         {
             Log("加载本地token...");
             LogDebug("文件路径：{0}", Path.Combine(APP_DIR, "BBDownTApp.data"));
@@ -529,6 +531,11 @@ internal partial class Program
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
+
+    internal static string GetIntlPlaybackId(VInfo info, string originalId)
+        => !string.IsNullOrEmpty(info.IntlSeasonId) && info.PagesInfo.All(page => string.IsNullOrEmpty(page.aid))
+            && originalId.StartsWith("ep:", StringComparison.Ordinal)
+            ? "intl:" + info.IntlSeasonId : originalId;
 
     private static async Task DownloadTrackAsync(string url, string destPath, DownloadConfig downloadConfig,
         bool video, string resourceIdentity)

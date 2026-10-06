@@ -81,7 +81,8 @@ internal static class PlayResponseMapper
     internal static void MapIntl(
         JsonElement documentRoot,
         ParsedResult parsedResult,
-        Func<string, bool> isExcludedUrl)
+        Func<string, bool> isExcludedUrl,
+        int? maximumQuality = null)
     {
         var videoInfo = documentRoot.GetProperty("data").GetProperty("video_info");
         var duration = videoInfo.GetProperty("timelength").GetInt32() / 1000;
@@ -93,11 +94,19 @@ internal static class PlayResponseMapper
                 continue;
             }
             var videoId = stream.GetProperty("stream_info").GetProperty("quality").ToString();
+            // App responses may list login/Premium tiers with URLs even when
+            // the server grants a lower quality to the current credentials.
+            if (maximumQuality is not null && int.TryParse(videoId, out var quality) && quality > maximumQuality)
+                continue;
+            var streamInfo = stream.GetProperty("stream_info");
+            var description = Config.qualitys.GetValueOrDefault(videoId,
+                ReadText(streamInfo, "description").Trim());
+            if (description.Length == 0) description = videoId;
             var video = new Video
             {
                 dur = duration,
                 id = videoId,
-                dfn = Config.qualitys[videoId],
+                dfn = description,
                 bandwith = Convert.ToInt64(dashVideo.GetProperty("bandwidth").ToString()) / 1000,
                 baseUrl = SelectPreferredUrl(dashVideo, isExcludedUrl),
                 codecs = GetVideoCodec(dashVideo.GetProperty("codecid").ToString()),

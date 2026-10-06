@@ -4,6 +4,8 @@ namespace BBDownT.Core;
 
 public static class Logger
 {
+    private static readonly object OutputLock = new();
+
     private static readonly Regex[] SensitivePatterns =
     [
         new("(?i)(Cookie:\\s*)[^\\r\\n]+", RegexOptions.Compiled),
@@ -32,59 +34,74 @@ public static class Logger
 
     public static void Log(object text, bool enter = true)
     {
-        Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - " + RedactSensitiveText(text));
-        if (enter) Console.WriteLine();
+        lock (OutputLock)
+        {
+            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - " + RedactSensitiveText(text));
+            if (enter) Console.WriteLine();
+        }
     }
 
     public static void LogError(object text)
     {
-        Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write(RedactSensitiveText(text));
-        Console.ResetColor();
-        Console.WriteLine();
+        lock (OutputLock)
+        {
+            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write(RedactSensitiveText(text));
+            Console.ResetColor();
+            Console.WriteLine();
+        }
     }
 
     public static void LogColor(object text, bool time = true)
     {
-        if (time)
-            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        if (time)
-            Console.Write(RedactSensitiveText(text));
-        else
-            Console.Write("                            " + RedactSensitiveText(text));
-        Console.ResetColor();
-        Console.WriteLine();
+        lock (OutputLock)
+        {
+            if (time)
+                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            if (time)
+                Console.Write(RedactSensitiveText(text));
+            else
+                Console.Write("                            " + RedactSensitiveText(text));
+            Console.ResetColor();
+            Console.WriteLine();
+        }
     }
 
     public static void LogWarn(object text, bool time = true)
     {
-        if (time)
-            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-        Console.ForegroundColor = ConsoleColor.DarkYellow;
-        if (time)
-            Console.Write(RedactSensitiveText(text));
-        else
-            Console.Write("                            " + RedactSensitiveText(text));
-        Console.ResetColor();
-        Console.WriteLine();
+        lock (OutputLock)
+        {
+            if (time)
+                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            if (time)
+                Console.Write(RedactSensitiveText(text));
+            else
+                Console.Write("                            " + RedactSensitiveText(text));
+            Console.ResetColor();
+            Console.WriteLine();
+        }
     }
 
     public static void LogDebug(string toFormat, params object[] args)
     {
         if (Config.DEBUG_LOG)
         {
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-            string message;
-            if (args.Length > 0)
-                message = string.Format(toFormat, args).Trim();
-            else
-                message = toFormat;
-            Console.Write(RedactSensitiveText(message));
-            Console.ResetColor();
-            Console.WriteLine();
+            lock (OutputLock)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
+                string message;
+                if (args.Length > 0)
+                    message = string.Format(toFormat, args).Trim();
+                else
+                    message = toFormat;
+                Console.Write(RedactSensitiveText(message));
+                Console.ResetColor();
+                Console.WriteLine();
+            }
         }
     }
 }

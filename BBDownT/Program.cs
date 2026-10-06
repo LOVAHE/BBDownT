@@ -593,13 +593,14 @@ partial class Program
             CheckAidFromFile, SaveAidToFile,
             (milliseconds, token) => Task.Delay(milliseconds, token), message => Log(message));
         var subtitleSession = new SubtitleSelection.Session();
+        var playbackId = GetIntlPlaybackId(vInfo, aidOri);
 
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
         if (myOption.SaveArchivesToFile && !useAidArchive)
             Log("已选择配音版本，不读写默认配音的下载归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
         await runner.RunAsync(plan.Pages, useAidArchive, delay,
             page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
-                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, aidOri, apiType, relatedTask, subtitleSession),
+                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, playbackId, apiType, relatedTask, subtitleSession),
             vInfo.PagesInfo);
     }
 

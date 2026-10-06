@@ -74,6 +74,14 @@ public class IntlBangumiTests
         Assert.Equal(3, info.PagesInfo.Count);
         Assert.Equal("1", info.Index);
         Assert.Equal("intl_13287667", info.PagesInfo[0].DownloadId);
+        Assert.Equal("2110869", info.IntlSeasonId);
+        var playbackId = Program.GetIntlPlaybackId(info, "ep:13287667");
+        Assert.Equal("intl:2110869", playbackId);
+        Uri? appRequest = null;
+        await Parser.GetPlayJsonAsync("", playbackId, "", "", "13287667", false, true, true,
+            fetchWeb: url => { appRequest = new Uri(url); return Task.FromResult("{\"code\":0}"); });
+        Assert.Equal("2110869", HttpUtility.ParseQueryString(appRequest!.Query)["sid"]);
+        Assert.Equal("13287667", HttpUtility.ParseQueryString(appRequest.Query)["ep_id"]);
     }
 
     [Fact]

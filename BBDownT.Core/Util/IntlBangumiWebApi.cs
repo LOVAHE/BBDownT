@@ -58,6 +58,7 @@ internal static class IntlBangumiWebApi
         if (cover.Length == 0) cover = ReadText(season, "vertical_cover");
         return new VInfo
         {
+            IntlSeasonId = seasonId,
             Title = ReadText(season, "title").Trim(),
             Desc = ReadText(season, "description").Trim(),
             Pic = cover,
@@ -97,24 +98,59 @@ internal static class IntlBangumiWebApi
             throw new InvalidDataException("国际站接口返回了无效状态码");
         if (code == 0) return;
 
-        var message = code switch
+        var knownMessage = ErrorDescription(code);
+        if (knownMessage is not null) throw IntlApiException.FromCode(code);
+        var error = "国际站请求失败" + (ReadText(root, "message") is { Length: > 0 } detail && detail != code.ToString()
+            ? $"：{detail}" : "") + $"（错误码 {code}）";
+        throw new InvalidOperationException(error);
+    }
+
+    internal static void EnsurePlaybackSuccess(JsonElement root)
+    {
+        EnsureSuccess(root);
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+            || !data.TryGetProperty("video_info", out var video) || video.ValueKind == JsonValueKind.Object)
+            return;
+        if (data.TryGetProperty("dialog", out var dialog) && dialog.ValueKind == JsonValueKind.Object
+            && ReadText(dialog, "action") == "2" && ReadText(dialog, "type") == "3")
+            throw IntlApiException.RegionRestricted();
+        throw new InvalidDataException("国际站 App 未返回可用音视频流，请检查内容权限");
+    }
+
+    internal static string? ErrorDescription(int code)
+        => code switch
         {
             10004001 or 10015001 => "国际站版权地区限制，当前网络出口无法播放该内容",
             10004004 or 10004006 => "该国际站视频需要 Premium 会员权限",
             10004005 or -101 => "该国际站视频需要登录，请通过 -c 提供国际站 Cookie",
             10023006 => "国际站缺少设备凭证，请通过 -c 提供完整的国际站 Cookie",
+            10023014 => "当前内容仅在国际版 App 提供",
+            10015002 => "国际站 App 播放权限不足，请确认国际站登录、Premium 会员及地区权限；App token 可通过 --access-token 指定",
             -404 or 10004003 or 10015404 => "国际站番剧或分集不存在",
-            _ => "国际站请求失败" + (ReadText(root, "message") is { Length: > 0 } detail && detail != code.ToString()
-                ? $"：{detail}" : "")
+            _ => null
         };
-        var error = $"{message}（错误码 {code}）";
-        if (code is 10004001 or 10015001 or 10004004 or 10004006 or 10004005 or -101 or 10023006 or -404 or 10004003 or 10015404)
-            throw new IntlApiException(error);
-        throw new InvalidOperationException(error);
-    }
 
     private static string ReadText(JsonElement node, string property)
         => node.TryGetProperty(property, out var value) && value.ValueKind != JsonValueKind.Null ? value.ToString() : "";
 }
 
-internal sealed class IntlApiException(string message) : InvalidOperationException(message) { }
+internal sealed class IntlApiException : InvalidOperationException
+{
+    internal string? UserDescription { get; }
+    internal int? ApiCode { get; }
+
+    internal IntlApiException(string message) : base(message) { }
+
+    private IntlApiException(string description, int? code)
+        : base(description + (code is null ? "" : $"（错误码 {code}）"))
+    {
+        UserDescription = Message;
+        ApiCode = code;
+    }
+
+    internal static IntlApiException FromCode(int code)
+        => new(IntlBangumiWebApi.ErrorDescription(code) ?? "国际站请求失败", code);
+
+    internal static IntlApiException RegionRestricted()
+        => new("国际站版权地区限制，当前网络出口无法播放该内容", null);
+}

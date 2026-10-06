@@ -44,6 +44,10 @@ internal static class NetworkRetry
     {
         // Never include exception messages: they can contain credential-bearing URLs or headers.
         var causes = Causes(error).ToArray();
+        // International API descriptions come from fixed messages and numeric
+        // codes, so normal output can retain actionable errors without raw URLs.
+        var international = causes.OfType<IntlApiException>().FirstOrDefault(cause => cause.UserDescription is not null);
+        if (international is not null) return international.UserDescription!;
         var description = error.GetType().Name;
         var httpError = causes.OfType<HttpRequestException>().FirstOrDefault(cause => cause.StatusCode.HasValue);
         if (httpError is not null) description += $" HTTP {(int)httpError.StatusCode!.Value}";
