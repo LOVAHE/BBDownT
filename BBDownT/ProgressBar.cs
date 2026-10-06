@@ -1,6 +1,8 @@
 ﻿using System;
+using System.IO;
 using System.Text;
 using System.Threading;
+using BBDownT.Core;
 
 /**
  * From https://gist.github.com/DanielSWolf/0ab6a96899cc5377bf54
@@ -14,10 +16,12 @@ class ProgressBar : IDisposable, IProgress<double>
 	private const string animation = @"|/-\";
 
 	private readonly Timer timer;
+	private readonly Logger.ProgressLine? progressLine;
+	private readonly bool runTimers;
+	private readonly int? terminalColumns;
 
 	private double currentProgress = 0;
-	private string currentText = string.Empty;
-	private bool disposed = false;
+	private volatile bool disposed = false;
 	private int animationIndex = 0;
 
 	//速度计算
@@ -25,23 +29,39 @@ class ProgressBar : IDisposable, IProgress<double>
 	private long lastDownloadedBytes = 0;
 	private long downloadedBytes = 0;
 	private string speedString = "";
+	private string? statusText;
 	private readonly Timer speedTimer;
 
 	//服务器模式使用，更新下载任务的进度
 	private DownloadTask? RelatedTask = null;
 
 	public ProgressBar(DownloadTask? task = null)
+		: this(task, null, Console.IsOutputRedirected, runTimers: true, terminalColumns: null)
 	{
+	}
+
+	// In-memory display tests advance the normal rendering path by hand,
+	// without scheduling timers or relying on a terminal cursor.
+	internal ProgressBar(TextWriter output, bool outputRedirected = false, int terminalColumns = 0)
+		: this(null, output, outputRedirected, runTimers: false, terminalColumns: terminalColumns)
+	{
+	}
+
+	private ProgressBar(DownloadTask? task, TextWriter? output, bool outputRedirected, bool runTimers, int? terminalColumns)
+	{
+		this.runTimers = runTimers;
+		this.terminalColumns = terminalColumns;
 		timer = new Timer(TimerHandler);
 		speedTimer = new Timer(SpeedTimerHandler);
 		if (task is not null) RelatedTask = task;
+		if (!outputRedirected) progressLine = Logger.RegisterProgressLine(output);
 		// A progress bar is only for temporary display in a console window.
 		// If the console output is redirected to a file, draw nothing.
 		// Otherwise, we'll end up with a lot of garbage in the target file.
 		// However, if this progressbar is for a server download task,
 		// we still need it to report progress no matter where stdout is redirected.
 		// The prevention of writing garbage should be controlled on the methods do the actual writing.
-		if (!Console.IsOutputRedirected || RelatedTask is not null)
+		if (runTimers && (!outputRedirected || RelatedTask is not null))
 		{
 			ResetTimer();
 			ResetSpeedTimer();
@@ -62,6 +82,13 @@ class ProgressBar : IDisposable, IProgress<double>
 		Interlocked.Exchange(ref downloadedBytes, bytesCount);
 	}
 
+	internal void ReportDownload(double value, long transferredBytes, string? status = null)
+	{
+		Report(value, transferredBytes);
+		Interlocked.Exchange(ref statusText, status);
+		RelatedTask?.ReportProgress(NormalizeProgress(value));
+	}
+
 	internal static double NormalizeProgress(double value)
 	{
 		return double.IsFinite(value) ? Math.Clamp(value, 0, 1) : 0;
@@ -73,19 +100,19 @@ class ProgressBar : IDisposable, IProgress<double>
 		{
 			if (disposed) return;
 
-			if (downloadedBytes > 0 && downloadedBytes - lastDownloadedBytes > 0)
-			{
-				var delta = downloadedBytes - lastDownloadedBytes;
-				speedString = " - " + BBDownTUtil.FormatFileSize(delta) + "/s";
-				lastDownloadedBytes = downloadedBytes;
-				if (RelatedTask is not null) 
-				{
-					RelatedTask.ReportDownloadedBytes(delta);
-				}
-			}
+			UpdateSpeed();
 
-			ResetSpeedTimer();
+			if (runTimers) ResetSpeedTimer();
 		}
+	}
+
+	private void UpdateSpeed()
+	{
+		var received = Interlocked.Read(ref downloadedBytes);
+		var delta = Math.Max(0, received - lastDownloadedBytes);
+		speedString = " - " + BBDownTUtil.FormatFileSize(delta) + "/s";
+		lastDownloadedBytes = received;
+		RelatedTask?.ReportDownloadedBytes(delta);
 	}
 
 	private void TimerHandler(object? state)
@@ -94,52 +121,86 @@ class ProgressBar : IDisposable, IProgress<double>
 		{
 			if (disposed) return;
 
-			int progressBlockCount = (int)(currentProgress * blockCount);
-			double percent = currentProgress * 100;
-			string text = string.Format("                            [{0}{1}] {2,3:0.00}% {3}{4}",
-				new string('#', progressBlockCount), new string('-', blockCount - progressBlockCount), percent,
-				animation[animationIndex++ % animation.Length],
-				speedString);
+			string text = FormatDisplayText(currentProgress, speedString, statusText,
+				animation[animationIndex++ % animation.Length], GetTerminalColumns());
 			UpdateText(text);
 			if (RelatedTask is not null) 
 			{
 					RelatedTask.ReportProgress(currentProgress);
 			}
 
-			ResetTimer();
+			if (runTimers) ResetTimer();
 		}
+	}
+
+	private int GetTerminalColumns()
+	{
+		if (terminalColumns.HasValue) return terminalColumns.Value;
+		if (Console.IsOutputRedirected) return 0;
+		try
+		{
+			return Console.WindowWidth;
+		}
+		catch (IOException) { return 0; }
+		catch (PlatformNotSupportedException) { return 0; }
+	}
+
+	internal static string FormatDisplayText(double progress, string speed, string? status, char frame, int columns)
+	{
+		int padding = 28;
+		int blocks = blockCount;
+		string percent = string.Format(" {0,3:0.00}% {1}", progress * 100, frame);
+		string phase = status is null ? "" : " - " + status;
+		if (columns > 0)
+		{
+			// Keep the final terminal column free: reaching it can trigger an
+			// automatic wrap that a later backspace cannot safely reverse.
+			int available = columns - 1;
+			int fixedColumns = 2 + Logger.ProgressLine.GetDisplayWidth(percent.AsSpan());
+			int suffixColumns = Logger.ProgressLine.GetDisplayWidth(speed.AsSpan())
+				+ Logger.ProgressLine.GetDisplayWidth(phase.AsSpan());
+			int overflow = Math.Max(0, padding + blocks + fixedColumns + suffixColumns - available);
+			int removed = Math.Min(padding, overflow);
+			padding -= removed;
+			overflow -= removed;
+			removed = Math.Min(blocks - 1, overflow);
+			blocks -= removed;
+			overflow -= removed;
+			if (overflow > 0)
+			{
+				speed = "";
+				int phaseBudget = available - padding - blocks - fixedColumns;
+				if (Logger.ProgressLine.GetDisplayWidth(phase.AsSpan()) > phaseBudget)
+					phase = phaseBudget > 3 ? " - " + TruncateDisplayText(status ?? "", phaseBudget - 3) : "";
+			}
+		}
+
+		int filled = (int)(progress * blocks);
+		return new string(' ', padding) + "[" + new string('#', filled)
+			+ new string('-', blocks - filled) + "]" + percent + speed + phase;
+	}
+
+	private static string TruncateDisplayText(string text, int columns)
+	{
+		if (Logger.ProgressLine.GetDisplayWidth(text.AsSpan()) <= columns) return text;
+		var shortened = new StringBuilder();
+		int used = 0;
+		foreach (var character in text.EnumerateRunes())
+		{
+			int width = Logger.ProgressLine.GetDisplayWidth(character);
+			if (used + width > columns - 1) break;
+			shortened.Append(character.ToString());
+			used += width;
+		}
+		return shortened.Append('…').ToString();
 	}
 
 	private void UpdateText(string text)
 	{
-		// Write nothing when output is redirected
-		if (Console.IsOutputRedirected) return;
-		// Get length of common portion
-		int commonPrefixLength = 0;
-		int commonLength = Math.Min(currentText.Length, text.Length);
-		while (commonPrefixLength < commonLength && text[commonPrefixLength] == currentText[commonPrefixLength])
-		{
-			commonPrefixLength++;
-		}
-
-		// Backtrack to the first differing character
-		StringBuilder outputBuilder = new();
-		outputBuilder.Append('\b', currentText.Length - commonPrefixLength);
-
-		// Output new suffix
-		outputBuilder.Append(text[commonPrefixLength..]);
-
-		// If the new text is shorter than the old one: delete overlapping characters
-		int overlapCount = currentText.Length - text.Length;
-		if (overlapCount > 0)
-		{
-			outputBuilder.Append(' ', overlapCount);
-			outputBuilder.Append('\b', overlapCount);
-		}
-
-		Console.Write(outputBuilder);
-		currentText = text;
+		progressLine?.Update(text);
 	}
+
+	internal void RefreshDisplay() => TimerHandler(null);
 
 	private void ResetTimer()
 	{
@@ -155,8 +216,15 @@ class ProgressBar : IDisposable, IProgress<double>
 	{
 		lock (timer)
 		{
+			if (disposed) return;
 			disposed = true;
-			UpdateText(string.Empty);
+			progressLine?.Dispose();
+			timer.Dispose();
+		}
+		lock (speedTimer)
+		{
+			UpdateSpeed();
+			speedTimer.Dispose();
 		}
 	}
 }

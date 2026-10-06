@@ -6,6 +6,37 @@ namespace BBDownT.Tests;
 
 public class ResumeStateCodecTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BareCdnTag_IsNormalizedOnlyForRecognizedMedia(bool recognized)
+    {
+        using var response = new HttpResponseMessage(System.Net.HttpStatusCode.PartialContent)
+        { Content = new ByteArrayContent([]) };
+        response.Headers.TryAddWithoutValidation("ETag", "b61d09ee67e4ba9f273afea2bbe248b1");
+        var validator = DownloadResumeValidator.FromResponse(response, recognized);
+
+        Assert.Equal(recognized, validator.HasStrongEntityTag);
+        if (!recognized) return;
+        Assert.Equal("\"b61d09ee67e4ba9f273afea2bbe248b1\"", validator.EntityTag);
+        using var request = new HttpRequestMessage();
+        validator.Apply(request);
+        Assert.Equal(validator.EntityTag, request.Headers.IfRange?.ToString());
+    }
+
+    [Theory]
+    [InlineData("W/\"weak\"")]
+    [InlineData("*")]
+    [InlineData("invalid")]
+    [InlineData("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")]
+    public void AmbiguousOrWeakCdnTag_DoesNotBecomeStrong(string tag)
+    {
+        using var response = new HttpResponseMessage(System.Net.HttpStatusCode.PartialContent)
+        { Content = new ByteArrayContent([]) };
+        response.Headers.TryAddWithoutValidation("ETag", tag);
+        Assert.False(DownloadResumeValidator.FromResponse(response, true).HasStrongEntityTag);
+    }
+
     [Fact]
     public void Record_RoundTripsWithoutPersistingSignedUrl()
     {
@@ -20,6 +51,80 @@ public class ResumeStateCodecTests
         Assert.Equal(hash, DownloadResumeState.SourceHash(url[..url.IndexOf('#')]));
         Assert.NotEqual(hash, DownloadResumeState.SourceHash(url.Replace("deadline=123", "deadline=456")));
         Assert.Equal(hash, DownloadResumeState.Scope(url, null));
+    }
+
+    [Fact]
+    public void ObjectHash_RoundTripsWithoutPersistingSignedUrl()
+    {
+        const string url = "https://upos-sz-mirrorcoso1.bilivideo.com/upgcxcode/01/123.m4s"
+            + "?e=object&deadline=123&trid=synthetic-trace&upsig=synthetic-secret&uparams=e";
+        var state = new DownloadResumeState("selected-track", DownloadResumeState.SourceHash(url), 0, 3, 4, true, 4,
+            new string('A', 64), new("\"opaque\"", null))
+        {
+            SourceObjectHash = DownloadMediaSource.CreateObjectHash(url)
+        };
+        var json = JsonSerializer.Serialize(state, DownloadResumeStateJsonContext.Default.DownloadResumeState);
+
+        Assert.NotNull(state.SourceObjectHash);
+        Assert.Equal(state, DownloadResumeState.Parse(json));
+        Assert.Contains("SourceObjectHash", json);
+        Assert.DoesNotContain("synthetic-secret", json);
+        Assert.DoesNotContain("synthetic-trace", json);
+        Assert.DoesNotContain("https://", json);
+        Assert.Equal(1, state.Version);
+    }
+
+    [Fact]
+    public void LegacyRecord_OnlyMatchesItsExactSourceUri()
+    {
+        const string url = "https://cdn.test/media?signature=original";
+        var state = new DownloadResumeState("selected-track", DownloadResumeState.SourceHash(url), 0, 3, 4, true, 4,
+            new string('A', 64), new("\"shared-opaque\"", null));
+        var json = JsonSerializer.Serialize(state, DownloadResumeStateJsonContext.Default.DownloadResumeState);
+        var parsed = Assert.IsType<DownloadResumeState>(DownloadResumeState.Parse(json));
+
+        Assert.DoesNotContain("SourceObjectHash", json);
+        Assert.Null(parsed.SourceObjectHash);
+        Assert.True(parsed.MatchesSource(url, null));
+        Assert.False(parsed.MatchesSource(url.Replace("original", "refreshed"), new string('B', 64)));
+    }
+
+    [Theory]
+    [InlineData("\"opaque\"", true)]
+    [InlineData("W/\"opaque\"", false)]
+    [InlineData("*", false)]
+    [InlineData("invalid-unquoted-tag", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void CrossUriMatching_RequiresTheObjectHashAndAStrongEntityTag(string? entityTag, bool matches)
+    {
+        const string oldUrl = "https://cdn.test/media?signature=original";
+        const string newUrl = "https://cdn.test/media?signature=refreshed";
+        var objectHash = new string('B', 64);
+        var state = new DownloadResumeState("selected-track", DownloadResumeState.SourceHash(oldUrl), 0, 3, 4, true, 4,
+            new string('A', 64), new(entityTag, DateTimeOffset.Parse("2026-10-05T00:00:00Z")))
+        {
+            SourceObjectHash = objectHash
+        };
+
+        Assert.True(state.MatchesSource(oldUrl, null));
+        Assert.Equal(matches, state.MatchesSource(newUrl, objectHash));
+        Assert.False(state.MatchesSource(newUrl, null));
+        Assert.False(state.MatchesSource(newUrl, ""));
+        Assert.False(state.MatchesSource(newUrl, new string('C', 64)));
+    }
+
+    [Fact]
+    public void GenericUris_DoNotBecomeEquivalentBecauseTheyShareAnOpaqueEntityTag()
+    {
+        const string oldUrl = "https://cdn.test/media?signature=original";
+        const string newUrl = "https://cdn.test/media?signature=refreshed";
+        var state = new DownloadResumeState("selected-track", DownloadResumeState.SourceHash(oldUrl), 0, 3, 4, true, 4,
+            new string('A', 64), new("\"shared-opaque\"", null));
+
+        Assert.Null(DownloadMediaSource.CreateObjectHash(oldUrl));
+        Assert.Null(DownloadMediaSource.CreateObjectHash(newUrl));
+        Assert.False(state.MatchesSource(newUrl, DownloadMediaSource.CreateObjectHash(newUrl)));
     }
 
     [Theory]

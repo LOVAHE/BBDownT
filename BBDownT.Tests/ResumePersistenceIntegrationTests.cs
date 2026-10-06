@@ -8,6 +8,106 @@ namespace BBDownT.Tests;
 // These file lifecycle tests use the repository's existing ownership fixture.
 public class ResumePersistenceIntegrationTests
 {
+    private const string SignedMediaUrl = "https://upos-bstar1-mirrorakam.akamaized.net/iupxcodeboss/di/34/episode-1-231210110000.m4s"
+        + "?e=object&os=akam&oi=1&platform=android&mid=0&deadline=123&trid=trace-a&upsig=signature-a"
+        + "&uparams=e,os,oi,platform,mid,deadline,trid&hdnts=auth-a";
+
+    private static string RefreshMediaUrl(string url)
+        => url.Replace("deadline=123", "deadline=456").Replace("trid=trace-a", "trid=trace-b")
+            .Replace("signature-a", "signature-b").Replace("auth-a", "auth-b")
+            .Replace("uparams=e,os,oi,platform,mid,deadline,trid", "uparams=trid,deadline,mid,platform,oi,os,e");
+
+    [Theory]
+    [InlineData("authentication")]
+    [InlineData("device-and-storage-route")]
+    [InlineData("path")]
+    [InlineData("host")]
+    [InlineData("semantic-query")]
+    [InlineData("version")]
+    [InlineData("local-corruption")]
+    public async Task InterruptedMediaSession_ReusesOnlyUnchangedObjectsAcrossAuthenticationRefresh(string change)
+    {
+        const int part = 20 * 1024 * 1024;
+        using var files = new MediaTestDirectory();
+        var destination = files.FilePath("track.mp4");
+        files.FilePath("track.mp4.resume");
+        var first = files.FilePath("00000_track.vclip");
+        files.FilePath("00000_track.vclip.resume");
+        var second = files.FilePath("00001_track.vclip");
+        files.FilePath("00001_track.vclip.resume");
+        var bytes = Enumerable.Repeat((byte)42, part + 4).ToArray();
+        var config = new BBDownTDownloadUtil.DownloadConfig
+        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask };
+        using (var previous = new HttpClient(new Source(bytes, failSuffix: true)))
+        {
+            // Establish the complete part before the deliberate peer failure can cancel it.
+            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, SignedMediaUrl, first, 0, part - 1, (_, _, _) => { },
+                true, previous, resourceIdentity: config.ResourceIdentity,
+                expectedResource: new(bytes.Length, new("\"version\"", null)));
+            await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
+                SignedMediaUrl, destination, config, previous));
+        }
+
+        var saved = await DownloadResumeState.LoadAsync(first + ".resume");
+        Assert.True(saved!.Complete);
+        Assert.NotNull(saved.SourceObjectHash);
+        Assert.Equal(1, new FileInfo(second).Length);
+        var url = RefreshMediaUrl(SignedMediaUrl);
+        if (change == "device-and-storage-route") url = url.Replace("os=akam", "os=cosovbv") + "&buvid=next-device";
+        if (change == "path") url = url.Replace("episode-1-", "episode-reencoded-1-");
+        if (change == "host") url = url.Replace("upos-bstar1-mirrorakam.akamaized.net", "upos-hz-mirrorakam.akamaized.net");
+        if (change == "semantic-query") url = url.Replace("mid=0", "mid=1");
+        if (change == "local-corruption")
+        {
+            await using var corrupt = File.OpenWrite(first);
+            corrupt.Position = 100;
+            corrupt.WriteByte(99);
+        }
+        else if (change is not "authentication" and not "device-and-storage-route") bytes[100] = 99;
+
+        using var source = new Source(bytes, entityTag: change == "version" ? "\"new-version\"" : "\"version\"");
+        using var current = new HttpClient(source);
+        var clips = await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(url, destination, config, current);
+        if (change is "authentication" or "device-and-storage-route")
+        {
+            Assert.Equal((long)part + 1, Assert.Single(source.Starts));
+            Assert.Equal(DownloadResumeState.SourceHash(url), (await DownloadResumeState.LoadAsync(first + ".resume"))!.SourceUriHash);
+        }
+        else
+        {
+            Assert.Contains(0L, source.Starts);
+        }
+        await BBDownTDownloadUtil.MergeTrackClipsAsync(clips, destination, config);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
+        Assert.True((await DownloadResumeState.LoadAsync(destination + ".resume"))!.Complete);
+    }
+
+    [Fact]
+    public async Task LegacyRecord_IsVerifiedOnceBeforeLaterAuthenticationRefreshCanReuseTheTrack()
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.Write("track.mp4", "DATA");
+        files.FilePath("track.mp4.resume");
+        files.FilePath("track.mp4.verify.tmp");
+        files.FilePath("track.mp4.verify.tmp.resume");
+        await SaveState(destination, SignedMediaUrl, "video", 0, null, 4, true);
+        var config = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "video" };
+        var refreshed = RefreshMediaUrl(SignedMediaUrl);
+        using (var migration = new Source("DATA"u8.ToArray()))
+        using (var client = new HttpClient(migration))
+        {
+            Assert.Empty(await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(refreshed, destination, config, client));
+            Assert.Equal(0L, Assert.Single(migration.Starts));
+        }
+        Assert.NotNull((await DownloadResumeState.LoadAsync(destination + ".resume"))!.SourceObjectHash);
+        using var next = new Source("DATA"u8.ToArray());
+        using var current = new HttpClient(next);
+        Assert.Empty(await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(refreshed.Replace("deadline=456", "deadline=789"),
+            destination, config, current));
+        Assert.Empty(next.Starts);
+        Assert.Equal("DATA", File.ReadAllText(destination));
+    }
+
     [Fact]
     public async Task MultiplePartsWithoutValidators_CompareContiguousOldPrefixAgainstOneFullNewResponse()
     {
@@ -284,7 +384,8 @@ public class ResumePersistenceIntegrationTests
             bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), new("\"version\"", null)).SaveAsync(path + ".resume");
     }
 
-    private sealed class Source(byte[] bytes, bool failSuffix = false, bool failAllRanges = false) : HttpMessageHandler
+    private sealed class Source(byte[] bytes, bool failSuffix = false, bool failAllRanges = false,
+        string entityTag = "\"version\"") : HttpMessageHandler
     {
         internal ConcurrentQueue<long> Starts { get; } = new();
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -294,7 +395,7 @@ public class ResumePersistenceIntegrationTests
             {
                 var probe = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([]) };
                 probe.Content.Headers.ContentLength = bytes.Length;
-                probe.Headers.ETag = new EntityTagHeaderValue("\"version\"");
+                probe.Headers.ETag = new EntityTagHeaderValue(entityTag);
                 return Task.FromResult(probe);
             }
             var start = range.From!.Value;
@@ -308,7 +409,7 @@ public class ResumePersistenceIntegrationTests
             Stream stream = failAllRanges || (failSuffix && start >= 20 * 1024 * 1024)
                 ? new DisconnectingStream(payload) : new MemoryStream(payload);
             var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new StreamContent(stream) };
-            response.Headers.ETag = new EntityTagHeaderValue("\"version\"");
+            response.Headers.ETag = new EntityTagHeaderValue(entityTag);
             response.Content.Headers.ContentLength = payload.Length;
             response.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end, bytes.Length);
             return Task.FromResult(response);

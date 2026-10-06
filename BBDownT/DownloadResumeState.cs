@@ -15,6 +15,8 @@ internal sealed record DownloadResumeState(
     bool Complete, long LocalLength, string LocalSha256, DownloadResumeValidator Validator)
 {
     public int Version { get; init; } = 1;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceObjectHash { get; init; }
     internal long RangeLength => (ToPosition ?? TotalLength - 1) - FromPosition + 1;
 
     internal static string Scope(string url, string? identity)
@@ -25,6 +27,12 @@ internal sealed record DownloadResumeState(
         var fragment = url.IndexOf('#');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fragment < 0 ? url : url[..fragment])));
     }
+
+    internal bool MatchesSource(string url, string? sourceObjectHash)
+        => SourceUriHash == SourceHash(url)
+            || (!string.IsNullOrEmpty(SourceObjectHash) && !string.IsNullOrEmpty(sourceObjectHash)
+                && SourceObjectHash == sourceObjectHash
+                && Validator.HasStrongEntityTag);
 
     internal bool MatchesRange(string identity, long from, long? to, long? total = null)
         => Version == 1 && ResourceIdentity == identity && FromPosition == from && ToPosition == to

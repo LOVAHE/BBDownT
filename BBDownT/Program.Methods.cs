@@ -545,7 +545,7 @@ internal partial class Program
             UseAria2c = downloadConfig.UseAria2c, Aria2cArgs = downloadConfig.Aria2cArgs,
             ForceHttp = downloadConfig.ForceHttp, MultiThread = downloadConfig.MultiThread,
             RelatedTask = downloadConfig.RelatedTask, RestrictedOutputRoot = downloadConfig.RestrictedOutputRoot,
-            ResourceIdentity = resourceIdentity
+            ResourceIdentity = resourceIdentity, IsBilibiliMedia = true
         };
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
