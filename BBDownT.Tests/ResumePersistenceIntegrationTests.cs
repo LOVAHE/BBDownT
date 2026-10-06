@@ -87,7 +87,8 @@ public class ResumePersistenceIntegrationTests
         files.FilePath("00001_track.vclip.resume");
         var bytes = new byte[part + 4];
         Array.Fill(bytes, (byte)42);
-        var config = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "episode-video-720-avc" };
+        var config = new BBDownTDownloadUtil.DownloadConfig
+        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask };
         using (var previous = new HttpClient(new Source(bytes, failSuffix: true)))
         {
             await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, original, first, 0, part - 1, (_, _, _) => { },
@@ -97,7 +98,7 @@ public class ResumePersistenceIntegrationTests
                 original, destination, config, previous));
         }
         Assert.True((await DownloadResumeState.LoadAsync(first + ".resume"))!.Complete);
-        Assert.Equal(3, new FileInfo(second).Length);
+        Assert.Equal(1, new FileInfo(second).Length);
         if (changedBytes) bytes[100] = 99; // Same opaque ETag on another URI is not a global content hash.
         var url = changedUrl ? original.Replace("old", "new") : original;
         using var source = new Source(bytes);
@@ -111,7 +112,7 @@ public class ResumePersistenceIntegrationTests
         else
         {
             Assert.DoesNotContain(0L, source.Starts);
-            Assert.Contains((long)part + 3, source.Starts);
+            Assert.Contains((long)part + 1, source.Starts);
         }
         await BBDownTDownloadUtil.MergeTrackClipsAsync(clips, destination, config);
         Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
@@ -222,12 +223,14 @@ public class ResumePersistenceIntegrationTests
         var audio = files.FilePath("media.m4a");
         var audioTemporary = files.FilePath("media.m4a.tmp");
         files.FilePath("media.m4a.tmp.resume");
-        var videoConfig = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "video" };
+        var videoConfig = new BBDownTDownloadUtil.DownloadConfig
+        { ResourceIdentity = "video", RetryDelay = (_, _) => Task.CompletedTask };
         using (var client = new HttpClient(new Source([1, 2, 3, 4])))
             await BBDownTDownloadUtil.DownloadFileAsync("https://cdn.test/video", video, videoConfig, client);
         using (var client = new HttpClient(new Source([9, 8, 7, 6], failAllRanges: true)))
             await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.DownloadFileAsync(
-                "https://cdn.test/audio", audio, new() { ResourceIdentity = "audio" }, client));
+                "https://cdn.test/audio", audio,
+                new() { ResourceIdentity = "audio", RetryDelay = (_, _) => Task.CompletedTask }, client));
         var retained = await File.ReadAllBytesAsync(audioTemporary);
         using var source = new Source([1, 2, 3, 4]);
         using var next = new HttpClient(source);
@@ -267,7 +270,7 @@ public class ResumePersistenceIntegrationTests
             true, 4, new string('A', 64), new("\"version\"", null));
         await state.SaveAsync(path + ".resume");
         using var client = new HttpClient(new FailingSource());
-        await Assert.ThrowsAsync<HttpRequestException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
             0, url, path, 0, 3, (_, _, _) => { }, true, client, resourceIdentity: "video",
             expectedResource: new(4, new("\"version\"", null))));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, await File.ReadAllBytesAsync(path));
@@ -297,6 +300,10 @@ public class ResumePersistenceIntegrationTests
             var start = range.From!.Value;
             var end = range.To ?? bytes.Length - 1;
             Starts.Enqueue(start);
+            // Keep the outage active after the first saved byte. A longer retry
+            // budget must not let this synthetic source finish one byte at a time.
+            if ((failAllRanges && start > 0) || (failSuffix && start > 20 * 1024 * 1024))
+                throw new HttpRequestException("synthetic persistent disconnect");
             var payload = bytes[(int)start..((int)end + 1)];
             Stream stream = failAllRanges || (failSuffix && start >= 20 * 1024 * 1024)
                 ? new DisconnectingStream(payload) : new MemoryStream(payload);

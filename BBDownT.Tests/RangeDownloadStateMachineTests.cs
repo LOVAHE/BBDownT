@@ -186,7 +186,7 @@ public class RangeDownloadStateMachineTests
             using var client = CreateClient(_ =>
                 CreateResponse(HttpStatusCode.OK, [1, 2], declaredLength: 4));
 
-            await Assert.ThrowsAsync<IOException>(() =>
+            await Assert.ThrowsAsync<BBDownT.Core.Util.DownloadInterruptedException>(() =>
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(
                     0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
         }

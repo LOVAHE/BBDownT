@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using BBDownT.Core.Util;
 
 namespace BBDownT.Tests;
 
@@ -10,9 +11,10 @@ public class ResumeStreamTests
         using var local = Local([1, 2]);
         using var broken = new BrokenStream([3, 4, 5, 6], 2);
         var saved = new List<(long Length, string Hash, bool Complete)>();
-        await Assert.ThrowsAsync<IOException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+        var error = await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
             local, broken, 2, false, 4, _ => { }, (length, hash, complete) =>
             { saved.Add((length, hash, complete)); return Task.CompletedTask; }));
+        Assert.IsType<IOException>(error.InnerException);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, local.ToArray());
         Assert.Equal((4L, Digest([1, 2, 3, 4]), false), saved.Single());
         using var suffix = new MemoryStream(new byte[] { 5, 6 });
@@ -41,7 +43,7 @@ public class ResumeStreamTests
         using var local = Local([1, 2, 3, 4, 5, 6]);
         using var remote = new BrokenStream([1, 2, 3, 4, 5, 6, 7], 2);
         var checkpoints = 0;
-        await Assert.ThrowsAsync<IOException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(local,
+        await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(local,
             remote, 0, true, 7, _ => { }, (_, _, _) => { checkpoints++; return Task.CompletedTask; }));
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, local.ToArray());
         Assert.Equal(0, checkpoints);
@@ -73,10 +75,56 @@ public class ResumeStreamTests
         using var local = Local([]);
         using var remote = new MemoryStream(new byte[] { 1, 2 });
         var complete = true;
-        await Assert.ThrowsAsync<IOException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(local,
+        await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(local,
             remote, 0, false, 4, _ => { }, (_, _, finished) => { complete = finished; return Task.CompletedTask; }));
         Assert.False(complete);
         Assert.Equal(new byte[] { 1, 2 }, local.ToArray());
+    }
+
+    [Fact]
+    public async Task IdleRemoteReadTimesOutWithoutDiscardingCheckpoint()
+    {
+        using var local = Local([1, 2]);
+        using var remote = new HangingStream();
+        var saved = new List<(long Length, bool Complete)>();
+        var error = await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+            local, remote, 2, false, 1, _ => { }, (length, _, complete) =>
+            { saved.Add((length, complete)); return Task.CompletedTask; }, readTimeout: TimeSpan.FromMilliseconds(100)));
+
+        Assert.IsType<TimeoutException>(error.InnerException);
+        Assert.True(NetworkRetry.IsTransient(error));
+        Assert.Equal(new byte[] { 1, 2 }, local.ToArray());
+        Assert.Equal(new[] { (2L, false) }, saved);
+    }
+
+    [Fact]
+    public async Task LocalWriteFailureIsPreservedAndNotClassifiedAsNetworkFailure()
+    {
+        var failure = new IOException("local disk is full");
+        using var local = new UnwritableStream(failure);
+        using var remote = new MemoryStream(new byte[] { 1, 2 });
+        var actual = await Assert.ThrowsAsync<IOException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+            local, remote, 0, false, 2, _ => { }, (_, _, _) => Task.CompletedTask));
+
+        Assert.Same(failure, actual);
+        Assert.False(NetworkRetry.IsTransient(actual));
+    }
+
+    [Fact]
+    public async Task ExplicitReadCancellationDoesNotBecomeNetworkTimeout()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var local = Local([1, 2]);
+        using var remote = new HangingStream(() => cancellation.Cancel());
+        var saved = new List<(long Length, bool Complete)>();
+        var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+            local, remote, 2, false, 1, _ => { }, (length, _, complete) =>
+            { saved.Add((length, complete)); return Task.CompletedTask; },
+            readTimeout: TimeSpan.FromSeconds(10), cancellationToken: cancellation.Token));
+
+        Assert.False(NetworkRetry.IsTransient(error, cancellation.Token));
+        Assert.Equal(new byte[] { 1, 2 }, local.ToArray());
+        Assert.Equal(new[] { (2L, false) }, saved);
     }
 
     private static DownloadResumeState State(long length, string digest, bool complete)
@@ -95,5 +143,21 @@ public class ResumeStreamTests
             BytesRead += read;
             return ValueTask.FromResult(read);
         }
+    }
+
+    private sealed class HangingStream(Action? started = null) : MemoryStream
+    {
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            started?.Invoke();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+    }
+
+    private sealed class UnwritableStream(IOException failure) : MemoryStream
+    {
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            => ValueTask.FromException(failure);
     }
 }

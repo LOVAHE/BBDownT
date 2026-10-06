@@ -591,7 +591,7 @@ partial class Program
             vInfo, myOption, selectedPages, SinglePageDefaultSavePath, MultiPageDefaultSavePath);
         var runner = new PageDownloadRunner(
             CheckAidFromFile, SaveAidToFile,
-            milliseconds => Task.Delay(milliseconds), message => Log(message));
+            (milliseconds, token) => Task.Delay(milliseconds, token), message => Log(message));
         var subtitleSession = new SubtitleSelection.Session();
 
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
@@ -614,7 +614,8 @@ partial class Program
         string pic = vInfo.Pic;
         long pubTime = vInfo.PubTime;
         bool selected = false; //用户是否已经手动选择过了轨道
-        int retryCount = 0;
+        var pageRetry = new PageDownloadRetry();
+        TimeSpan retryDelay;
         var progressiveSelection = new ProgressiveStreamSelection();
         var requestedAudioLanguage = AudioLanguageSelection.Normalize(myOption.AudioLanguage);
         Task<ParsedResult> FetchTracks(string? language, string? quality = null) =>
@@ -1086,12 +1087,11 @@ partial class Program
             }
             return DownloadPageOutcome.Completed;
         }
-        catch (Exception ex) when (ex is not AudioLanguageUnavailableException and not IntlApiException)
+        catch (Exception ex) when (pageRetry.TryGetDelay(ex, out retryDelay))
         {
-            if (++retryCount > 2) throw;
-            LogError(ex.Message);
-            LogWarn("下载出现异常, 3秒后将进行自动重试...");
-            await Task.Delay(3000);
+            LogError(NetworkRetry.Describe(ex));
+            LogWarn($"下载出现异常，{retryDelay.TotalSeconds:0}秒后重新解析此分P并续传...");
+            await Task.Delay(retryDelay);
             goto downloadPage;
         }
     }
@@ -1166,7 +1166,7 @@ partial class Program
         {
             Console.BackgroundColor = ConsoleColor.Red;
             Console.ForegroundColor = ConsoleColor.White;
-            var msg = Config.DEBUG_LOG ? e.ToString() : e.Message;
+            var msg = RedactSensitiveText(Config.DEBUG_LOG ? e.ToString() : e.Message);
             Console.Write($"{msg}{Environment.NewLine}");
             if (e is not IntlApiException) Console.Write("请尝试升级到最新版本后重试!");
             Console.ResetColor();

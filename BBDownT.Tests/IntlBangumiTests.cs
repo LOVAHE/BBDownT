@@ -81,7 +81,7 @@ public class IntlBangumiTests
     {
         var info = await FetchInfo("intl:2110869", Season(), Episodes());
         var archives = new List<string>();
-        var runner = new PageDownloadRunner(_ => false, archives.Add, _ => Task.CompletedTask, _ => { });
+        var runner = new PageDownloadRunner(_ => false, archives.Add, (_, _) => Task.CompletedTask, _ => { });
         await runner.RunAsync(info.PagesInfo, true, 0, _ => Task.FromResult(DownloadPageOutcome.Completed), info.PagesInfo);
         Assert.Equal(new[] { "intl_13287667:", "intl_13287745:", "intl_13287800:" }, archives);
     }

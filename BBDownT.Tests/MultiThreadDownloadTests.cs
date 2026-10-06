@@ -49,7 +49,8 @@ public class MultiThreadDownloadTests
             : throw new HttpRequestException("new resource unavailable")));
 
         await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
-            "https://cdn.test/new-quality.mp4", destination, new(), client));
+            "https://cdn.test/new-quality.mp4", destination,
+            new() { RetryDelay = (_, _) => Task.CompletedTask }, client));
 
         Assert.Equal("OLD!", File.ReadAllText(destination));
     }
