@@ -442,24 +442,39 @@ public static class HTTPUtil
     // 重写重定向处理, 自动跟随多次重定向
     public static async Task<string> GetWebLocationAsync(string url)
     {
-        bool sendCookie = ShouldSendCookie(url);
-        // International credentials stay on the checked HTTPS destination;
-        // automatic redirects must never carry the explicit Cookie elsewhere.
-        string location = await GetWebLocationAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url, sendCookie);
+        bool international = Config.COOKIE_IS_INTL;
+        // Resolve international redirects without either an explicit Cookie or a cookie jar.
+        bool sendCookie = !international && ShouldSendCookie(url);
+        string location = await GetWebLocationAsync(GetWebLocationHttpClient(international), url, sendCookie);
         LogDebug("Location: {0}", location);
         return location;
     }
 
-    internal static Task<string> GetWebLocationAsync(
+    internal static HttpClient GetWebLocationHttpClient(bool international)
+        => international ? IntlMediaHttpClient : AppHttpClient;
+
+    internal static async Task<string> GetWebLocationAsync(
         HttpClient httpClient,
         string url,
         bool sendCookie = true,
         CancellationToken cancellationToken = default,
         Func<TimeSpan, CancellationToken, Task>? delay = null,
         Action<string>? log = null)
-        => ExecuteWebRequestAsync(httpClient, HttpMethod.Head, url, null, sendCookie, false,
-            (response, _) => Task.FromResult(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url),
-            cancellationToken, delay, log);
+    {
+        try
+        {
+            return await ExecuteWebRequestAsync(httpClient, HttpMethod.Head, url, null, sendCookie, false,
+                (response, _) => Task.FromResult(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url),
+                cancellationToken, delay, log);
+        }
+        catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.NotImplemented)
+        {
+            // Some short-link services only redirect GET; only the final URI is needed.
+            return await ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, sendCookie, false,
+                (response, _) => Task.FromResult(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url),
+                cancellationToken, delay, log);
+        }
+    }
 
     public static async Task<byte[]> GetPostResponseAsync(string Url, byte[] postData, Dictionary<string, string>? headers = null)
     {

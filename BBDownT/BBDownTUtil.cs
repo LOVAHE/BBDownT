@@ -46,15 +46,18 @@ static partial class BBDownTUtil
             && candidate.CompareTo(current) > 0;
     }
 
-    public static async Task<string> GetAvIdAsync(string input)
+    public static Task<string> GetAvIdAsync(string input)
+        => GetAvIdAsync(input, GetWebLocationAsync);
+
+    internal static async Task<string> GetAvIdAsync(string input, Func<string, Task<string>> fetchLocation)
     {
         if (IntlBangumiUrl.TryParse(input, out var internationalId)) return internationalId;
         var avid = input;
-        if (input.StartsWith("http"))
+        if (input.StartsWith("http", StringComparison.OrdinalIgnoreCase))
         {
-            if (input.Contains("b23.tv"))
+            if (IsShortLinkUri(input))
             {
-                string tmp = await GetWebLocationAsync(input);
+                string tmp = await fetchLocation(input);
                 if (tmp == input) throw new Exception("无限重定向");
                 input = tmp;
             }
@@ -211,8 +214,14 @@ static partial class BBDownTUtil
         {
             throw new Exception("输入有误");
         }
-        return await FixAvidAsync(avid);
+        return await FixAvidAsync(avid, fetchLocation);
     }
+
+    internal static bool IsShortLinkUri(string input)
+        => Uri.TryCreate(input, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && uri.UserInfo.Length == 0
+            && uri.Host.ToLowerInvariant() is "b23.tv" or "www.b23.tv" or "bili.im" or "www.bili.im";
 
     public static string FormatFileSize(double fileSize)
     {
@@ -246,12 +255,12 @@ static partial class BBDownTUtil
     /// </summary>
     /// <param name="avid"></param>
     /// <returns></returns>
-    private static async Task<string> FixAvidAsync(string avid)
+    private static async Task<string> FixAvidAsync(string avid, Func<string, Task<string>> fetchLocation)
     {
         if (!avid.All(char.IsDigit))
             return avid;
         string api = $"https://www.bilibili.com/video/av{avid}/";
-        string location = await GetWebLocationAsync(api);
+        string location = await fetchLocation(api);
         return location.Contains("/ep") ? $"ep:{EpRegex().Match(location).Groups[1].Value}" : avid;
     }
 
