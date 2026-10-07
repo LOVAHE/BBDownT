@@ -7,6 +7,21 @@ namespace BBDownT.Tests;
 public class ResumeStateCodecTests
 {
     [Theory]
+    [InlineData("\"same\"", "\"same\"", true)]
+    [InlineData("\"first\"", "\"second\"", false)]
+    [InlineData("W/\"same\"", "W/\"same\"", false)]
+    [InlineData("*", "*", false)]
+    [InlineData(null, null, false)]
+    public void VersionEquivalence_IgnoresOptionalDateOnlyWithSameStrongTag(string? first, string? second, bool expected)
+    {
+        var withDate = new DownloadResumeValidator(first, DateTimeOffset.Parse("2026-10-06T00:00:00Z"));
+        var withoutDate = new DownloadResumeValidator(second, null);
+        Assert.Equal(expected, withDate.SameVersionAs(withoutDate));
+        Assert.Equal(expected, withoutDate.SameVersionAs(withDate));
+        Assert.True(withDate.SameVersionAs(withDate));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void BareCdnTag_IsNormalizedOnlyForRecognizedMedia(bool recognized)

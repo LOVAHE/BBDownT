@@ -49,6 +49,7 @@ internal sealed class DownloadProgressTracker
             completed[index] = Math.Clamp(bytes, 0, rangeLengths[index]);
             verifying[index] = needsVerification && completed[index] > 0;
             verificationLengths[index] = verifying[index] ? completed[index] : 0;
+            verified[index] = 0;
         }
     }
 
@@ -74,11 +75,22 @@ internal sealed class DownloadProgressTracker
             if (totalLength <= 0 && update.TotalLength > 0) totalLength = update.TotalLength;
             completed[index] = Math.Clamp(update.CompletedBytes, 0, rangeLengths[index]);
             transferred = checked(transferred + Math.Max(0, update.TransferredBytes));
-            verifying[index] = update.Verifying;
-            verificationLengths[index] = Math.Max(verificationLengths[index], update.VerificationLength);
-            verified[index] = update.Verifying
-                ? Math.Clamp(update.VerifiedBytes, 0, verificationLengths[index])
-                : verificationLengths[index];
+            if (update.Verifying || update.VerificationLength > 0)
+            {
+                // A retry can compare a shorter checkpoint after replacing a bad prefix.
+                verificationLengths[index] = Math.Clamp(update.VerificationLength, 0, rangeLengths[index]);
+                verified[index] = update.Verifying
+                    ? Math.Clamp(update.VerifiedBytes, 0, verificationLengths[index])
+                    : verificationLengths[index];
+            }
+            else if (verifying[index])
+            {
+                // A queued part was reused, or its first compared byte mismatched.
+                verificationLengths[index] = 0;
+                verified[index] = 0;
+            }
+            // Ordinary download updates retain finished verification in the aggregate.
+            verifying[index] = update.Verifying && verificationLengths[index] > 0;
             Render();
         }
     }

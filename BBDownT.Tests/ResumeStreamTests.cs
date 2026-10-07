@@ -6,6 +6,54 @@ namespace BBDownT.Tests;
 public class ResumeStreamTests
 {
     [Fact]
+    public async Task InterruptedStrongVerification_AccumulatesCheckpointsAndPreservesUncheckedTail()
+    {
+        byte[] current = [1, 2, 3, 4, 5, 6, 7];
+        using var local = Local(current[..6]);
+        long retained = 0;
+        var records = new List<(long Length, string Hash, bool Complete)>();
+        var starts = new List<long>();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            starts.Add(retained);
+            using var remote = new BrokenStream(current[(int)retained..], 2);
+            await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+                local, remote, retained, true, current.Length - retained, _ => { }, (length, hash, complete) =>
+                {
+                    retained = length;
+                    records.Add((length, hash, complete));
+                    return Task.CompletedTask;
+                }, checkpointVerifiedPrefix: true));
+            Assert.Equal(current[..6], local.ToArray());
+        }
+        Assert.Equal(new long[] { 0, 2, 4 }, starts);
+        Assert.Equal(new long[] { 2, 4, 6 }, records.Select(record => record.Length));
+        Assert.All(records, record =>
+        {
+            Assert.False(record.Complete);
+            Assert.Equal(Digest(current[..(int)record.Length]), record.Hash);
+        });
+        using var suffix = new MemoryStream(current[(int)retained..]);
+        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, suffix, retained, false, 1, _ => { },
+            (length, hash, complete) => { records.Add((length, hash, complete)); return Task.CompletedTask; });
+        Assert.Equal(current, local.ToArray());
+        Assert.Equal((7L, Digest(current), true), records.Last());
+    }
+
+    [Fact]
+    public async Task StrongVerificationWithoutReceivedBytes_DoesNotReplaceTheHistoricalCheckpoint()
+    {
+        using var local = Local([1, 2, 3, 4]);
+        using var remote = new BrokenStream([1, 2, 3, 4, 5], 0);
+        var records = 0;
+        await Assert.ThrowsAsync<DownloadInterruptedException>(() => BBDownTDownloadUtil.CopyVerifiedRangeAsync(
+            local, remote, 0, true, 5, _ => { }, (_, _, _) => { records++; return Task.CompletedTask; },
+            checkpointVerifiedPrefix: true));
+        Assert.Equal(0, records);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, local.ToArray());
+    }
+
+    [Fact]
     public async Task InterruptedSuffix_PreservesCheckpointAndResumesWithoutReplacingPrefix()
     {
         using var local = Local([1, 2]);

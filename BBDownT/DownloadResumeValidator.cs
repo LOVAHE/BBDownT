@@ -82,6 +82,9 @@ internal sealed record DownloadResumeValidator(string? EntityTag, DateTimeOffset
         => !string.IsNullOrEmpty(EntityTag) ? EntityTag == other.EntityTag
             : string.IsNullOrEmpty(other.EntityTag) && LastModified is not null && LastModified == other.LastModified;
 
+    internal bool SameVersionAs(DownloadResumeValidator other)
+        => this == other || (HasStrongEntityTag && other.HasStrongEntityTag && Matches(other));
+
     internal bool KnownChanged(DownloadResumeValidator other)
         => !string.IsNullOrEmpty(EntityTag) && !string.IsNullOrEmpty(other.EntityTag) ? EntityTag != other.EntityTag
             : string.IsNullOrEmpty(EntityTag) && string.IsNullOrEmpty(other.EntityTag)

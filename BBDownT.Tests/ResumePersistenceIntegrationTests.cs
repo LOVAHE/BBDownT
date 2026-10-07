@@ -8,6 +8,152 @@ namespace BBDownT.Tests;
 // These file lifecycle tests use the repository's existing ownership fixture.
 public class ResumePersistenceIntegrationTests
 {
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task SameStrongVersion_MergesEvenWhenOptionalModifiedHeadersDiffer(bool firstHasDate, bool secondHasDate)
+    {
+        using var files = new MediaTestDirectory();
+        var first = files.FilePath("first.vclip");
+        files.FilePath("first.vclip.resume");
+        var second = files.FilePath("second.vclip");
+        files.FilePath("second.vclip.resume");
+        var destination = files.FilePath("track.mp4");
+        files.FilePath("track.mp4.resume");
+        byte[] bytes = [1, 2, 3, 4];
+        await File.WriteAllBytesAsync(first, bytes[..2]);
+        await File.WriteAllBytesAsync(second, bytes[2..]);
+        var date = DateTimeOffset.Parse("2026-10-06T00:00:00Z");
+        var source = DownloadResumeState.SourceHash("https://cdn.test/track");
+        await new DownloadResumeState("track", source, 0, 1, 4, true, 2,
+            Convert.ToHexString(SHA256.HashData(bytes[..2])), new("\"v1\"", firstHasDate ? date : null))
+            .SaveAsync(first + ".resume");
+        await new DownloadResumeState("track", source, 2, 3, 4, true, 2,
+            Convert.ToHexString(SHA256.HashData(bytes[2..])), new("\"v1\"", secondHasDate ? date.AddSeconds(1) : null))
+            .SaveAsync(second + ".resume");
+
+        await BBDownTDownloadUtil.MergeTrackClipsAsync([first, second], destination, new() { ResourceIdentity = "track" });
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
+        var state = await DownloadResumeState.LoadAsync(destination + ".resume");
+        Assert.True(state!.Complete);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes)), state.LocalSha256);
+    }
+
+    [Theory]
+    [InlineData("\"first\"", "\"second\"", false)]
+    [InlineData(null, null, false)]
+    [InlineData("\"first\"", null, true)]
+    public async Task DifferentOrUnprovenVersions_CannotBeMerged(string? firstTag, string? secondTag, bool sameDate)
+    {
+        using var files = new MediaTestDirectory();
+        var first = files.FilePath("first.vclip");
+        files.FilePath("first.vclip.resume");
+        var second = files.FilePath("second.vclip");
+        files.FilePath("second.vclip.resume");
+        var destination = files.FilePath("track.mp4");
+        byte[] bytes = [1, 2, 3, 4];
+        await File.WriteAllBytesAsync(first, bytes[..2]);
+        await File.WriteAllBytesAsync(second, bytes[2..]);
+        var date = DateTimeOffset.Parse("2026-10-06T00:00:00Z");
+        var source = DownloadResumeState.SourceHash("https://cdn.test/track");
+        await new DownloadResumeState("track", source, 0, 1, 4, true, 2,
+            Convert.ToHexString(SHA256.HashData(bytes[..2])), new(firstTag, date)).SaveAsync(first + ".resume");
+        await new DownloadResumeState("track", source, 2, 3, 4, true, 2,
+            Convert.ToHexString(SHA256.HashData(bytes[2..])), new(secondTag, sameDate ? date : date.AddSeconds(1)))
+            .SaveAsync(second + ".resume");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => BBDownTDownloadUtil.MergeTrackClipsAsync(
+            [first, second], destination, new() { ResourceIdentity = "track" }));
+
+        Assert.False(File.Exists(destination));
+        Assert.Equal(bytes[..2], await File.ReadAllBytesAsync(first));
+        Assert.Equal(bytes[2..], await File.ReadAllBytesAsync(second));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InterruptedPrefixVerification_OnlyAccumulatesWithAStrongCurrentVersion(bool strong)
+    {
+        using var files = new MediaTestDirectory();
+        var path = files.FilePath("part.vclip");
+        files.FilePath("part.vclip.resume");
+        byte[] bytes = [1, 2, 3, 4, 5, 6, 7, 8];
+        await File.WriteAllBytesAsync(path, bytes[..6]);
+        var date = DateTimeOffset.Parse("2026-10-06T00:00:00Z");
+        var validator = new DownloadResumeValidator(strong ? "\"v1\"" : null, date);
+        var historical = new DownloadResumeState("track", DownloadResumeState.SourceHash("https://cdn.test/old"),
+            0, 7, 8, false, 6, Convert.ToHexString(SHA256.HashData(bytes[..6])), validator);
+        await historical.SaveAsync(path + ".resume");
+        using var handler = new VerificationSource(bytes, validator, date);
+        using var client = new HttpClient(handler);
+        for (var attempt = 0; attempt < (strong ? 3 : 2); attempt++)
+        {
+            await Assert.ThrowsAsync<BBDownT.Core.Util.DownloadInterruptedException>(() =>
+                BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://cdn.test/current", path, 0, 7,
+                    (_, _, _) => { }, true, client, resourceIdentity: "track", expectedResource: new(8, validator)));
+            var saved = await DownloadResumeState.LoadAsync(path + ".resume");
+            Assert.NotNull(saved);
+            if (strong)
+            {
+                Assert.Equal((attempt + 1) * 2, saved.LocalLength);
+                Assert.Equal(DownloadResumeState.SourceHash("https://cdn.test/current"), saved.SourceUriHash);
+                Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes[..(int)saved.LocalLength])), saved.LocalSha256);
+                Assert.False(saved.Complete);
+                if (attempt == 0)
+                {
+                    using var changed = new HttpClient(new VerificationSource(bytes, new("\"different\"", date), date));
+                    await Assert.ThrowsAsync<InvalidDataException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
+                        0, "https://cdn.test/current", path, 0, 7, (_, _, _) => { }, true, changed,
+                        resourceIdentity: "track", expectedResource: new(8, validator)));
+                    Assert.Equal(saved, await DownloadResumeState.LoadAsync(path + ".resume"));
+                }
+            }
+            else Assert.Equal(historical, saved);
+            Assert.Equal(bytes[..6], await File.ReadAllBytesAsync(path));
+        }
+        if (strong)
+        {
+            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://cdn.test/current", path, 0, 7,
+                (_, _, _) => { }, true, client, resourceIdentity: "track", expectedResource: new(8, validator));
+            Assert.Equal(new long[] { 0, 2, 4, 6 }, handler.Starts);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+            Assert.True((await DownloadResumeState.LoadAsync(path + ".resume"))!.Complete);
+        }
+        else Assert.Equal(new long[] { 0, 0 }, handler.Starts);
+    }
+
+    private sealed class VerificationSource(byte[] bytes, DownloadResumeValidator validator, DateTimeOffset date) : HttpMessageHandler
+    {
+        internal List<long> Starts { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var range = Assert.Single(request.Headers.Range!.Ranges);
+            var start = range.From!.Value;
+            Starts.Add(start);
+            Assert.Equal(7, range.To);
+            var payload = bytes[(int)start..];
+            Stream body = start < 6 ? new VerificationCutStream(payload) : new MemoryStream(payload);
+            var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new StreamContent(body) };
+            if (validator.EntityTag is not null) response.Headers.ETag = EntityTagHeaderValue.Parse(validator.EntityTag);
+            response.Content.Headers.LastModified = date;
+            response.Content.Headers.ContentLength = payload.Length;
+            response.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, 7, 8);
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class VerificationCutStream(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position >= 2) throw new IOException("controlled verification interruption");
+            return ValueTask.FromResult(Read(buffer.Span[..Math.Min(buffer.Length, 2 - (int)Position)]));
+        }
+    }
+
     private const string SignedMediaUrl = "https://upos-bstar1-mirrorakam.akamaized.net/iupxcodeboss/di/34/episode-1-231210110000.m4s"
         + "?e=object&os=akam&oi=1&platform=android&mid=0&deadline=123&trid=trace-a&upsig=signature-a"
         + "&uparams=e,os,oi,platform,mid,deadline,trid&hdnts=auth-a";

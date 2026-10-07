@@ -177,7 +177,8 @@ internal static class BBDownTDownloadUtil
                     { SourceObjectHash = sourceObjectHash }
                     .SaveAsync(validatorPath, restrictedOutputRoot);
             }, client.Timeout, cancellationToken,
-            update => onTransferProgress?.Invoke(id, update with { TotalLength = totalLength }));
+            update => onTransferProgress?.Invoke(id, update with { TotalLength = totalLength }),
+            checkpointVerifiedPrefix: remoteValidator.HasStrongEntityTag);
     }
 
     // The same streaming state machine is exercised with MemoryStreams in tests.
@@ -186,7 +187,8 @@ internal static class BBDownTDownloadUtil
     internal static async Task CopyVerifiedRangeAsync(Stream local, Stream remote,
         long appendLength, bool comparePrefix, long? responseLength, Action<long> progress,
         Func<long, string, bool, Task> checkpoint, TimeSpan? readTimeout = null,
-        CancellationToken cancellationToken = default, Action<DownloadProgressUpdate>? onTransferProgress = null)
+        CancellationToken cancellationToken = default, Action<DownloadProgressUpdate>? onTransferProgress = null,
+        bool checkpointVerifiedPrefix = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -216,7 +218,11 @@ internal static class BBDownTDownloadUtil
         var savedAt = position;
         async Task SaveAsync(bool complete)
         {
-            if (!replaced && position < originalLength) return;
+            // A strong validator lets the next request start after the verified
+            // prefix. LocalLength marks its boundary; the unchecked tail stays
+            // on disk and is compared before it can be reused.
+            if (!replaced && position < originalLength
+                && (!checkpointVerifiedPrefix || position == appendLength)) return;
             await local.FlushAsync();
             await checkpoint(position, Convert.ToHexString(hash.GetCurrentHash()), complete);
             savedAt = position;
@@ -237,6 +243,7 @@ internal static class BBDownTDownloadUtil
                     await local.ReadExactlyAsync(comparison.AsMemory(0, retained));
                     if (!buffer.AsSpan(0, retained).SequenceEqual(comparison.AsSpan(0, retained)))
                     {
+                        verificationLength = Math.Max(0, position - appendLength);
                         local.SetLength(position);
                         retained = 0;
                         replaced = true;
@@ -589,7 +596,7 @@ internal static class BBDownTDownloadUtil
             {
                 if (state.FromPosition != next || state.ResourceIdentity != first.ResourceIdentity
                     || state.SourceUriHash != first.SourceUriHash || state.TotalLength != first.TotalLength
-                    || state.Validator != first.Validator
+                    || !first.Validator.SameVersionAs(state.Validator)
                     || (config?.ResourceIdentity is not null && state.ResourceIdentity != config.ResourceIdentity))
                     throw new InvalidDataException("分片不属于同一个轨道、范围或资源版本");
                 next += state.LocalLength;
