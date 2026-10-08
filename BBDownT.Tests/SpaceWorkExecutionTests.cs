@@ -45,7 +45,7 @@ public class SpaceWorkExecutionTests
             Assert.Equal(expected, events);
             Assert.Equal("mid:42", task.Aid);
             Assert.Equal("UP", task.Title);
-            Assert.Equal(downloadAll ? new[] { path, "video.mp4" } : new[] { path }, task.CreateSnapshot().SavePaths);
+            Assert.Equal(downloadAll ? new[] { path, Path.GetFullPath("video.mp4") } : new[] { path }, task.CreateSnapshot().SavePaths);
             Assert.Equal(SpaceUrl, option.Url);
         }
         finally { File.Delete(path); }

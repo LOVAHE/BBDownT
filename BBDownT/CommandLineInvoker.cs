@@ -16,6 +16,8 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> UseMP4box = new(["--use-mp4box"], "使用MP4Box来混流");
     private static readonly Option<string> EncodingPriority = new(["--encoding-priority", "-e"], "视频及音频编码的选择优先级, 用逗号分割 例: \"hevc,av1,avc,flac,eac3,m4a\"；与 -q 同时使用时越靠前越优先");
     private static readonly Option<string> DfnPriority = new(["--dfn-priority", "-q"], "画质优先级,用逗号分隔 例: \"8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界\"；与 -e 同时使用时越靠前越优先");
+    private static readonly Option<string> VideoStream = new(["--video-stream", "-vs"], "精确指定视频流: 画质代码[:编码], 如 \"120:HEVC\"(4K HEVC)、\"80:AVC\"; -info 每条视频流末尾的 (-vs ...) 即可直接使用；某个分P没有这条流时按 -q/-e 回退并给出警告");
+    private static readonly Option<string> AudioStream = new(["--audio-stream", "-as"], "精确指定音频流ID: -info 每条音频流末尾的 (-as ...)，如 30280(192K)、30232(132K)、30216(64K)、30250(杜比全景声)、30251(Hi-Res无损); 没有这条流时按编码/码率回退并给出警告");
     private static readonly Option<bool> OnlyShowInfo = new(["--only-show-info", "-info"], "仅解析音视频和字幕信息，不下载；配合 --sub-only 仅列出字幕");
     private static readonly Option<bool> HideStreams = new(["--hide-streams", "-hs"], "不要显示所有可用音视频流");
     private static readonly Option<bool> Interactive = new(["--interactive", "-ia"], "交互式选择音视频和字幕；字幕支持多选");
@@ -46,6 +48,8 @@ internal static class CommandLineInvoker
         AudioLanguage.AddValidator(result => result.ErrorMessage = AudioLanguageSelection.ValidateCode(result.GetValueOrDefault<string>()));
         SubtitleLanguage.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidateLanguage(result.GetValueOrDefault<string>()));
         AiSubtitlePolicy.AddValidator(result => result.ErrorMessage = SubtitleSelection.ValidatePolicy(result.GetValueOrDefault<string>()));
+        VideoStream.AddValidator(result => result.ErrorMessage = StreamPinSelection.ValidateVideo(result.GetValueOrDefault<string>()));
+        AudioStream.AddValidator(result => result.ErrorMessage = StreamPinSelection.ValidateAudio(result.GetValueOrDefault<string>()));
     }
     private static readonly Option<bool> VideoAscending = new(["--video-ascending"], "视频升序(最小体积优先)");
     private static readonly Option<bool> AudioAscending = new(["--audio-ascending"], "音频升序(最小体积优先)");
@@ -119,6 +123,8 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(UseMP4box)) option.UseMP4box = bindingContext.ParseResult.GetValueForOption(UseMP4box)!;
             if (bindingContext.ParseResult.HasOption(EncodingPriority)) option.EncodingPriority = bindingContext.ParseResult.GetValueForOption(EncodingPriority)!;
             if (bindingContext.ParseResult.HasOption(DfnPriority)) option.DfnPriority = bindingContext.ParseResult.GetValueForOption(DfnPriority)!;
+            if (bindingContext.ParseResult.HasOption(VideoStream)) option.VideoStream = bindingContext.ParseResult.GetValueForOption(VideoStream);
+            if (bindingContext.ParseResult.HasOption(AudioStream)) option.AudioStream = bindingContext.ParseResult.GetValueForOption(AudioStream);
             if (bindingContext.ParseResult.HasOption(OnlyShowInfo)) option.OnlyShowInfo = bindingContext.ParseResult.GetValueForOption(OnlyShowInfo)!;
             if (bindingContext.ParseResult.HasOption(ShowAll)) option.ShowAll = bindingContext.ParseResult.GetValueForOption(ShowAll)!;
             if (bindingContext.ParseResult.HasOption(UseAria2c)) option.UseAria2c = bindingContext.ParseResult.GetValueForOption(UseAria2c)!;
@@ -194,6 +200,8 @@ internal static class CommandLineInvoker
             UseMP4box,
             EncodingPriority,
             DfnPriority,
+            VideoStream,
+            AudioStream,
             OnlyShowInfo,
             ShowAll,
             UseAria2c,

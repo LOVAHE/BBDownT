@@ -73,7 +73,7 @@ internal partial class Program
     /// </summary>
     /// <param name="myOption"></param>
     /// <returns></returns>
-    private static Dictionary<string, byte> ParseEncodingPriority(MyOption myOption, out string firstEncoding)
+    internal static Dictionary<string, byte> ParseEncodingPriority(MyOption myOption, out string firstEncoding)
     {
         var encodingPriority = new Dictionary<string, byte>();
         firstEncoding = "";
@@ -117,7 +117,7 @@ internal partial class Program
     /// </summary>
     /// <param name="myOption"></param>
     /// <returns></returns>
-    private static Dictionary<string, int> ParseDfnPriority(MyOption myOption)
+    internal static Dictionary<string, int> ParseDfnPriority(MyOption myOption)
     {
         var dfnPriority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (myOption.DfnPriority != null)
@@ -330,7 +330,7 @@ internal partial class Program
     /// <param name="vInfo"></param>
     /// <param name="input"></param>
     /// <returns></returns>
-    private static List<string>? GetSelectedPages(MyOption myOption, VInfo vInfo, string input)
+    internal static List<string>? GetSelectedPages(MyOption myOption, VInfo vInfo, string input)
     {
         List<string>? selectedPages = null;
         List<Page> pagesInfo = vInfo.PagesInfo;
@@ -430,15 +430,13 @@ internal partial class Program
             int index = 0;
             foreach (var a in parsedResult.BackgroundAudioTracks)
             {
-                int pDur = pageDur == 0 ? a.dur : pageDur;
-                LogColor($"{index++}. [{a.codecs}] [{a.bandwith} kbps] [~{FormatFileSize(pDur * a.bandwith * 1024 / 8)}]", false);
+                LogColor(FormatAudioTrackLine(index++, a, pageDur), false);
             }
             Log($"共计{parsedResult.RoleAudioList.Count}条配音, 每条包含{parsedResult.RoleAudioList[0].audio.Count}条配音流.");
             index = 0;
             foreach (var a in parsedResult.RoleAudioList[0].audio)
             {
-                int pDur = pageDur == 0 ? a.dur : pageDur;
-                LogColor($"{index++}. [{a.codecs}] [{a.bandwith} kbps] [~{FormatFileSize(pDur * a.bandwith * 1024 / 8)}]", false);
+                LogColor(FormatAudioTrackLine(index++, a, pageDur), false);
             }
         }
         //展示所有的音视频流信息
@@ -448,9 +446,7 @@ internal partial class Program
             int index = 0;
             foreach (var v in parsedResult.VideoTracks)
             {
-                int pDur = pageDur == 0 ? v.dur : pageDur;
-                var size = v.size > 0 ? v.size : pDur * v.bandwith * 1024 / 8;
-                LogColor($"{index++}. [{v.dfn}] [{v.res}] [{v.codecs}] [{v.fps}] [{v.bandwith} kbps] [~{FormatFileSize(size)}]".Replace("[] ", ""), false);
+                LogColor(FormatVideoTrackLine(index++, v, pageDur), false);
                 if (onlyShowInfo) Console.WriteLine(v.baseUrl);
             }
         }
@@ -460,11 +456,30 @@ internal partial class Program
             int index = 0;
             foreach (var a in parsedResult.AudioTracks)
             {
-                int pDur = pageDur == 0 ? a.dur : pageDur;
-                LogColor($"{index++}. [{a.codecs}] [{a.bandwith} kbps] [~{FormatFileSize(pDur * a.bandwith * 1024 / 8)}]", false);
+                LogColor(FormatAudioTrackLine(index++, a, pageDur), false);
                 if (onlyShowInfo) Console.WriteLine(a.baseUrl);
             }
         }
+    }
+
+    /// <summary>
+    /// 视频流列表中的一行；末尾的 (-vs 画质代码:编码) 可直接用于 --video-stream 精确指定这条流
+    /// </summary>
+    internal static string FormatVideoTrackLine(int index, Video v, int pageDur)
+    {
+        int pDur = pageDur == 0 ? v.dur : pageDur;
+        var size = v.size > 0 ? v.size : pDur * v.bandwith * 1024 / 8;
+        return $"{index}. [{v.dfn}] [{v.res}] [{v.codecs}] [{v.fps}] [{v.bandwith} kbps] [~{FormatFileSize(size)}] (-vs {StreamPinSelection.VideoKey(v)})".Replace("[] ", "");
+    }
+
+    /// <summary>
+    /// 音频流列表中的一行；末尾的 (-as 音频流ID) 可直接用于 --audio-stream 精确指定这条流
+    /// </summary>
+    internal static string FormatAudioTrackLine(int index, Audio a, int pageDur)
+    {
+        int pDur = pageDur == 0 ? a.dur : pageDur;
+        var label = StreamPinSelection.AudioLabel(a.id) is { } name ? $"[{name}] " : "";
+        return $"{index}. {label}[{a.codecs}] [{a.bandwith} kbps] [~{FormatFileSize(pDur * a.bandwith * 1024 / 8)}] (-as {a.id})";
     }
 
     private static void PrintSelectedTrackInfo(Video? selectedVideo, Audio? selectedAudio, int pageDur)
@@ -567,10 +582,51 @@ internal partial class Program
         }
     }
 
+    /// <summary>
+    /// 分P结束时清理临时工作文件夹：不再有未完成的工作时删除说明文件(.bbdownt-task.json)，文件夹为空时删除文件夹
+    /// </summary>
     internal static void DeleteEmptyDownloadDirectory(string path)
     {
+        DownloadWorkFolder.CleanUp(path);
         if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
             Directory.Delete(path);
+    }
+
+    /// <summary>
+    /// 分P开始下载时在临时工作文件夹里写入说明文件：标题、封面和继续下载用的请求。
+    /// 下载中断后「已下载文件」据此显示标题并提供「继续下载」；写入失败不影响下载
+    /// </summary>
+    internal static void BeginWorkFolder(string folder, MyOption myOption, VInfo vInfo, Page p, string pic, string apiType, DownloadTask? relatedTask)
+    {
+        if (myOption.OnlyShowInfo) return;
+        try
+        {
+            // 服务器任务：说明文件与其他产物一样不能写到下载目录外，也不能经过符号链接
+            OutputPathPolicy.ResolveArtifact(DownloadWorkFolder.MetadataPath(folder), myOption.RestrictedOutputRoot);
+            // 收藏夹、合集等清单里每个视频各有自己的工作文件夹，标题用分P(即该视频)的标题
+            var isList = vInfo.PagesInfo.Select(page => page.DownloadId).Distinct().Count() > 1;
+            string? bvid = null;
+            try { bvid = p.bvid; } catch (Exception) { }
+            var request = relatedTask?.CurrentVideoRequest ?? DownloadHistoryRequest.From(myOption);
+            DownloadWorkFolder.Begin(folder, new DownloadWorkMetadata
+            {
+                Title = isList ? p.title : vInfo.Title,
+                Owner = p.ownerName,
+                Pic = isList ? (string.IsNullOrEmpty(p.cover) ? pic : p.cover) : (string.IsNullOrEmpty(pic) ? p.cover : pic),
+                Url = DownloadHistory.CleanUrl(request.Url is { Length: > 0 } url ? url : myOption.Url),
+                Aid = p.aid,
+                Bvid = bvid,
+                Cid = p.cid,
+                Page = p.index,
+                PageTitle = p.title,
+                Api = apiType,
+                Request = request with { Url = DownloadHistory.CleanUrl(request.Url is { Length: > 0 } requestUrl ? requestUrl : myOption.Url) },
+            });
+        }
+        catch (Exception e)
+        {
+            LogDebug("写入未完成下载的说明文件失败: {0}", e.Message);
+        }
     }
 
     [GeneratedRegex("://.*:\\d+/")]

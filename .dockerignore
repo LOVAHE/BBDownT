@@ -374,3 +374,8 @@ debug_*.json
 /BBDownT/*.mp4
 /BBDownT/*.xml
 /BBDownT/*.ass
+
+# 网页版部署数据，避免打包进镜像
+.env
+data/
+downloads/

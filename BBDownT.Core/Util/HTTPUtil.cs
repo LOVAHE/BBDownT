@@ -8,7 +8,13 @@ namespace BBDownT.Core.Util;
 
 public static class HTTPUtil
 {
-    public static readonly HttpClient AppHttpClient = CreateClient(useCookies: true, allowRedirects: true);
+    /// <summary>
+    /// 不使用自动Cookie容器：每个请求只携带 Config.COOKIE 或调用方显式设置的Cookie，
+    /// 响应里的 Set-Cookie(如扫码登录成功时下发的SESSDATA)不会被暗中保存并附加到之后的请求上
+    /// (服务器的游客解析、使用其他账号的任务、退出登录后的请求)。
+    /// 扫码登录、Cookie刷新都直接读取响应头里的 Set-Cookie，不受影响。
+    /// </summary>
+    public static readonly HttpClient AppHttpClient = CreateClient(useCookies: false, allowRedirects: true);
     internal static readonly HttpClient IntlApiHttpClient = CreateClient(useCookies: false, allowRedirects: false);
     internal static readonly HttpClient IntlMediaHttpClient = CreateClient(useCookies: false, allowRedirects: true);
 
@@ -27,6 +33,34 @@ public static class HTTPUtil
 
     internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
     internal static HttpClient GetMediaHttpClient(bool international) => international ? IntlMediaHttpClient : AppHttpClient;
+
+    private static readonly AsyncLocal<CancellationToken> flowCancellation = new();
+
+    /// <summary>
+    /// 当前异步流程的取消令牌：只在 <see cref="UseCancellation"/> 的作用域内(如服务器的解析预览)有值，其他流程为 None。
+    /// 没有显式传入令牌的请求都会带上它，这样超时或客户端断开后正在进行的请求(包括重试前的等待)会立即中止，
+    /// 不必逐层修改解析流程各方法的签名。
+    /// </summary>
+    public static CancellationToken FlowCancellation => flowCancellation.Value;
+
+    /// <summary>
+    /// 在当前异步流程内(包括被等待的子方法)使用指定的取消令牌，Dispose 后恢复原值
+    /// </summary>
+    public static IDisposable UseCancellation(CancellationToken token)
+    {
+        var previous = flowCancellation.Value;
+        flowCancellation.Value = token;
+        return new CancellationScope(() => flowCancellation.Value = previous);
+    }
+
+    private sealed class CancellationScope(Action restore) : IDisposable
+    {
+        private int disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0) restore();
+        }
+    }
 
     private static readonly object UserAgentLock = new();
     private static readonly string[] AndroidDevices =
@@ -178,7 +212,8 @@ public static class HTTPUtil
 
     public static async Task<string> GetWebSourceAsync(string url, string? userAgent = null)
     {
-        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url, userAgent);
+        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url, userAgent,
+            cancellationToken: FlowCancellation);
         LogDebug("Response: {0}", htmlCode);
         return htmlCode;
     }
@@ -186,7 +221,7 @@ public static class HTTPUtil
     internal static async Task<string> GetAuthenticatedWebSourceAsync(string url)
     {
         string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url,
-            forceAuthenticatedProfile: true);
+            forceAuthenticatedProfile: true, cancellationToken: FlowCancellation);
         LogDebug("Response: {0}", htmlCode);
         return htmlCode;
     }
@@ -200,7 +235,8 @@ public static class HTTPUtil
         // App credentials never share the domestic cookie jar or redirect policy.
         var json = await ExecuteWebRequestAsync(httpClient ?? IntlApiHttpClient, HttpMethod.Get, url,
             "Bilibili Freedoooooom/MarkII", Config.COOKIE_IS_INTL, false,
-            (response, token) => response.Content.ReadAsStringAsync(token), cancellationToken, delay, null,
+            (response, token) => response.Content.ReadAsStringAsync(token),
+            cancellationToken.CanBeCanceled ? cancellationToken : FlowCancellation, delay, null,
             configureRequest: request =>
             {
                 request.Headers.TryAddWithoutValidation("APP-KEY", "bstar_a");
@@ -445,7 +481,8 @@ public static class HTTPUtil
         bool international = Config.COOKIE_IS_INTL;
         // Resolve international redirects without either an explicit Cookie or a cookie jar.
         bool sendCookie = !international && ShouldSendCookie(url);
-        string location = await GetWebLocationAsync(GetWebLocationHttpClient(international), url, sendCookie);
+        string location = await GetWebLocationAsync(GetWebLocationHttpClient(international), url, sendCookie,
+            FlowCancellation);
         LogDebug("Location: {0}", location);
         return location;
     }
@@ -502,8 +539,8 @@ public static class HTTPUtil
             request.Headers.TryAddWithoutValidation("grpc-encoding", "gzip");
         }
 
-        using HttpResponseMessage response = await AppHttpClient.SendAsync(request);
-        byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+        using HttpResponseMessage response = await AppHttpClient.SendAsync(request, FlowCancellation);
+        byte[] bytes = await response.Content.ReadAsByteArrayAsync(FlowCancellation);
 
         return bytes;
     }

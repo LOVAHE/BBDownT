@@ -1,0 +1,3162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>BBDownT 下载器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='7' width='26' height='19' rx='5' fill='%23fb7299'/%3E%3Cpath d='M10 3l4 4M22 3l-4 4' stroke='%23fb7299' stroke-width='2.5' stroke-linecap='round'/%3E%3Cpath d='M16 12v8m-3.5-3.5L16 20l3.5-3.5' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f6f7f9;
+  --border: #e3e5e7;
+  --text: #18191c;
+  --text-2: #61666d;
+  --text-3: #9499a0;
+  --pink: #fb7299;
+  --pink-soft: #fff0f4;
+  --blue: #00aeec;
+  --blue-soft: #e6f7fd;
+  --green: #2bb673;
+  --green-soft: #e8f8ef;
+  --red: #f25d59;
+  --red-soft: #fdeeee;
+  --amber: #f2a33a;
+  --amber-soft: #fef5e7;
+  /* 用作文字时的深色版本，浅色背景上对比度不低于 4.5:1 */
+  --amber-text: #a35600;
+  --red-text: #c62f2b;
+  --pink-text: #c8325f;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+  --radius: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --surface: #1b1c1f;
+    --surface-2: #232428;
+    --border: #2e3035;
+    --text: #e7e8ea;
+    --text-2: #a5a9b0;
+    --text-3: #747982;
+    --pink-soft: #3a2029;
+    --blue-soft: #10303c;
+    --green-soft: #15301f;
+    --red-soft: #3a1d1c;
+    --amber-soft: #3a2c15;
+    --amber-text: #f2a33a;
+    --red-text: #f25d59;
+    --pink-text: #fb7299;
+    --shadow: 0 1px 2px rgba(0,0,0,.3);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px 48px; }
+
+/* header */
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: saturate(1.4) blur(12px);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+}
+.bar { max-width: 960px; margin: 0 auto; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: .2px; }
+.brand svg { width: 30px; height: 30px; flex: none; }
+.brand small { font-weight: 400; color: var(--text-3); font-size: 12px; }
+.spacer { flex: 1; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); cursor: pointer; white-space: nowrap; font-size: 13px;
+  min-width: 0;
+}
+.chip:hover { border-color: var(--pink); }
+#biliText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.chip.ok .dot { background: var(--green); }
+.chip.warn .dot { background: var(--amber); }
+.icon-btn { border: 0; background: transparent; padding: 6px; border-radius: 8px; cursor: pointer; color: var(--text-2); display: inline-flex; }
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.composer { padding: 18px; margin-top: 4px; }
+.url-row { display: flex; gap: 10px; align-items: stretch; }
+textarea.url {
+  flex: 1; min-height: 46px; max-height: 160px; resize: vertical;
+  padding: 11px 14px; border-radius: 10px; border: 1.5px solid var(--border);
+  background: var(--surface-2); outline: none; line-height: 1.5;
+}
+textarea.url:focus { border-color: var(--pink); background: var(--surface); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 18px; min-height: 38px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); cursor: pointer; white-space: nowrap; font-weight: 500;
+}
+.btn:hover { border-color: var(--text-3); }
+.btn.primary { background: var(--pink); border-color: var(--pink); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn.primary:disabled { opacity: .6; cursor: default; }
+.btn.small { min-height: 30px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
+a.btn { text-decoration: none; color: inherit; }
+.btn.danger { color: var(--red); }
+.btn.danger:hover { border-color: var(--red); }
+.btn.danger:disabled { opacity: .5; cursor: default; border-color: var(--border); }
+.btn svg { width: 16px; height: 16px; }
+.url-row .btn.primary { min-width: 108px; }
+.url-row .btn.parse { min-width: 84px; }
+.spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; flex: none; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.api-note { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.api-note.warn { color: var(--amber-text); }
+.page-chips { display: flex; gap: 4px; margin-top: 4px; }
+.page-chips button { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; font-size: 12px; padding: 1px 8px; cursor: pointer; color: var(--text-2); }
+.page-chips button:hover { border-color: var(--pink); color: var(--pink); }
+
+/* parse result */
+.result { margin-top: 12px; padding: 16px 18px; }
+.result.stale { opacity: .55; }
+/* 过时的结果不能再点选（选择不会用于新的链接） */
+.result.stale .qtable, .result.stale .pills, .result.stale .plist, .result.stale .dub-sel { pointer-events: none; }
+.r-head { display: flex; gap: 14px; align-items: flex-start; }
+.r-head .cover { width: 120px; }
+.r-main { flex: 1; min-width: 0; }
+.r-title { font-weight: 600; font-size: 15px; word-break: break-all; }
+.r-meta { font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; }
+.r-meta b { color: var(--text); font-weight: 500; }
+.hintbar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin-top: 10px; }
+.hintbar span { flex: 1 1 220px; }
+.hintbar.warn { background: var(--amber-soft); }
+.hintbar.info { background: var(--blue-soft); }
+.sec { font-size: 12px; color: var(--text-2); margin: 14px 0 6px; display: flex; gap: 8px; align-items: center; }
+.sec .spacer { flex: 1; }
+.qtable { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.qrow { display: grid; grid-template-columns: 116px 132px 1fr; gap: 10px; align-items: center; padding: 7px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+.qrow:first-child { border-top: 0; }
+.qrow .res { color: var(--text-2); font-size: 12px; white-space: nowrap; }
+.qrow.locked { color: var(--text-2); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { border: 1px solid var(--border); border-radius: 8px; padding: 3px 10px; background: var(--surface); cursor: pointer; font-size: 12px; display: inline-flex; gap: 6px; align-items: baseline; color: var(--text); }
+.pill small { color: var(--text-2); font-size: 12px; }
+.pill:hover { border-color: var(--text-3); }
+.pill.sel { border-color: var(--pink); background: var(--pink-soft); color: var(--pink-text); }
+.pill.sel small { color: var(--pink-text); }
+.pill:disabled { opacity: .5; cursor: not-allowed; }
+.pill.static { cursor: default; }
+.pill.static:hover, .pill:disabled:hover { border-color: var(--border); }
+.pill .tag { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); }
+/* 按上次的选择自动选中的流 */
+.pill .tag.last { background: var(--surface); color: var(--pink-text); }
+.plist { max-height: 210px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.prow { display: flex; gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border); align-items: center; font-size: 13px; }
+.prow:first-child { border-top: 0; }
+.prow .pt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.prow.cur .pt { color: var(--pink-text); font-weight: 600; }
+.prow small { color: var(--text-2); }
+.prow .look { min-height: 24px; padding: 0 8px; font-size: 12px; }
+.prow .look-cur { font-size: 12px; }
+.r-foot { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.r-foot .sum { flex: 1; min-width: 200px; color: var(--text-2); font-size: 13px; }
+.r-msg { display: flex; gap: 10px; align-items: flex-start; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.r-msg span { flex: 1; word-break: break-all; }
+.r-msg .icon-btn { padding: 2px; }
+.r-msg.error { color: var(--red-text); background: var(--red-soft); }
+.r-msg.info { background: var(--blue-soft); }
+.dub-sel { height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); padding: 0 8px; }
+/* 多个链接：逐个解析的结果列表，一行一个视频 */
+.b-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 13px; color: var(--text-2); }
+.b-head b { color: var(--text); font-size: 15px; font-weight: 600; }
+.b-head .spin { width: 12px; height: 12px; }
+.b-list { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; }
+.b-item { border-top: 1px solid var(--border); }
+.b-item:first-child { border-top: 0; }
+.b-row { display: flex; gap: 12px; padding: 10px 12px; align-items: flex-start; }
+.b-row .cover { width: 96px; }
+.b-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.b-top { display: flex; gap: 6px; align-items: flex-start; }
+.b-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+.b-top .icon-btn { padding: 2px; flex: none; }
+.b-st { display: inline-flex; align-items: center; gap: 4px; }
+.b-st .spin { width: 11px; height: 11px; }
+.b-st.failed { color: var(--red-text); }
+.b-st.note { color: var(--amber-text); }
+.b-stream { font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.b-stream .tag { font-size: 11px; padding: 0 4px; margin-left: 4px; white-space: nowrap; border-radius: 4px; background: var(--surface-2); color: var(--text-2); }
+.b-stream .tag.last { background: var(--pink-soft); color: var(--pink-text); }
+.b-stream .btn.small { min-height: 26px; padding: 0 10px; font-size: 12px; }
+.b-panel { padding: 0 12px 12px; }
+.b-panel > .sec:first-child { margin-top: 4px; }
+.link-note { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.form-msg { margin-top: 8px; padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--red-text); background: var(--red-soft); white-space: pre-line; word-break: break-all; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.task .streams { font-size: 12px; color: var(--text-2); }
+
+.opts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
+.field select, .field input[type=text], .field input[type=number], .field input[type=password] {
+  width: 100%; height: 36px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface-2); outline: none;
+}
+.field select:focus, .field input:focus { border-color: var(--pink); }
+.field input.invalid { border-color: var(--red); }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.toggle {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
+  border-radius: 999px; border: 1px solid var(--border); cursor: pointer; user-select: none;
+  font-size: 13px; color: var(--text-2);
+}
+/* 视觉上隐藏、但仍可用 Tab 选中和用空格切换 */
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.toggle:has(input:focus-visible) { outline: 2px solid var(--pink); outline-offset: 2px; }
+.toggle:has(input:checked) { background: var(--pink-soft); border-color: var(--pink); color: var(--pink-text); }
+.toggle:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+details.adv { margin-top: 12px; }
+details.adv summary { cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; display: inline-flex; align-items: center; gap: 4px; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary::before { content: "›"; display: inline-block; transition: transform .15s; font-size: 16px; line-height: 1; }
+details.adv[open] summary::before { transform: rotate(90deg); }
+.adv-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
+.hint { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+/* tabs */
+.tabs { display: flex; align-items: center; gap: 4px; margin: 22px 0 10px; }
+.tab {
+  border: 0; background: transparent; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+  color: var(--text-2); font-weight: 500;
+}
+.tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.tab .count { margin-left: 4px; font-size: 12px; color: var(--text-3); }
+.tab.active .count { color: var(--pink); }
+
+/* tasks */
+.list { display: flex; flex-direction: column; gap: 10px; }
+.task { display: flex; gap: 14px; padding: 14px; }
+.cover {
+  width: 132px; aspect-ratio: 16 / 10; flex: none; border-radius: 10px; overflow: hidden;
+  background: var(--surface-2); display: grid; place-items: center; color: var(--text-3);
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover svg { width: 32px; height: 32px; }
+.task-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.task-head { display: flex; gap: 8px; align-items: flex-start; }
+.task-title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+.badge { flex: none; font-size: 12px; padding: 2px 8px; border-radius: 6px; font-weight: 500; }
+.badge.pending { background: var(--surface-2); color: var(--text-2); }
+.badge.running { background: var(--blue-soft); color: var(--blue); }
+.badge.done { background: var(--green-soft); color: var(--green); }
+.badge.failed { background: var(--red-soft); color: var(--red); }
+.meta { font-size: 12px; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.meta span { white-space: nowrap; }
+.meta .src { white-space: normal; word-break: break-all; }
+.progress { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.progress > div { height: 100%; background: linear-gradient(90deg, var(--blue), var(--pink)); border-radius: 99px; transition: width .4s ease; }
+.progress.indeterminate > div { width: 30% !important; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+.err { font-size: 12px; color: var(--red); background: var(--red-soft); padding: 6px 10px; border-radius: 8px; word-break: break-all; }
+.outputs { display: flex; flex-wrap: wrap; gap: 6px; }
+.out {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--surface-2);
+  text-decoration: none; color: var(--text-2); border: 1px solid transparent;
+}
+.out:hover { border-color: var(--pink); color: var(--pink); }
+.out span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.out svg { width: 13px; height: 13px; flex: none; }
+.task-actions { display: flex; gap: 6px; }
+.task-actions .btn.small { min-height: 26px; padding: 0 10px; }
+.task-actions .btn:disabled { opacity: .5; cursor: default; }
+
+.list-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.list-tools .search { flex: 1; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); outline: none; }
+.list-tools .search:focus { border-color: var(--pink); }
+.files-note { margin: 0 0 10px; }
+
+/* files：组展开后的文件行 */
+.file { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--border); }
+.file:first-child { border-top: 0; }
+.file-icon { width: 34px; height: 34px; flex: none; border-radius: 8px; display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); }
+.file-icon svg { width: 18px; height: 18px; }
+.file-icon.video { background: var(--pink-soft); color: var(--pink); }
+.file-icon.audio { background: var(--blue-soft); color: var(--blue); }
+.file-main { flex: 1; min-width: 0; }
+.file-name { word-break: break-all; }
+.file-dir { color: var(--text-3); }
+.file-meta { font-size: 12px; color: var(--text-3); }
+.file-actions { display: flex; gap: 2px; flex: none; }
+
+/* file groups：一个视频一组 */
+.fgroup { overflow: hidden; }
+.fg-row { display: flex; gap: 12px; align-items: center; padding: 12px 14px; }
+.fg-row .cover { width: 96px; }
+.fg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.fg-toggle {
+  display: flex; flex-direction: column; gap: 4px; align-items: stretch; width: 100%; min-width: 0;
+  padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; border-radius: 6px;
+}
+.fg-toggle:focus-visible { outline: 2px solid var(--pink); outline-offset: 3px; }
+.fg-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+.fg-toggle:hover .fg-title { color: var(--pink-text); }
+.fg-pending { font-weight: 400; font-size: 12px; color: var(--text-3); margin-left: 4px; }
+.fg-meta { font-size: 12px; color: var(--text-3); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.fg-meta span { white-space: nowrap; }
+.fg-more { display: inline-flex; align-items: center; gap: 2px; color: var(--text-2); }
+.fg-more::after { content: "›"; display: inline-block; transition: transform .15s; font-size: 15px; line-height: 1; }
+.fgroup.open .fg-more::after { transform: rotate(90deg); }
+.fg-sub { font-size: 12px; color: var(--text-2); word-break: break-all; }
+.fg-actions { display: flex; flex-wrap: wrap; gap: 6px; flex: none; justify-content: flex-end; }
+.fg-actions .btn:disabled { opacity: .5; cursor: not-allowed; }
+.fg-body { border-top: 1px solid var(--border); }
+.badge.partial { background: var(--amber-soft); color: var(--amber-text); }
+.clips { padding: 10px 14px 12px; border-top: 1px solid var(--border); }
+.fg-body > .clips:first-child { border-top: 0; }
+.clips-head { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 4px 12px; max-height: 280px; overflow-y: auto; }
+.clip { display: flex; gap: 6px; font-size: 12px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.clip .idx { color: var(--text-3); min-width: 3.4em; }
+.clip .st { color: var(--green); }
+.clip.part .st { color: var(--amber-text); }
+
+/* history */
+a.task-title { color: inherit; text-decoration: none; }
+a.task-title:hover { color: var(--pink-text); text-decoration: underline; text-underline-offset: 3px; }
+.badge.gone { background: var(--surface-2); color: var(--text-2); }
+.badge.skipped { background: var(--amber-soft); color: var(--amber-text); }
+.hist-badges { display: flex; flex: none; gap: 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tags span { font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); color: var(--text-2); }
+.tags span.api { background: var(--blue-soft); color: var(--blue); }
+.out.missing { text-decoration: line-through; opacity: .6; cursor: default; }
+.out.missing:hover { border-color: transparent; color: var(--text-2); }
+/* 操作按钮单独一行：电脑上与文字对齐，手机上占满整行 */
+.task.hist { flex-wrap: wrap; align-items: flex-start; row-gap: 10px; }
+.hist-actions { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 0 100%; padding-left: 146px; }
+.hist-actions .btn:disabled { opacity: .5; cursor: not-allowed; }
+.hist-actions .btn:disabled:hover { border-color: var(--border); }
+.more { display: flex; justify-content: center; margin-top: 12px; }
+.file-sub { font-size: 12px; color: var(--text-2); word-break: break-all; }
+
+.empty { text-align: center; padding: 48px 16px; color: var(--text-3); }
+.empty svg { width: 44px; height: 44px; opacity: .6; }
+.empty p { margin: 8px 0 0; }
+
+/* modal */
+.mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.modal { width: 100%; max-width: 380px; padding: 24px; text-align: center; }
+.modal h2 { margin: 0 0 6px; font-size: 18px; }
+.modal p { margin: 0 0 16px; color: var(--text-2); font-size: 13px; }
+.modal .field { text-align: left; margin-bottom: 12px; }
+.modal .btn { width: 100%; }
+.modal .row { display: flex; gap: 8px; margin-top: 8px; }
+.qr { width: 200px; height: 200px; margin: 4px auto 14px; border-radius: 12px; background: #fff; padding: 8px; display: grid; place-items: center; position: relative; }
+.qr img { width: 100%; height: 100%; image-rendering: pixelated; }
+.qr .over { position: absolute; inset: 0; background: rgba(255,255,255,.92); border-radius: 12px; display: grid; place-items: center; color: #18191c; font-weight: 600; }
+.qr-state { min-height: 22px; font-size: 14px; }
+.qr-state.ok { color: var(--green); }
+.form-err { color: var(--red); font-size: 13px; min-height: 20px; margin-bottom: 8px; }
+
+/* toast */
+.toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; width: max-content; max-width: calc(100vw - 32px); }
+.toast { background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.18); animation: pop .2s ease; }
+.toast.error { background: var(--red); color: #fff; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+footer { text-align: center; color: var(--text-3); font-size: 12px; margin-top: 28px; }
+
+@media (max-width: 760px) {
+  .opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .brand small { display: none; }
+  .url-row { flex-direction: column; }
+  /* 纵向排列时 flex:1 会让输入框忽略脚本设置的高度 */
+  textarea.url { flex: none; }
+  .url-row .btn.primary { min-height: 42px; }
+  .opts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qrow { grid-template-columns: 1fr; gap: 4px; }
+  .r-head .cover { width: 88px; }
+  .b-row { gap: 10px; padding: 10px; }
+  .b-row .cover { width: 72px; }
+  .b-panel { padding: 0 10px 10px; }
+  /* 画质、下载内容并排；分P（提示文字较长）和解析接口各占一行 */
+  .opts .field:nth-child(3), .opts .field:last-child { grid-column: span 2; }
+  .adv-body { grid-template-columns: 1fr; }
+  .task { gap: 10px; padding: 12px; }
+  .cover { width: 88px; }
+  .cover svg { width: 24px; height: 24px; }
+  .task-title { font-size: 14px; }
+  /* 排队中的任务：「取消排队」换到标题下一行，标题不会被挤得只剩几个字 */
+  .task-head:has([data-cancel]) { flex-wrap: wrap; row-gap: 6px; }
+  .task-head:has([data-cancel]) .task-actions { flex-basis: 100%; }
+  .chip .label-long { display: none; }
+  .chip { max-width: 45vw; }
+  .tabs { flex-wrap: wrap; row-gap: 6px; }
+  .hist-actions { padding-left: 0; }
+  /* 已下载文件：操作按钮换到下一行，标题不会被挤窄 */
+  .fg-row { flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 12px; }
+  .fg-row .cover { width: 72px; }
+  .fg-actions { flex-basis: 100%; justify-content: flex-start; }
+  .fg-title { font-size: 14px; }
+  .clip-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  /* 徽标换到标题下一行：第一行只有标题和删除按钮，标题不会被挤得只剩几个字 */
+  .task.hist .task-head { flex-wrap: wrap; row-gap: 4px; }
+  .hist-badges { order: 1; flex-basis: 100%; flex-wrap: wrap; }
+  .tab { padding: 8px 10px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="19" rx="5" fill="#fb7299"/><path d="M10 3l4 4M22 3l-4 4" stroke="#fb7299" stroke-width="2.5" stroke-linecap="round"/><path d="M16 12v8m-3.5-3.5L16 20l3.5-3.5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>BBDownT</span><small id="version"></small>
+    </div>
+    <div class="spacer"></div>
+    <button class="chip" id="biliChip" type="button" hidden><span class="dot"></span><span id="biliText">B站账号</span></button>
+    <button class="icon-btn" id="logoutBtn" type="button" title="退出网页登录" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="wrap">
+  <form class="card composer" id="taskForm" autocomplete="off">
+    <div class="url-row">
+      <textarea class="url" id="url" rows="1" placeholder="粘贴视频链接、分享文本或 BV/av/ep/ss 号，多个可换行" required></textarea>
+      <button class="btn parse" id="parseBtn" type="button" title="先查看这个视频有哪些画质、编码和音轨">解析</button>
+      <button class="btn primary" id="submitBtn" type="submit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m-5-5 5 5 5-5M5 20h14"/></svg>
+        <span id="submitText">下载</span>
+      </button>
+    </div>
+    <div class="link-note" id="linkNote" hidden></div>
+    <div class="form-msg" id="formMsg" role="alert" hidden></div>
+    <div class="opts">
+      <div class="field">
+        <label for="quality">画质</label>
+        <select id="quality" data-save>
+          <option value="">最高画质</option>
+          <option value="4K 超清,1080P 高码率,1080P 高帧率,1080P 高清">4K</option>
+          <option value="1080P 高码率,1080P 高帧率,1080P 高清,720P 高清">1080P</option>
+          <option value="720P 高帧率,720P 高清,480P 清晰">720P</option>
+          <option value="480P 清晰,360P 流畅">480P</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="content">下载内容</label>
+        <select id="content" data-save>
+          <option value="">视频（含音频）</option>
+          <option value="audio">仅音频</option>
+          <option value="video">仅视频画面</option>
+          <option value="sub">仅字幕</option>
+          <option value="danmaku">仅弹幕</option>
+          <option value="cover">仅封面</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="page">分P</label>
+        <input type="text" id="page" placeholder="默认：链接中的P或全部">
+        <div class="page-chips"><button type="button" data-page="ALL">全部</button><button type="button" data-page="LAST">最新</button><button type="button" data-page="">清空</button></div>
+      </div>
+      <div class="field">
+        <label for="api">解析接口（下载源）</label>
+        <select id="api" data-save>
+          <option value="">WEB 网页端（推荐）</option>
+          <option value="tv">TV 端（需单独登录）</option>
+          <option value="app">APP 端（需单独登录）</option>
+          <option value="intl">国际版（东南亚）</option>
+        </select>
+      </div>
+    </div>
+    <div class="api-note" id="apiNote"></div>
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="subtitle" data-save checked>字幕</label>
+      <label class="toggle"><input type="checkbox" id="aiSub" data-save>无人工字幕时用AI字幕</label>
+      <label class="toggle"><input type="checkbox" id="danmaku" data-save>弹幕</label>
+      <label class="toggle"><input type="checkbox" id="cover" data-save checked>内嵌封面</label>
+    </div>
+    <details class="adv">
+      <summary>高级选项</summary>
+      <div class="adv-body">
+        <div class="field">
+          <label for="encoding">视频编码优先</label>
+          <select id="encoding" data-save>
+            <option value="">自动</option>
+            <option value="hevc,avc,av1">HEVC (H.265)</option>
+            <option value="avc,hevc,av1">AVC (H.264，兼容性最好)</option>
+            <option value="av1,hevc,avc">AV1</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="toggle" style="margin-top:20px"><input type="checkbox" id="autoParse" data-save checked>粘贴链接后自动解析</label>
+        </div>
+        <div class="field">
+          <label for="filePattern">单P文件名</label>
+          <input type="text" id="filePattern" data-save placeholder="&lt;videoTitle&gt;">
+        </div>
+        <div class="field">
+          <label for="multiFilePattern">多P文件名</label>
+          <input type="text" id="multiFilePattern" data-save placeholder="&lt;videoTitle&gt;/[P&lt;pageNumberWithZero&gt;]&lt;pageTitle&gt;">
+        </div>
+        <div class="field">
+          <label class="toggle" style="margin-top:20px"><input type="checkbox" id="downloadAll" disabled>UP主空间链接：下载全部投稿</label>
+          <div class="hint" id="downloadAllHint">只对 space.bilibili.com/数字 形式的UP主空间链接生效；不勾选时只导出视频清单（TXT）。下载多P视频的全部分P请用上面的「分P → 全部」。</div>
+        </div>
+        <div class="field">
+          <label for="delayPerVideo">投稿之间间隔（秒）</label>
+          <input type="number" id="delayPerVideo" data-save min="0" value="10">
+        </div>
+      </div>
+    </details>
+  </form>
+
+  <section class="card result" id="result" aria-label="解析结果" hidden></section>
+  <section class="card result batch" id="batch" aria-label="多个链接的解析结果" hidden></section>
+  <div class="sr-only" id="parseStatus" role="status" aria-live="polite"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="tasks" type="button">任务<span class="count" id="taskCount"></span></button>
+    <button class="tab" data-tab="files" type="button">已下载文件<span class="count" id="fileCount"></span></button>
+    <button class="tab" data-tab="history" type="button">历史<span class="count" id="historyCount"></span></button>
+    <div class="spacer"></div>
+    <button class="btn small" id="clearPending" type="button" title="取消全部还没开始的任务（正在下载的不受影响）" hidden>清空排队</button>
+    <button class="btn small" id="clearDone" type="button">清除已完成</button>
+    <button class="btn small danger" id="clearHistory" type="button" title="删除全部下载记录（不删除文件）" hidden>清空历史</button>
+  </div>
+
+  <section id="tasksPane">
+    <div class="list" id="taskList"></div>
+  </section>
+
+  <section id="filesPane" hidden>
+    <div class="list-tools">
+      <input class="search" id="fileSearch" type="search" placeholder="搜索标题或文件名">
+      <button class="btn small" id="refreshFiles" type="button">刷新</button>
+    </div>
+    <div class="hintbar warn files-note" id="fileNote" hidden><span>文件太多，只显示了最新的一部分；较早的文件没有列出，整组删除也只删除列出的文件。</span></div>
+    <div class="list" id="fileList"></div>
+    <div class="card empty" id="fileEmpty" hidden></div>
+  </section>
+
+  <section id="historyPane" hidden>
+    <div class="list-tools">
+      <input class="search" id="historySearch" type="search" placeholder="搜索标题、UP主或 BV 号">
+      <button class="btn small" id="refreshHistory" type="button">刷新</button>
+    </div>
+    <div class="list" id="historyList"></div>
+    <div class="more" id="historyMore" hidden><button class="btn small" id="historyMoreBtn" type="button">加载更多</button></div>
+  </section>
+
+  <footer>任务列表保存在内存中，服务重启后会清空；下载历史保存在数据目录，重启后仍在。清除任务或删除历史记录都不会删除已下载的文件。</footer>
+</div>
+
+<div class="mask" id="tokenModal" hidden>
+  <form class="card modal" id="tokenForm">
+    <h2>输入访问令牌</h2>
+    <p>令牌在服务器的 .env 文件或启动日志中</p>
+    <div class="field"><input type="password" id="tokenInput" placeholder="API Token" autocomplete="current-password" required></div>
+    <div class="form-err" id="tokenErr"></div>
+    <button class="btn primary" type="submit">进入</button>
+  </form>
+</div>
+
+<div class="mask" id="biliModal" hidden>
+  <div class="card modal">
+    <h2>登录哔哩哔哩</h2>
+    <p>登录后可下载 1080P 及以上画质和会员内容</p>
+    <div class="qr"><img id="qrImg" alt="" hidden><div class="over" id="qrOver" hidden></div></div>
+    <div class="qr-state" id="qrState">正在获取二维码…</div>
+    <div class="row">
+      <button class="btn" id="qrRefresh" type="button">刷新二维码</button>
+      <button class="btn" id="qrClose" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // 封面：B站图床（*.hdslb.com）的图片取缩略图，其他地址（如国际版的封面）原样使用；
+  // 加载失败（地址失效、被内容安全策略拦截等）时换成图标，之后不再请求
+  const failedCovers = new Set();
+  function coverUrl(pic) {
+    if (!pic) return '';
+    const src = String(pic).replace(/^\/\//, 'https://').replace(/^http:/, 'https:');
+    let x;
+    try { x = new URL(src); } catch { return ''; }
+    if (x.protocol !== 'https:') return '';
+    const host = x.hostname.toLowerCase();
+    return host === 'hdslb.com' || host.endsWith('.hdslb.com') ? src + '@320w_200h_1c.webp' : src;
+  }
+  // fallback：B站封面加载失败时改用的本地图片地址（已下载文件里保存的封面）
+  function coverHtml(pic, fallback) {
+    const src = coverUrl(pic);
+    if (src && !failedCovers.has(src)) {
+      return `<img src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer"${fallback ? ` data-fallback="${esc(fallback)}"` : ''}>`;
+    }
+    return fallback && !failedCovers.has(fallback) ? `<img src="${esc(fallback)}" alt="" loading="lazy">` : ICON.film;
+  }
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.parentElement || !img.parentElement.classList.contains('cover')) return;
+    failedCovers.add(img.getAttribute('src'));
+    const fallback = img.dataset.fallback;
+    img.parentElement.innerHTML = fallback && !failedCovers.has(fallback) ? `<img src="${esc(fallback)}" alt="" loading="lazy">` : ICON.film;
+  }, true);
+  const store = {
+    get(k) { try { return localStorage.getItem('bbdownt.' + k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem('bbdownt.' + k, v); } catch {} },
+  };
+
+  const ICON = {
+    film: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9.5 4.5 2.5-4.5 2.5z"/></svg>',
+    music: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+    down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 20h14"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5v14l11-7z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z"/></svg>',
+  };
+  const VIDEO_EXT = ['mp4', 'mkv', 'flv', 'webm', 'mov', 'm4v'];
+  const AUDIO_EXT = ['m4a', 'mp3', 'aac', 'flac', 'eac3', 'ec3', 'opus', 'wav'];
+  const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+  const extOf = (p) => (p.split('.').pop() || '').toLowerCase();
+  // Mac 客户端（WKWebView，UA 里没有 Safari 标识）会拦截文件链接：非 inline 的链接在访达中显示文件，inline 的用默认播放器打开
+  const inMacApp = /Macintosh/.test(navigator.userAgent) && /AppleWebKit/.test(navigator.userAgent) && !/Safari\//.test(navigator.userAgent);
+  const baseName = (p) => p.split(/[\\/]/).pop();
+
+  function toast(msg, isError, ms) {
+    const el = document.createElement('div');
+    el.className = 'toast' + (isError ? ' error' : '');
+    el.textContent = msg;
+    $('toasts').appendChild(el);
+    setTimeout(() => el.remove(), ms || (isError ? 5000 : 2600));
+  }
+
+  function fmtBytes(n) {
+    if (!n || n < 0) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(n >= 100 ? 0 : 1)) + ' ' + u[i];
+  }
+  function fmtTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    const p = (x) => String(x).padStart(2, '0');
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    return (sameDay ? '今天 ' : `${d.getMonth() + 1}月${d.getDate()}日 `) + `${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function fmtDuration(sec) {
+    if (sec < 60) return sec + ' 秒';
+    if (sec < 3600) return Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒';
+    return Math.floor(sec / 3600) + ' 小时 ' + Math.floor((sec % 3600) / 60) + ' 分';
+  }
+
+  // ---------- API ----------
+  class AuthError extends Error {}
+  async function api(path, opts = {}) {
+    const init = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
+    if (opts.signal) init.signal = opts.signal;
+    if (opts.body !== undefined) {
+      init.headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(opts.body);
+    }
+    let res;
+    try {
+      res = await fetch(path, init);
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw err;
+      // 引擎退出或网络断开：fetch 抛出的 TypeError 在各浏览器里写法不同（Failed to fetch、Load failed）
+      const e = new Error('无法连接 BBDownT 服务，请确认程序仍在运行');
+      e.status = 0;
+      throw e;
+    }
+    if (res.status === 401 && !opts.allow401) {
+      showTokenModal();
+      throw new AuthError('unauthorized');
+    }
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const msg = typeof data === 'string' ? data.replace(/^"|"$/g, '') : (data && (data.detail || data.title)) || ('请求失败 ' + res.status);
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  // ---------- token ----------
+  function showTokenModal() {
+    if (!$('tokenModal').hidden) return;
+    stopPolling();
+    $('tokenErr').textContent = '';
+    $('tokenModal').hidden = false;
+    setTimeout(() => $('tokenInput').focus(), 50);
+  }
+  $('tokenForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('tokenErr').textContent = '';
+    try {
+      await api('/ui/session', { method: 'POST', body: { Token: $('tokenInput').value }, allow401: true });
+      $('tokenModal').hidden = true;
+      $('tokenInput').value = '';
+      start();
+    } catch (err) {
+      $('tokenErr').textContent = err.status === 401 ? '令牌不正确' : err.message;
+    }
+  });
+  $('logoutBtn').addEventListener('click', async () => {
+    await api('/ui/session', { method: 'DELETE', allow401: true }).catch(() => {});
+    location.reload();
+  });
+
+  // ---------- status / bili login ----------
+  let status = null;
+  async function loadStatus() {
+    status = await api('/ui/status');
+    $('version').textContent = 'v' + status.Version;
+    $('logoutBtn').hidden = !status.AuthRequired;
+    renderBiliChip();
+    migrateSavedApi();
+    renderApiNote();
+  }
+  // 旧版本把「解析接口」存在本机且藏在高级选项里，选过 APP/TV 后会一直沿用。
+  // 新版第一次打开页面时检查一次：保存的是 APP/TV、本机却没有对应的登录凭证，就改回 WEB，并在接口说明里写明原因。
+  // 之后用户自己选的 TV/APP 会保留，只在接口说明里提示。
+  let apiMigrationNote = '';
+  function migrateSavedApi() {
+    if (!status || store.get('opt.apiMigratedV2') === '1') return;
+    store.set('opt.apiMigratedV2', '1');
+    const v = $('api').value;
+    if ((v === 'app' && !status.AppTokenSaved) || (v === 'tv' && !status.TvTokenSaved)) {
+      $('api').value = '';
+      store.set('opt.api', '');
+      apiMigrationNote = v === 'app'
+        ? '「解析接口」已从 APP 改回 WEB：本机没有 APP 登录凭证，APP 接口按未登录解析，通常最高 480P。'
+        : '「解析接口」已从 TV 改回 WEB：本机没有 TV 登录凭证，TV 接口按未登录解析，拿不到 1080P 及以上画质（未登录通常最高 720P）。';
+    }
+  }
+  // 解析接口说明：网页扫码登录只对 WEB 接口有效，TV/APP 需要各自的 access_token
+  function renderApiNote() {
+    const note = $('apiNote');
+    const v = $('api').value;
+    let text = '', warn = false;
+    if (v === 'tv' || v === 'app') {
+      const name = v === 'tv' ? 'TV' : 'APP';
+      const saved = status && (v === 'tv' ? status.TvTokenSaved : status.AppTokenSaved);
+      if (saved) {
+        text = `解析接口：${name}，使用本机保存的 ${name} 登录凭证（与网页登录无关）。`;
+      } else {
+        text = `解析接口：${name}。它不使用网页扫码登录，本机也没有 ${name} 登录凭证，只能按未登录身份解析：`
+          + (v === 'app' ? '通常最高 480P，且一次只返回一种编码。' : '拿不到 1080P 及以上画质（未登录通常最高 720P）。')
+          + '建议改用 WEB。';
+        warn = true;
+      }
+    } else if (v === 'intl') {
+      text = '解析接口：国际版，只用于 bilibili.tv（东南亚）的番剧，普通视频请用 WEB。';
+    } else if (status) {
+      if (status.BiliUserName) {
+        text = `解析接口：WEB，使用网页登录：${status.BiliUserName}`
+          + (status.BiliVip ? `（${status.BiliVipLabel || '大会员'}）` : '（非大会员：4K、1080P 高码率等需大会员）');
+      } else if (status.BiliCookieSaved) {
+        text = '解析接口：WEB。保存的B站登录已失效：下载时会自动尝试刷新，若仍失败请点右上角重新扫码。';
+        warn = true;
+      } else {
+        text = '解析接口：WEB。未登录B站，只能获取较低画质，点右上角「登录B站」扫码。';
+        warn = true;
+      }
+    }
+    if (apiMigrationNote && v === '') {
+      text = apiMigrationNote + (text ? ' ' + text : '');
+      warn = true;
+    }
+    note.textContent = text;
+    note.className = 'api-note' + (warn ? ' warn' : '');
+  }
+  function renderBiliChip() {
+    const chip = $('biliChip');
+    chip.hidden = false;
+    chip.classList.remove('ok', 'warn');
+    if (status.BiliUserName) {
+      chip.classList.add('ok');
+      $('biliText').innerHTML = `<span class="label-long">B站：</span>${esc(status.BiliUserName)}`;
+      chip.title = '点击退出B站账号';
+    } else if (status.BiliCookieSaved) {
+      chip.classList.add('warn');
+      $('biliText').textContent = 'B站登录已失效';
+      chip.title = '点击重新扫码登录';
+    } else {
+      $('biliText').innerHTML = '登录B站<span class="label-long">（解锁高画质）</span>';
+      chip.title = '扫码登录哔哩哔哩账号';
+    }
+  }
+  // 登录状态变化后，缓存的解析结果（账号、画质）已过时
+  function onAccountChanged() {
+    parseCache.clear();
+    if (parsed && !$('result').hidden) doParse({ force: true });
+  }
+  $('biliChip').addEventListener('click', async () => {
+    if (status && status.BiliUserName) {
+      if (!confirm(`退出B站账号「${status.BiliUserName}」？退出后只能下载低画质。`)) return;
+      await api('/ui/bili-login', { method: 'DELETE' });
+      toast('已退出B站账号');
+      loadStatus().catch(() => {});
+      onAccountChanged();
+      return;
+    }
+    openBiliLogin();
+  });
+
+  let qrTimer = null;
+  let qrKey = null;
+  function closeBiliLogin() {
+    clearTimeout(qrTimer);
+    qrKey = null;
+    $('biliModal').hidden = true;
+  }
+  async function openBiliLogin() {
+    $('biliModal').hidden = false;
+    clearTimeout(qrTimer);
+    $('qrImg').hidden = true;
+    $('qrImg').removeAttribute('src');
+    $('qrOver').hidden = true;
+    $('qrState').className = 'qr-state';
+    $('qrState').textContent = '正在获取二维码…';
+    try {
+      const res = await api('/ui/bili-login', { method: 'POST' });
+      qrKey = res.Key;
+      $('qrImg').src = res.QrCode;
+      $('qrImg').hidden = false;
+      $('qrState').textContent = '请使用哔哩哔哩 App 扫码';
+      pollQr(res.Key);
+    } catch (err) {
+      if (err instanceof AuthError) return closeBiliLogin();
+      $('qrState').textContent = err.message;
+    }
+  }
+  function pollQr(key) {
+    qrTimer = setTimeout(async () => {
+      if (key !== qrKey) return;
+      try {
+        const res = await api('/ui/bili-login/' + encodeURIComponent(key));
+        if (key !== qrKey) return;
+        if (res.State === 'scanned') {
+          $('qrOver').hidden = false;
+          $('qrOver').textContent = '已扫码';
+          $('qrState').textContent = '请在手机上确认登录';
+        } else if (res.State === 'expired') {
+          $('qrOver').hidden = false;
+          $('qrOver').textContent = '已过期';
+          $('qrState').textContent = '二维码已过期，请刷新';
+          return;
+        } else if (res.State === 'success') {
+          $('qrState').className = 'qr-state ok';
+          $('qrState').textContent = '登录成功' + (res.UserName ? '：' + res.UserName : '');
+          setTimeout(closeBiliLogin, 900);
+          loadStatus().catch(() => {});
+          onAccountChanged();
+          return;
+        }
+      } catch (err) {
+        if (err instanceof AuthError) return closeBiliLogin();
+        $('qrState').textContent = err.message;
+      }
+      pollQr(key);
+    }, 1500);
+  }
+  $('qrRefresh').addEventListener('click', openBiliLogin);
+  $('qrClose').addEventListener('click', closeBiliLogin);
+
+  // ---------- links ----------
+  // link-rules:begin —— 只有纯函数。BBDownT.Tests/WebUi/check-link-rules.mjs 会抽出这一段，
+  // 用 BBDownT.Tests/TestData/link-rules.json 核对（C# 测试用同一份数据核对 SpaceBatchDownload.IsSpaceUrl）
+  const URL_RE = /https?:\/\/[^\s<>"'，。、；！？【】《》「」（）()]+/gi;
+  const ID_RE = /^([Bb][Vv]1[0-9A-Za-z]{9}|[Aa][Vv]\d+|ep\d+|ss\d+|md\d+)$/;
+  const CHEESE_RE = /^cheese\/(ep|ss)\d+$/;
+  // 不带协议的B站链接，如 space.bilibili.com/123、www.bilibili.com/video/BV…、b23.tv/xxx
+  const BARE_LINK_RE = /^(?:(?:www\.|m\.|space\.)?bilibili\.com|b23\.tv)\/[^\s<>"'，。、；！？【】《》「」（）()]*/i;
+  const TRAILING_PUNCT_RE = /[.,;:!?)\]}>'"]+$/;
+  const TRACKING_PARAMS = ['spm_id_from', 'vd_source', 'from_spmid', 'share_source', 'share_medium', 'share_plat',
+    'share_session_id', 'share_tag', 'share_from', 'unique_k', 'bbid', 'ts', 'timestamp', 'buvid', 'is_story_h5', 'plat_id'];
+  // 登录凭证参数（名称不区分大小写）：不提交，也不会写进下载历史
+  const CREDENTIAL_PARAMS = ['access_key', 'access_token', 'refresh_token', 'sessdata', 'bili_jct', 'dedeuserid', 'ac_time_value'];
+  // 分享文本（如「【标题】 https://b23.tv/xxx」）里只取链接：含链接的行只取其中的链接；
+  // 其他行取 BV/av/ep/ss/md 号、cheese/ep123 和不带协议的B站链接（补上 https://），其余文字记为未识别（ignored）。
+  // 整段都认不出时按空白拆分（与以前一致），交给服务器判断
+  function splitInput(text) {
+    const found = [];
+    const loose = [];
+    for (const line of String(text).split(/\r?\n/)) {
+      const urls = line.match(URL_RE);
+      if (urls) {
+        found.push(...urls.map((u) => u.replace(TRAILING_PUNCT_RE, '')));
+        continue;
+      }
+      for (const token of line.split(/\s+/).map((x) => x.trim()).filter(Boolean)) {
+        const bare = BARE_LINK_RE.exec(token);
+        if (ID_RE.test(token) || CHEESE_RE.test(token)) found.push(token);
+        else if (bare) found.push('https://' + bare[0].replace(TRAILING_PUNCT_RE, ''));
+        else loose.push(token);
+      }
+    }
+    return found.length
+      ? { links: [...new Set(found)], ignored: [...new Set(loose)] }
+      : { links: [...new Set(loose)], ignored: [] };
+  }
+  const extractLinks = (text) => splitInput(text).links;
+  // 提交给服务器的链接：去掉分享跟踪参数、登录凭证参数和 #片段
+  function cleanLink(link) {
+    let x;
+    try { x = new URL(link); } catch { return link.trim(); }
+    if (!/^https?:$/.test(x.protocol)) return link.trim();
+    TRACKING_PARAMS.forEach((k) => x.searchParams.delete(k));
+    [...x.searchParams.keys()].filter((k) => CREDENTIAL_PARAMS.includes(k.toLowerCase())).forEach((k) => x.searchParams.delete(k));
+    x.hash = '';
+    return x.toString();
+  }
+  const isBiliHost = (host) => host === 'bilibili.com' || host.endsWith('.bilibili.com');
+  // 比较用的键（解析缓存、「所选的流」、结果是否过时）：能认出视频、番剧、课程编号时只用编号，再加上有意义的 p= 参数，
+  // 所以粘贴同一视频的BV号、完整链接或分享文本得到同一个键；其他链接用 cleanLink 的结果
+  function linkKey(link) {
+    const s = link.trim();
+    let m = /^[Bb][Vv](1[0-9A-Za-z]{9})$/.exec(s);
+    if (m) return 'BV' + m[1];
+    if ((m = /^[Aa][Vv](\d+)$/.exec(s))) return 'av' + m[1];
+    if (/^(ep|ss|md)\d+$/.test(s) || CHEESE_RE.test(s)) return s;
+    let x;
+    try { x = new URL(s); } catch { return s; }
+    if (!/^https?:$/.test(x.protocol)) return s;
+    if (isBiliHost(x.hostname.toLowerCase())) {
+      const p = x.searchParams.get('p');
+      const page = p && /^\d+$/.test(p) ? '?p=' + p : '';
+      const path = x.pathname;
+      if ((m = /\/video\/[Bb][Vv](1[0-9A-Za-z]{9})(?:\/|$)/.exec(path))) return 'BV' + m[1] + page;
+      if ((m = /\/video\/[Aa][Vv](\d+)(?:\/|$)/.exec(path))) return 'av' + m[1] + page;
+      if ((m = /^\/bangumi\/play\/((ep|ss)\d+)\/?$/.exec(path))) return m[1];
+      if ((m = /^\/bangumi\/media\/(md\d+)\/?$/.exec(path))) return m[1];
+      if ((m = /^\/cheese\/play\/((ep|ss)\d+)\/?$/.exec(path))) return 'cheese/' + m[1];
+    }
+    return cleanLink(s);
+  }
+  // 与服务端 SpaceBatchDownload.IsSpaceUrl 相同：space.bilibili.com/数字，且不是合集/收藏夹/频道页
+  function isSpaceUrl(link) {
+    let x;
+    try { x = new URL(link.trim()); } catch { return false; }
+    if (!/^https?:$/.test(x.protocol) || x.hostname.toLowerCase() !== 'space.bilibili.com') return false;
+    const parts = x.pathname.split('/').filter(Boolean);
+    return parts.length > 0 && /^\d+$/.test(parts[0])
+      && !parts.slice(1).some((p) => p === 'lists' || p === 'favlist' || p === 'channel');
+  }
+  // single：单个视频/番剧/课程单集，可自动解析；space/list/course：列表类，不自动解析；unknown：交给服务器判断
+  function linkKind(link) {
+    const s = link.trim();
+    // 与服务端 GetAvIdAsync 一致：BV/av 不区分大小写，ep/ss 只认小写
+    if (/^([Bb][Vv]1[0-9A-Za-z]{9}|[Aa][Vv]\d+|ep\d+|ss\d+)$/.test(s) || /^cheese\/ep\d+$/.test(s)) return 'single';
+    if (/^cheese\/ss\d+$/.test(s)) return 'course';
+    let x;
+    try { x = new URL(s); } catch { return 'unknown'; }
+    if (!/^https?:$/.test(x.protocol)) return 'unknown';
+    const host = x.hostname.toLowerCase();
+    const path = x.pathname;
+    if (host === 'b23.tv') return 'single';   // 短链由服务器展开；展开后是列表时会给出说明
+    if (host === 'space.bilibili.com') return isSpaceUrl(s) ? 'space' : 'list';
+    if (!isBiliHost(host) && !/(^|\.)(bilibili\.tv|biliintl\.com)$/.test(host)) return 'unknown';
+    if (/\/(medialist|list)\//i.test(path) || /\/channel\/(collection|series)detail/i.test(path)) return 'list';
+    if (/\/cheese\/play\/ss\d+/i.test(path)) return 'course';
+    if (/\/video\/(BV1[0-9A-Za-z]{9}|av\d+)/i.test(path) || /\/(bangumi|cheese)\/play\/(ep|ss)\d+/i.test(path)
+      || /\/bangumi\/media\/md\d+/i.test(path) || /\/play\/\d+\/\d+/.test(path)) return 'single';
+    return 'unknown';
+  }
+  // 页码集合压缩成 1,3-5 形式；全选时为 ALL
+  function pagesExpr(set, total) {
+    const xs = [...set].sort((a, b) => a - b);
+    if (xs.length === total) return 'ALL';
+    const out = [];
+    for (let i = 0; i < xs.length; i++) {
+      let j = i;
+      while (j + 1 < xs.length && xs[j + 1] === xs[j] + 1) j++;
+      out.push(j > i ? `${xs[i]}-${xs[j]}` : String(xs[i]));
+      i = j;
+    }
+    return out.join(',');
+  }
+  // link-rules:end
+  const currentInput = () => splitInput($('url').value);
+  const currentLinks = () => currentInput().links;
+  const shortLink = (link) => {
+    const bv = /BV1[0-9A-Za-z]{9}/.exec(link);
+    if (bv) return bv[0];
+    return link.length > 48 ? link.slice(0, 45) + '…' : link;
+  };
+  const describeIgnored = (ignored) => ignored.slice(0, 3).map((t) => '「' + (t.length > 20 ? t.slice(0, 18) + '…' : t) + '」').join('、')
+    + (ignored.length > 3 ? ` 等 ${ignored.length} 段` : '');
+  function showFormMsg(text) { $('formMsg').textContent = text; $('formMsg').hidden = false; }
+  function hideFormMsg() { $('formMsg').hidden = true; }
+
+  // 链接说明、「下载全部投稿」可用状态
+  function syncLinkState(input) {
+    const { links, ignored } = input;
+    const note = $('linkNote');
+    let text = '';
+    if (batch.rows.length) {
+      text = batchNoteText();
+    } else if (links.length > 1) {
+      text = `识别到 ${links.length} 个链接：不会自动解析；点「下载」逐个添加任务，点「解析」查看第一个链接的画质。`;
+      if (isFresh() && effectivePick()) text += '所选的流只用于第一个链接，其他链接按「画质」等设置下载。';
+    } else if (links.length === 1) {
+      const kind = linkKind(links[0]);
+      const fromShare = $('url').value.trim() !== links[0];
+      if (kind === 'space') text = 'UP主空间链接：不会自动解析。点「下载」默认只导出投稿清单（TXT），勾选「高级选项 → UP主空间链接：下载全部投稿」才会逐个下载。';
+      else if (kind === 'list') text = '列表链接（收藏夹/合集/系列）：不会自动解析。点「下载」按当前「画质」等设置下载列表里的每个视频；想先看画质，请粘贴其中单个视频的链接。';
+      else if (kind === 'course') text = '课程链接：不会自动解析；点「解析」查看第一节的画质，点「下载」按设置下载。';
+      else if (fromShare && !ignored.length) text = '已从分享文本中识别出链接：' + shortLink(links[0]);
+    }
+    if (ignored.length) {
+      text += (text ? ' ' : '') + `以下文字不是链接或编号，已忽略、不会提交：${describeIgnored(ignored)}。`;
+    }
+    note.textContent = text;
+    note.hidden = !text;
+
+    const anySpace = links.some(isSpaceUrl);
+    const box = $('downloadAll');
+    box.disabled = !anySpace;
+    if (!anySpace) box.checked = false;
+    $('downloadAllHint').textContent = anySpace
+      ? '勾选后按投稿清单逐个下载；不勾选时只导出视频清单（TXT）。'
+      : '当前没有UP主空间链接（space.bilibili.com/数字），不可勾选。下载多P视频的全部分P请用上面的「分P → 全部」。';
+  }
+
+  // ---------- form ----------
+  const saved = document.querySelectorAll('[data-save]');
+  saved.forEach((el) => {
+    const v = store.get('opt.' + el.id);
+    if (v !== null) {
+      if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v;
+    }
+    el.addEventListener('change', () => store.set('opt.' + el.id, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value));
+  });
+  const urlBox = $('url');
+  let lastLinksKey = '';
+  urlBox.addEventListener('input', () => {
+    urlBox.style.height = 'auto';
+    urlBox.style.height = Math.min(urlBox.scrollHeight + 3, 160) + 'px';
+    hideFormMsg();
+    const links = currentLinks();
+    const linksKey = links.map(linkKey).join('\n');
+    if (linksKey === lastLinksKey) { syncParseState(); return; }
+    lastLinksKey = linksKey;
+    // 多个链接（含单个视频）：逐个解析，结果列在 #batch 里（会收起单个链接的结果区）
+    if (syncBatch(links)) { syncParseState(); return; }
+    // 链接变了：取消进行中的解析；还没有解析结果时（正在解析，或显示的是上一个链接的错误/说明）直接收起结果区
+    if (parseCtl && (links.length !== 1 || linkKey(links[0]) !== parseCtl.link)) cancelParse();
+    if (!links.length || !parsed) closeParse();
+    if ($('autoParse').checked && links.length === 1 && linkKind(links[0]) === 'single') scheduleParse();
+    else clearTimeout(parseTimer);
+    syncParseState();
+  });
+  $('api').addEventListener('change', () => {
+    apiMigrationNote = '';
+    renderApiNote();
+    onParseOptionChange();
+  });
+  // 改「画质」或「视频编码优先」：以最后一次操作为准，按新的设置下载。取消当前选中的视频流（自动选中的和手动点选的都取消，
+  // 否则下载时仍会指定这条流），并忘掉上次点选的视频流（否则之后自动选中的流会盖过新的设置）。
+  // 要在下面的 onParseOptionChange 之前执行，重绘时已去掉选中的流
+  ['quality', 'encoding'].forEach((id) => $(id).addEventListener('change', () => {
+    const last = loadPref().video;
+    const cur = pick.video && parsed && parsed.Videos.find((x) => x.Key === pick.video);
+    // 多个链接时同样取消各视频选中的视频流（下面的 onParseOptionChange 会按新的设置重新解析）
+    if (batch.rows.length) {
+      const n = clearBatchVideoPicks();
+      if (last) savePref('video', null);
+      const what = [n ? `已取消 ${n} 个视频选中的视频流` : '', last ? `不再自动选择上次的 ${videoPrefLabel(last)}` : ''].filter(Boolean).join('，');
+      if (what) toast(`已改用新的「${id === 'quality' ? '画质' : '视频编码优先'}」设置，${what}`, false, 4000);
+      return;
+    }
+    if (!last && !pick.video) return;
+    if (last) savePref('video', null);
+    pick.video = null;
+    pick.autoVideo = null;
+    pick.skipVideoPref = false;
+    prefState.video = null;
+    const name = `已改用新的「${id === 'quality' ? '画质' : '视频编码优先'}」设置`;
+    const curLabel = cur ? `${cur.Quality} ${cur.Codec}` : '';
+    const lastLabel = last ? videoPrefLabel(last) : '';
+    if (!curLabel && !lastLabel) return;
+    toast(!curLabel ? `${name}，不再自动选择上次的 ${lastLabel}`
+      : !lastLabel ? `${name}，已取消选中的 ${curLabel}`
+      : curLabel === lastLabel ? `${name}，已取消选中的 ${curLabel}，之后也不再自动选择`
+      : `${name}，已取消选中的 ${curLabel}，之后也不再自动选择上次的 ${lastLabel}`, false, 4000);
+  }));
+  ['quality', 'content', 'encoding', 'subtitle', 'page'].forEach((id) => $(id).addEventListener('change', onParseOptionChange));
+  // 打开「自动解析」时，多个链接里还没解析的开始解析
+  $('autoParse').addEventListener('change', () => {
+    if (!batch.rows.length) return;
+    syncBatch(currentLinks());
+    syncParseState();
+  });
+  $('page').addEventListener('input', () => $('page').classList.remove('invalid'));
+  document.querySelectorAll('.page-chips button').forEach((b) => b.addEventListener('click', () => {
+    $('page').value = b.dataset.page;
+    $('page').classList.remove('invalid');
+    onParseOptionChange();
+  }));
+  urlBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      $('taskForm').requestSubmit();
+    }
+  });
+
+  function buildRequest(url) {
+    const body = { Url: url };
+    const q = $('quality').value;
+    if (q) body.DfnPriority = q;
+    const enc = $('encoding').value;
+    if (enc) body.EncodingPriority = enc;
+    switch ($('content').value) {
+      case 'audio': body.AudioOnly = true; break;
+      case 'video': body.VideoOnly = true; break;
+      case 'sub': body.SubOnly = true; break;
+      case 'danmaku': body.DanmakuOnly = true; break;
+      case 'cover': body.CoverOnly = true; break;
+    }
+    const page = $('page').value.trim();
+    if (page) body.SelectPage = page;
+    if (!$('subtitle').checked) body.SkipSubtitle = true;
+    else if ($('aiSub').checked) body.AiSubtitlePolicy = 'prefer-human';
+    if ($('danmaku').checked) body.DownloadDanmaku = true;
+    if (!$('cover').checked) body.SkipCover = true;
+    switch ($('api').value) {
+      case 'tv': body.UseTvApi = true; break;
+      case 'app': body.UseAppApi = true; break;
+      case 'intl': body.UseIntlApi = true; break;
+    }
+    const fp = $('filePattern').value.trim();
+    if (fp) body.FilePattern = fp;
+    const mfp = $('multiFilePattern').value.trim();
+    if (mfp) body.MultiFilePattern = mfp;
+    // 只对UP主空间链接发送，规则与服务端相同；服务端对其他链接会拒绝
+    if ($('downloadAll').checked && isSpaceUrl(url)) {
+      body.DownloadAll = true;
+      const delay = parseInt($('delayPerVideo').value, 10);
+      if (!Number.isNaN(delay) && delay >= 0) body.DelayPerVideo = delay;
+    }
+    return body;
+  }
+
+  // 记住了上次选择的流、第一个链接的解析还在等待（0.4 秒防抖）或进行中时，先等解析完成再提交：
+  // 只有解析结果才能把上次的选择对应到这个视频的流，否则这次下载按「画质」等设置、用不上上次的选择。
+  // 没有解析的（关掉了自动解析、多个链接）不等，也不会为此发起解析。返回是否等过
+  async function settleParse(links) {
+    const pref = loadPref();
+    if (!pref.video && !pref.audio) return false;
+    const key = linkKey(links[0]);
+    let waited = false;
+    // 等待期间解析可能被重新排期或换成新的请求（如改了接口），最多跟三轮
+    for (let round = 0; round < 3; round++) {
+      // 还在防抖：不再等 0.4 秒，马上解析
+      if (parseTimer) doParse({ auto: true });
+      const ctl = parseCtl;
+      if (!ctl || ctl.link !== key) break;
+      waited = true;
+      $('submitText').textContent = '等待解析…';
+      await ctl.done;
+    }
+    return waited;
+  }
+
+  // 正在提交或等解析时，回车和结果区底部的「下载」（requestSubmit 不看按钮是否禁用）都忽略，以免重复添加任务
+  let submitting = false;
+  $('taskForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    const { links, ignored } = currentInput();
+    if (!links.length) return;
+    const btn = $('submitBtn');
+    submitting = true;
+    btn.disabled = true;
+    hideFormMsg();
+    try {
+      await submitLinks(links, ignored);
+    } finally {
+      submitting = false;
+      btn.disabled = false;
+    }
+  });
+  async function submitLinks(links, ignored) {
+    if (batch.rows.length) return submitBatch(links, ignored);
+    let waited = false;
+    // 等解析时不能改输入框，提交的仍是按下「下载」时的链接
+    urlBox.readOnly = true;
+    try {
+      waited = await settleParse(links);
+    } finally {
+      urlBox.readOnly = false;
+    }
+    // 等待期间输入框被换掉了（如在「已下载文件」里点了继续下载）：不提交旧的链接
+    if (waited && currentLinks().map(linkKey).join('\n') !== links.map(linkKey).join('\n')) return;
+    // 等过解析却没有结果（解析失败或超时）：照常按「画质」等设置提交，并在提示里说明
+    const missedPref = waited && !pinnable(links[0]);
+    // 等过解析、按上次的选择自动选中了流：用户没来得及看到解析结果，在提示里写明用了哪些流
+    const autoUsed = waited && !missedPref ? autoPickLabel() : '';
+    let ok = 0;
+    const failed = [];
+    const errors = [];
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
+      try {
+        await api('/add-task', { method: 'POST', body: pinnedRequest(link) });
+        ok++;
+      } catch (err) {
+        if (err instanceof AuthError) { failed.push(...links.slice(i)); break; }
+        failed.push(link);
+        errors.push(`${err.message}（${shortLink(link)}）`);
+      }
+    }
+    // 错误统一显示在输入框下方；结果区里没有解析结果时（正在解析或显示的是错误）不再重复
+    if (ok || !parsed) closeParse();
+    if (ok || failed.length < links.length) {
+      urlBox.value = failed.join('\n');
+      urlBox.dispatchEvent(new Event('input'));
+    }
+    if (errors.length) {
+      showFormMsg(errors.join('\n'));
+      if (errors.some((x) => x.startsWith('「分P」'))) $('page').classList.add('invalid');
+    }
+    if (ignored.length) {
+      $('linkNote').textContent = `上次输入中有文字不是链接或编号，已忽略、没有提交：${describeIgnored(ignored)}。`;
+      $('linkNote').hidden = false;
+    }
+    if (ok) {
+      // 继续下载旧文件夹的流程到此结束
+      resumeTarget = null;
+      resumeHint = null;
+      toast((errors.length ? `已添加 ${ok} 个任务，${errors.length} 个失败（原因见输入框下方）` : ok > 1 ? `已添加 ${ok} 个任务` : '已添加任务')
+        + (failed.includes(links[0]) ? ''
+          : missedPref ? `。${links.length > 1 ? '第一个链接' : ''}解析没有完成，按「画质」等设置下载，没有用上次选择的流`
+          : autoUsed ? `，${links.length > 1 ? '第一个链接' : ''}按上次的选择下载 ${autoUsed}` : ''), false, missedPref || autoUsed ? 6000 : undefined);
+      switchTab('tasks');
+      refreshTasks();
+    }
+  }
+
+  // ---------- 上次选择的流：匹配规则 ----------
+  // stream-pref:begin —— 只有纯函数。BBDownT.Tests/WebUi/check-stream-pref.mjs 会抽出这一段逐条检查
+  // 「视频编码优先」的值（如 hevc,avc,av1）转成编码顺序；「自动」时为空数组
+  function codecOrder(value) {
+    return String(value || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+  }
+  // 「视频编码优先」为「自动」时，上次的编码没有就按与它接近的顺序换，体积最大的 AVC 放在最后（AVC 自己除外）
+  const NEAR_CODECS = { AV1: ['HEVC', 'AVC'], HEVC: ['AV1', 'AVC'], AVC: ['HEVC', 'AV1'] };
+  // 按上次选择的视频流（画质代码 Qn、编码 Codec）在这次的视频流里挑一条，返回 { video, how }：
+  // exact：画质和编码都相同；codec：画质相同，换成另一种编码（按「视频编码优先」，「自动」时按 NEAR_CODECS）；
+  // lower：没有这个画质时取比它低、最接近的一档（同一档内先找上次的编码，再按同样的编码顺序）；
+  // 只有更高的画质时返回 null：不会悄悄换成更高、更大的流
+  function matchVideoPref(pref, videos, order) {
+    if (!pref || !/^\d+$/.test(String(pref.Qn))) return null;
+    const qn = Number(pref.Qn);
+    const list = videos.filter((v) => /^\d+$/.test(String(v.Id)));
+    const codecs = order.length ? order : NEAR_CODECS[pref.Codec] || [];
+    const rank = (v) => {
+      if (v.Codec === pref.Codec) return -1;
+      const i = codecs.indexOf(v.Codec);
+      return i < 0 ? codecs.length : i;
+    };
+    // 同一档里按编码挑一条；排序相同时保持列表顺序
+    const byCodec = (xs) => xs.reduce((best, v) => (rank(v) < rank(best) ? v : best));
+    const same = list.filter((v) => Number(v.Id) === qn);
+    if (same.length) {
+      const video = byCodec(same);
+      return { video, how: video.Codec === pref.Codec ? 'exact' : 'codec' };
+    }
+    const lower = list.filter((v) => Number(v.Id) < qn);
+    if (!lower.length) return null;
+    const top = Math.max(...lower.map((v) => Number(v.Id)));
+    return { video: byCodec(lower.filter((v) => Number(v.Id) === top)), how: 'lower' };
+  }
+  // 普通音轨的标称档位，与服务端 StreamPinSelection.AudioNominalRank 相同
+  const AUDIO_RANK = { 30280: 3, 30232: 2, 30216: 1 };
+  // 上次选择的音频流：ID 相同为 exact；普通音轨（192K/132K/64K）没有时取比它低、最接近的一档（lower）；
+  // 杜比全景声、Hi-Res 无损等没有时返回 null，按默认音频下载
+  function matchAudioPref(pref, audios) {
+    if (!pref) return null;
+    const same = audios.find((a) => a.Id === pref.Id);
+    if (same) return { audio: same, how: 'exact' };
+    const want = AUDIO_RANK[pref.Id] || 0;
+    const lower = audios.filter((a) => AUDIO_RANK[a.Id] && AUDIO_RANK[a.Id] < want);
+    if (!lower.length) return null;
+    return { audio: lower.reduce((best, a) => (AUDIO_RANK[a.Id] > AUDIO_RANK[best.Id] ? a : best)), how: 'lower' };
+  }
+  // 按未登录身份解析（WEB 未登录或登录已失效，APP/TV 没有对应的登录凭证）：可选画质受登录限制，不自动选择上次的流。
+  // 没能查到登录状态（account-unknown）时不算
+  function guestParse(r) {
+    const acc = r.Account || {};
+    if (r.Api === 'WEB') return !acc.WebLoggedIn && !(r.Hints || []).some((h) => h.Code === 'account-unknown');
+    if (r.Api === 'APP' || r.Api === 'TV') return !acc.ApiAuthenticated;
+    return false;
+  }
+  // 没有点选时按上次的选择 pref 自动选中，改动 p（video/audio、autoVideo/autoAudio）；单个链接的 pick 和多个链接里每一行的流都用它。
+  // 返回用于提示的结果 { video, audio }，how 为 exact/codec/lower（已选中）、none（没有同档或更低的流）、
+  // skipped（这个视频取消过换选的流）、resume/guest（hold，不自动选择）。
+  // skipVideoPref/skipAudioPref 为 true 时只跳过换选的流（codec/lower）；为 'all' 时（多个链接里取消过这一行的流）相同的流也跳过
+  function pickByPref(r, p, pref, hold, order) {
+    const state = { video: null, audio: null };
+    if (pref.video && !p.video && !r.Progressive && r.Videos.length) {
+      let m = hold ? null : matchVideoPref(pref.video, r.Videos, order);
+      const skipped = !!m && (p.skipVideoPref === 'all' || (m.how !== 'exact' && !!p.skipVideoPref));
+      if (skipped) m = null;
+      if (m) { p.video = m.video.Key; p.autoVideo = m.how; }
+      state.video = { pref: pref.video, how: hold || (skipped ? 'skipped' : m ? m.how : 'none') };
+    }
+    if (pref.audio && !p.audio && r.Audios.length) {
+      let m = hold ? null : matchAudioPref(pref.audio, r.Audios);
+      const skipped = !!m && (p.skipAudioPref === 'all' || (m.how !== 'exact' && !!p.skipAudioPref));
+      if (skipped) m = null;
+      if (m) { p.audio = m.audio.Id; p.autoAudio = m.how; }
+      state.audio = { pref: pref.audio, how: hold || (skipped ? 'skipped' : m ? m.how : 'none') };
+    }
+    return state;
+  }
+  // stream-pref:end
+
+  // ---------- 多个链接：逐个解析 ----------
+  // batch-rules:begin —— 只有纯函数（用到 link-rules、stream-pref 里的函数）。
+  // BBDownT.Tests/WebUi/check-batch-rules.mjs 会连同那两段一起抽出来逐条检查
+  // 多个链接时最多自动解析的视频数；超过的不解析，按「画质」等设置下载
+  const BATCH_MAX = 20;
+  // 多个链接的列表：按 linkKey 去重（同一视频的BV号、链接、分享文本只算一个）。kind：single（单个视频，前 max 个逐个解析）、
+  // over（超过 max 个的单个视频，不解析）、list（UP主空间、收藏夹、合集、课程等列表链接，不解析）、unknown（认不出，不解析，交给服务器判断）。
+  // 去重后至少两个链接、其中有单个视频时才逐个解析（batch）；只有一个链接时仍按单个链接处理
+  function batchPlan(links, max) {
+    const seen = new Set();
+    const rows = [];
+    let singles = 0;
+    for (const link of links) {
+      const key = linkKey(link);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const kind = linkKind(link);
+      if (kind === 'single') singles++;
+      rows.push({ link, key, kind: kind === 'single' ? (singles > max ? 'over' : 'single') : kind === 'unknown' ? 'unknown' : 'list' });
+    }
+    return { rows, over: Math.max(0, singles - max), batch: rows.length > 1 && singles > 0 };
+  }
+  // 行的 status：idle（关掉了自动解析，还没开始）、queued（排队解析）、parsing（解析中）、done（已解析）、failed（解析失败）。
+  // 解析进度：total 为要解析的（不含 idle）、done 为已有结果的（成功或失败）、pending 为排队和正在解析的
+  function batchProgress(rows) {
+    const out = { total: 0, done: 0, pending: 0, failed: 0 };
+    for (const r of rows) {
+      if (r.kind !== 'single' || r.status === 'idle') continue;
+      out.total++;
+      if (r.status === 'done' || r.status === 'failed') out.done++;
+      else out.pending++;
+      if (r.status === 'failed') out.failed++;
+    }
+    return out;
+  }
+  // 下一个要解析的行：按输入顺序，一次只解析一个
+  const nextBatchRow = (rows) => rows.find((r) => r.kind === 'single' && r.status === 'queued') || null;
+  // 这一行下载时用哪些流：p 里点选或按上次的选择自动选中的流，没有选的用解析结果里的默认流（按「画质」「视频编码优先」）。
+  // videoHow/audioHow：exact/codec/lower（按上次的选择自动选中）、manual（点选）、default（默认）
+  function rowStreams(r, p, wants) {
+    const pv = !r.Progressive && p.video ? r.Videos.find((x) => x.Key === p.video) || null : null;
+    const pa = p.audio ? r.Audios.find((x) => x.Id === p.audio) || null : null;
+    const video = wants.video ? pv || r.Videos.find((x) => x.Key === r.DefaultVideo) || null : null;
+    const audio = wants.audio ? pa || r.Audios.find((x) => x.Id === r.DefaultAudio) || null : null;
+    return {
+      video,
+      audio,
+      videoHow: video && video === pv ? p.autoVideo || 'manual' : 'default',
+      audioHow: audio && audio === pa ? p.autoAudio || 'manual' : 'default',
+    };
+  }
+  // 与单个链接的 pinnedRequest 相同：只指定点选或自动选中的流（VideoStream/AudioStream，画质和编码也改成这条流的）；
+  // 什么都没选、没有解析结果（解析失败、没解析完、列表链接）时与不解析完全相同
+  const PIN_CODECS = ['AVC', 'HEVC', 'AV1'];
+  function pinStreams(body, r, p, wants) {
+    const v = p.video && r.Videos.find((x) => x.Key === p.video);
+    const a = p.audio && r.Audios.find((x) => x.Id === p.audio);
+    if (v && wants.video && !r.Progressive) {
+      body.VideoStream = v.Key;
+      body.DfnPriority = v.Quality;
+      if (PIN_CODECS.includes(v.Codec)) body.EncodingPriority = v.Codec.toLowerCase();
+    }
+    if (a && wants.audio) body.AudioStream = a.Id;
+    return body;
+  }
+  const batchRowRequest = (base, row, wants) => (row.status === 'done' && row.res ? pinStreams(base, row.res, row.pick, wants) : base);
+  // batch-rules:end
+
+  // ---------- parse ----------
+  // 粘贴或输入单个视频链接后约 0.4 秒自动解析；同一请求（链接+接口+相关选项）的结果在页面里缓存 60 秒
+  const PARSE_DEBOUNCE_MS = 400;
+  const PARSE_CACHE_MS = 60000;
+  const PARSE_TIMEOUT_MS = 60000;
+  const parseCache = new Map();   // 请求 -> { at, res } 或 { at, err }
+  let parsed = null;              // 当前显示的解析结果
+  let parsedKey = '';             // 对应的请求
+  let parsedLink = '';            // 对应链接的 linkKey
+  let parsedApi = '';             // 解析时的接口
+  let parseCtl = null;            // 进行中的请求
+  let parseTimer = null;
+  // 只有用户点选过的（以及按上次的选择自动选中的）才会在下载时指定；什么都没选时「下载」与不解析时完全相同。
+  // autoVideo/autoAudio：当前的流是按上次的选择自动选中的（exact/codec/lower），手动点选后为 null；
+  // skipVideoPref/skipAudioPref：取消了按上次的选择换选的流（codec/lower），这个视频不再自动换选，上次的选择保留
+  const pick = { video: null, audio: null, dub: '', pages: new Set(), pagesTouched: false, autoVideo: null, autoAudio: null, skipVideoPref: false, skipAudioPref: false };
+  const CODEC_TIP = { AVC: '兼容性最好', HEVC: '体积更小', AV1: '最小，老设备可能无法硬解' };
+  const CONTENT_LABEL = { audio: '仅音频', video: '仅视频画面', sub: '仅字幕', danmaku: '仅弹幕', cover: '仅封面' };
+  const fmtClock = (sec) => {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return h ? `${h}:${p(m)}:${p(x)}` : `${m}:${p(x)}`;
+  };
+  // 「下载内容」决定会不会用到所选的视频流/音频流
+  const wantsVideo = () => ['', 'video'].includes($('content').value);
+  const wantsAudio = () => ['', 'audio'].includes($('content').value);
+  const pinnable = (link) => !!parsed && linkKey(link) === parsedLink && $('api').value === parsedApi;
+  // 结果区显示的解析结果是否对应输入框里的第一个链接和当前接口
+  function isFresh() {
+    if (!parsed || $('result').hidden) return false;
+    const links = currentLinks();
+    return links.length > 0 && pinnable(links[0]);
+  }
+  // 会实际影响下载请求的选择
+  const effectivePick = () => !!((pick.video && wantsVideo() && parsed && !parsed.Progressive)
+    || (pick.audio && wantsAudio()) || pick.dub || pick.pagesTouched);
+  function resetPick() {
+    pick.video = null;
+    pick.audio = null;
+    pick.dub = '';
+    pick.pages = new Set();
+    pick.pagesTouched = false;
+    pick.autoVideo = null;
+    pick.autoAudio = null;
+    pick.skipVideoPref = false;
+    pick.skipAudioPref = false;
+  }
+
+  // ---------- 上次选择的流 ----------
+  // 在解析结果里点选的视频流、音频流保存在本机（localStorage），之后每次解析自动选中相同或最接近的流（规则见 stream-pref），
+  // 下载时与手动点选完全一样地指定（VideoStream/AudioStream），所以也会写进下载历史和「继续下载」用的说明文件。
+  // 再点一次取消与上次相同的流（exact）时忘掉这个选择；取消换选的流（codec/lower）只是这个视频不选，上次的选择保留；
+  // 改「画质」或「视频编码优先」时取消选中的视频流并忘掉视频流的选择，按新的设置下载。
+  // 按未登录身份解析、继续下载旧文件夹时不自动选择，点选的流也不记住（见 prefHold）
+  const PREF_KEY = 'pref.streams';
+  function loadPref() {
+    let p = null;
+    try { p = JSON.parse(store.get(PREF_KEY) || 'null'); } catch {}
+    const valid = (x, k) => (x && typeof x === 'object' && typeof x[k] === 'string' && x[k] ? x : null);
+    return { video: valid(p && p.video, 'Qn'), audio: valid(p && p.audio, 'Id') };
+  }
+  function savePref(part, value) {
+    const p = loadPref();
+    p[part] = value || null;
+    store.set(PREF_KEY, JSON.stringify(p));
+  }
+  // 点选或取消一条视频流（part 为 video）或音频流（audio）。手动点选或取消都记为「上次的选择」，取消时忘掉、之后不再自动选择；
+  // 例外：取消按上次的选择换选的流（codec/lower）时只是这个视频不选，上次的选择保留；
+  // 按未登录身份解析、继续下载旧文件夹时（prefHold）点选和取消都不改动上次的选择
+  function togglePick(part, value) {
+    const autoKey = part === 'video' ? 'autoVideo' : 'autoAudio';
+    const how = pick[autoKey];
+    pick[part] = pick[part] === value ? null : value;
+    pick[autoKey] = null;
+    if (prefHold(parsed)) return;
+    if (!pick[part] && how && how !== 'exact') {
+      pick[part === 'video' ? 'skipVideoPref' : 'skipAudioPref'] = true;
+      const pref = loadPref()[part];
+      prefState[part] = pref ? { pref, how: 'skipped' } : null;
+      return;
+    }
+    prefState[part] = null;
+    rememberPick(part);
+  }
+  // 手动点选（或取消）后记下当前的选择
+  function rememberPick(part) {
+    if (part === 'video') {
+      const v = pick.video && parsed.Videos.find((x) => x.Key === pick.video);
+      savePref('video', v ? { Qn: v.Id, Quality: v.Quality, Codec: v.Codec } : null);
+    } else {
+      const a = pick.audio && parsed.Audios.find((x) => x.Id === pick.audio);
+      savePref('audio', a ? { Id: a.Id, Label: a.Label, Kind: a.Kind } : null);
+    }
+  }
+  const videoPrefLabel = (p) => [p.Quality || p.Qn, p.Codec].filter(Boolean).join(' ');
+  const audioPrefLabel = (p) => p.Label || p.Id;
+  // 这次解析不按上次的选择处理的原因，此时不自动选择、点选的流也不记住：
+  // resume：从「已下载文件」继续下载旧版本留下的文件夹，要选的是这个文件夹之前下载的流，不是上次的选择；
+  // guest：按未登录身份解析，可选画质受限（如未登录时最高 480P），点选的流不代表平时的选择
+  function prefHold(r) {
+    return isResumeParse(r) ? 'resume' : guestParse(r) ? 'guest' : '';
+  }
+  // 这次解析按上次的选择处理的结果，用于提示：how 为 exact/codec/lower（已选中）、none（没有同档或更低的流）、
+  // skipped（这个视频取消过换选的流）、resume/guest（见 prefHold，不自动选择）
+  let prefState = { video: null, audio: null };
+  // 没有手动点选时按上次的选择自动选中
+  function applyStreamPref(r) {
+    prefState = pickByPref(r, pick, loadPref(), prefHold(r), codecOrder($('encoding').value));
+  }
+  // 上次的选择没能原样选中时的说明（如「上次选择 4K 超清 HEVC 不可用，已选 1080P 高码率 HEVC」）。
+  // 默认说明单个链接的结果；多个链接时传入那一行的解析结果、选中的流和 pickByPref 的结果
+  function prefHintText(r = parsed, p = pick, st = prefState) {
+    if (!r) return '';
+    const v = st.video && wantsVideo() && !r.Progressive ? st.video : null;
+    const a = st.audio && wantsAudio() ? st.audio : null;
+    const hold = prefHold(r);
+    if (hold) {
+      const held = [v ? videoPrefLabel(v.pref) : '', a ? audioPrefLabel(a.pref) : ''].filter(Boolean).join(' + ');
+      const picked = (p.video && wantsVideo() && !r.Progressive) || (p.audio && wantsAudio());
+      if (!held && !picked) return '';
+      const parts = [];
+      if (hold === 'guest') {
+        if (held) parts.push(`当前按未登录身份解析，可选画质受限，没有自动选用上次选择的 ${held}`);
+        if (picked) parts.push(`${held ? '' : '当前按未登录身份解析，'}点选的流只用于这次下载，不会记作上次的选择`);
+      } else {
+        if (held) parts.push(`继续下载时不自动选用上次的选择（${held}）`);
+        parts.push(picked ? `${held ? '' : '继续下载时'}点选的流只用于这次下载，不会记作上次的选择` : '请选择与这个文件夹之前下载时相同的流');
+      }
+      return parts.join('；') + '。';
+    }
+    const parts = [];
+    const curV = p.autoVideo && r.Videos.find((x) => x.Key === p.video);
+    if (v && (v.how === 'codec' || v.how === 'lower') && curV) parts.push(`上次选择 ${videoPrefLabel(v.pref)} 不可用，已选 ${curV.Quality} ${curV.Codec}`);
+    else if (v && v.how === 'none') parts.push(`上次选择 ${videoPrefLabel(v.pref)} 不可用（只有更高的画质），未自动选择`);
+    else if (v && v.how === 'skipped' && !p.video) parts.push(`这个视频不自动选择视频流，上次选择的 ${videoPrefLabel(v.pref)} 仍保留`);
+    const curA = p.autoAudio && r.Audios.find((x) => x.Id === p.audio);
+    if (a && a.how === 'lower' && curA) parts.push(`上次的音频 ${audioPrefLabel(a.pref)} 不可用，已选 ${curA.Label}`);
+    else if (a && a.how === 'none') parts.push(`上次的音频 ${audioPrefLabel(a.pref)} 不可用，按默认音频下载`);
+    else if (a && a.how === 'skipped' && !p.audio) parts.push(`这个视频不自动选择音频流，上次选择的 ${audioPrefLabel(a.pref)} 仍保留`);
+    return parts.length ? parts.join('；') + '。' : '';
+  }
+  function renderPrefHint() {
+    const el = $('prefHint');
+    if (!el) return;
+    const text = prefHintText();
+    el.firstElementChild.textContent = text;
+    el.hidden = !text;
+  }
+  // 读屏软件播报解析状态（结果区整块重绘，不适合直接设 aria-live）
+  function announce(text) { $('parseStatus').textContent = text; }
+
+  function parseBody(link, page) {
+    const full = buildRequest(cleanLink(link));
+    const body = { Url: full.Url };
+    ['DfnPriority', 'EncodingPriority', 'AudioOnly', 'VideoOnly', 'SubOnly', 'DanmakuOnly', 'CoverOnly',
+      'SelectPage', 'SkipSubtitle', 'UseTvApi', 'UseAppApi', 'UseIntlApi'].forEach((k) => {
+      if (full[k] !== undefined) body[k] = full[k];
+    });
+    if (page) body.Page = page;
+    return body;
+  }
+  function cacheGet(key) {
+    const hit = parseCache.get(key);
+    if (hit && Date.now() - hit.at < PARSE_CACHE_MS) return hit;
+    parseCache.delete(key);
+    return null;
+  }
+  function cachePut(key, entry) {
+    parseCache.delete(key);
+    parseCache.set(key, { at: Date.now(), ...entry });
+    while (parseCache.size > 30) parseCache.delete(parseCache.keys().next().value);
+  }
+
+  function scheduleParse() {
+    clearTimeout(parseTimer);
+    parseTimer = setTimeout(() => { parseTimer = null; doParse({ auto: true }); }, PARSE_DEBOUNCE_MS);
+    renderFoot();
+  }
+  // 接口或画质等选项变化：已有结果时重新解析；否则按自动解析规则处理
+  function onParseOptionChange() {
+    // 多个链接：选项变了的行重新解析（「下载内容」等也会重绘每一行）
+    if (batch.rows.length) { syncBatch(currentLinks()); syncParseState(); return; }
+    // 「下载内容」会改变哪些流可选，先按当前结果重绘
+    if (parsed && !$('result').hidden) renderParse();
+    const links = currentLinks();
+    if (!$('result').hidden && links.length) scheduleParse();
+    else if ($('autoParse').checked && links.length === 1 && linkKind(links[0]) === 'single') scheduleParse();
+    syncParseState();
+  }
+  function cancelParse() {
+    clearTimeout(parseTimer);
+    parseTimer = null;
+    if (parseCtl) { parseCtl.abort(); parseCtl = null; }
+    setParseBusy(false);
+  }
+  function closeParse() {
+    const hadFocus = $('result').contains(document.activeElement);
+    cancelParse();
+    parsed = null;
+    parsedKey = '';
+    resetPick();
+    $('result').hidden = true;
+    $('result').innerHTML = '';
+    announce('');
+    if (hadFocus) urlBox.focus();
+    syncParseState();
+  }
+  function setParseBusy(busy) {
+    $('parseBtn').disabled = busy;
+    if (busy) $('parseBtn').innerHTML = '<span class="spin"></span>解析中';
+    else $('parseBtn').textContent = '解析';
+    renderFoot();
+  }
+  // kind：loading、error（解析失败）、input（输入有误，如链接无法识别、分P写错）、info（如列表链接）
+  function showResultMessage(kind, msg) {
+    const r = $('result');
+    r.hidden = false;
+    r.classList.remove('stale');
+    // 服务端的消息可能已带「解析失败：」，这里统一加一次
+    const text = String(msg ?? '').replace(/^解析失败[：:]\s*/, '');
+    const cls = kind === 'input' ? 'error' : kind;
+    r.innerHTML = kind === 'loading'
+      ? `<div class="r-meta"><span class="spin"></span> ${esc(text)}</div>`
+      : `<div class="r-msg ${cls}"><span>${kind === 'error' ? '解析失败：' : ''}${esc(text)}</span><button class="icon-btn" data-act="close" type="button" title="关闭" aria-label="关闭">${ICON.x}</button></div>`;
+    announce(kind === 'loading' ? text : (kind === 'error' ? '解析失败：' : '') + text);
+  }
+  function showParseError(err) {
+    parsed = null;
+    parsedKey = '';
+    showResultMessage(err.status === 422 ? 'info' : err.status === 400 ? 'input' : 'error', err.message);
+    $('page').classList.toggle('invalid', err.status === 400 && /^「分P」/.test(err.message));
+  }
+
+  async function doParse(opts = {}) {
+    clearTimeout(parseTimer);
+    parseTimer = null;
+    const links = currentLinks();
+    if (!links.length) { if (!opts.auto) toast('请先粘贴链接', true); return; }
+    // 多个链接时只解析第一个；所选的流也只用于第一个链接
+    const link = links[0];
+    const body = parseBody(link, opts.page);
+    // 缓存按 linkKey 比较：同一视频的BV号、链接、分享文本共用结果
+    const key = JSON.stringify({ ...body, Url: linkKey(link) });
+    // 手动点「解析」且结果已经显示时，视为刷新
+    const shownSame = !!parsed && key === parsedKey && !$('result').hidden;
+    if (!opts.force && !(opts.manual && shownSame)) {
+      if (parseCtl && parseCtl.key === key) return;
+      if (shownSame) { syncParseState(); return; }
+      const hit = cacheGet(key);
+      if (hit) {
+        cancelParse();
+        if (hit.res) applyParse(hit.res, link, key); else showParseError(hit.err);
+        syncParseState();
+        return;
+      }
+    }
+    cancelParse();
+    const ctl = parseCtl = new AbortController();
+    ctl.key = key;
+    ctl.link = linkKey(link);
+    // 这次解析结束（成功、失败或被取消）时完成；提交时用它等解析（settleParse）
+    let settle;
+    ctl.done = new Promise((resolve) => { settle = resolve; });
+    const timer = setTimeout(() => { ctl.timedOut = true; ctl.abort(); }, PARSE_TIMEOUT_MS);
+    setParseBusy(true);
+    if (!parsed) showResultMessage('loading', '正在解析，通常需要 2~5 秒…');
+    try {
+      const res = await api('/parse', { method: 'POST', body, signal: ctl.signal });
+      cachePut(key, { res });
+      if (ctl !== parseCtl) return;
+      applyParse(res, link, key);
+    } catch (err) {
+      if (err instanceof AuthError || ctl !== parseCtl) return;
+      if (err.name === 'AbortError' && !ctl.timedOut) return;
+      // 链接无法识别、列表链接、分P写错这类结果固定的错误也缓存，避免反复请求
+      if (err.status === 400 || err.status === 422) cachePut(key, { err: { status: err.status, message: err.message } });
+      showParseError(ctl.timedOut ? { status: 504, message: '解析超时（60 秒），B站接口可能较慢，请稍后重试' } : err);
+    } finally {
+      clearTimeout(timer);
+      if (ctl === parseCtl) { parseCtl = null; setParseBusy(false); }
+      syncParseState();
+      settle();
+    }
+  }
+  $('parseBtn').addEventListener('click', () => (batch.rows.length ? parseBatchNow() : doParse({ manual: true })));
+
+  function applyParse(res, link, key) {
+    const norm = linkKey(link);
+    const apiNow = $('api').value;
+    if (!(parsed && parsedLink === norm && parsedApi === apiNow)) resetPick();
+    parsed = res;
+    parsedKey = key;
+    parsedLink = norm;
+    parsedApi = apiNow;
+    // 自动选中的流每次解析重新匹配（如换了分P、改了接口）；手动点选的保留
+    if (pick.autoVideo) { pick.video = null; pick.autoVideo = null; }
+    if (pick.autoAudio) { pick.audio = null; pick.autoAudio = null; }
+    if (res.Progressive || (pick.video && !res.Videos.some((v) => v.Key === pick.video))) pick.video = null;
+    if (pick.audio && !res.Audios.some((a) => a.Id === pick.audio)) pick.audio = null;
+    if (pick.dub && !res.AudioLanguages.some((l) => l.Code === pick.dub)) pick.dub = '';
+    if (!pick.pagesTouched) {
+      pick.pages = new Set(res.DownloadPages ? res.DownloadPages : res.Pages.map((p) => p.Index));
+    }
+    applyStreamPref(res);
+    $('page').classList.remove('invalid');
+    renderParse();
+    announce(`解析完成：${res.Title}，${res.Videos.length} 条视频流，${res.Audios.length} 条音频流`
+      + (pick.autoVideo || pick.autoAudio ? '，已按上次的选择自动选中' : ''));
+  }
+
+  function syncParseState() {
+    const input = currentInput();
+    const shown = !!parsed && !$('result').hidden;
+    const fresh = isFresh();
+    $('result').classList.toggle('stale', shown && !fresh);
+    const label = batch.rows.length ? '全部下载' : fresh && effectivePick() ? '下载所选' : '下载';
+    // 正在等解析（settleBatch）时按钮上显示进度
+    $('submitText').textContent = submitWait || label;
+    const footBtn = $('result').querySelector('[data-act="download"]');
+    if (footBtn) footBtn.textContent = label;
+    renderFoot();
+    syncLinkState(input);
+  }
+
+  function hintAction(code) {
+    if (code === 'app-no-token' || code === 'tv-no-token' || code === 'low-quality') return '<button class="btn small" data-act="web" type="button">改用 WEB 重新解析</button>';
+    if (code === 'not-logged-in' || code === 'cookie-invalid') return '<button class="btn small" data-act="login" type="button">扫码登录</button>';
+    return '';
+  }
+
+  // 音频流按钮：名称（192K、杜比全景声等，认不出时为码率）+ 编码和大小；码率放在 title 里，
+  // 名称相同的几条（如 TV 接口的音轨）补上音频流ID以便区分
+  function audioPill(a, r, sameLabel, enabled, p = pick) {
+    const named = !/kbps$/.test(a.Label);
+    const sel = a.Id === p.audio;
+    const extra = sameLabel ? ` · ID ${esc(a.Id)}` : '';
+    const title = `音频流 ID ${a.Id}${named ? '，标称 ' + a.Label : ''}，B站标注码率 ${a.BandwidthKbps} kbps`;
+    return `<button type="button" class="pill${sel ? ' sel' : ''}" data-audio="${esc(a.Id)}" aria-pressed="${sel}" title="${esc(title)}"${enabled ? '' : ' disabled'}>${esc(a.Label)} <small>${esc(a.Codec)}${extra} · ~${fmtBytes(a.Size)}</small>${a.Id === r.DefaultAudio ? '<span class="tag">默认</span>' : ''}${sel ? lastTag(p.autoAudio) : ''}</button>`;
+  }
+  // 按上次的选择自动选中的流上的标记；手动点选后去掉（updatePickUi）
+  function lastTag(how) {
+    if (!how) return '';
+    const tip = how === 'exact' ? '与上次选择的流相同。再点一次取消，之后不再自动选择'
+      : '上次选择的流不可用，按上次的选择选了最接近的。再点一次取消：只是这个视频不选，上次的选择仍保留';
+    return `<span class="tag last" title="${esc(tip)}">${how === 'exact' ? '上次选择' : '按上次选择'}</span>`;
+  }
+
+  // 视频流表格和音频流按钮；p 为选中的流（单个链接为 pick，多个链接时为那一行的）
+  function streamSecs(r, p) {
+    const acc = r.Account;
+    const videoOn = wantsVideo() && !r.Progressive;
+    const audioOn = wantsAudio();
+    const content = CONTENT_LABEL[$('content').value];
+
+    // 视频：按画质分行，每行列出可选编码；点一下指定，再点一下取消。合并流只能下载最高画质，只列出、不可点选
+    const rows = [];
+    const byQ = new Map();
+    const hinted = hintedVideo(r);
+    for (const v of r.Videos) { if (!byQ.has(v.Id)) byQ.set(v.Id, []); byQ.get(v.Id).push(v); }
+    for (const [, list] of byQ) {
+      const f = list[0];
+      const pills = list.map((v) => {
+        const sel = v.Key === p.video;
+        const inner = `${esc(v.Codec)} <small>${v.SizeIsEstimate ? '~' : ''}${fmtBytes(v.Size)}${v.BandwidthKbps ? ' · ' + v.BandwidthKbps + ' kbps' : ''}</small>${v.Key === r.DefaultVideo ? '<span class="tag">默认</span>' : ''}${v.Key === hinted ? '<span class="tag" title="与上次未完成的下载大小相近；选它才能沿用已下载的分片">接近上次</span>' : ''}${sel && !r.Progressive ? lastTag(p.autoVideo) : ''}`;
+        return r.Progressive
+          ? `<span class="pill static">${inner}</span>`
+          : `<button type="button" class="pill${sel ? ' sel' : ''}" data-video="${esc(v.Key)}" aria-pressed="${sel}" title="${esc(CODEC_TIP[v.Codec] || '')}"${videoOn ? '' : ' disabled'}>${inner}</button>`;
+      }).join('');
+      rows.push(`<div class="qrow"><div><b>${esc(f.Quality)}</b></div><div class="res">${esc(f.Resolution || '')}${f.Fps ? ' · ' + esc(String(Math.round(parseFloat(f.Fps)))) + 'fps' : ''}</div><div class="pills">${pills}</div></div>`);
+    }
+    // 未登录时B站常常不标注 need_login/need_vip，这些档位统一说明为需登录
+    const guestWeb = r.Api === 'WEB' && !acc.WebLoggedIn;
+    for (const q of r.AcceptQualities.filter((x) => !x.Available)) {
+      const why = q.NeedVip ? '需大会员' : q.NeedLogin || guestWeb ? '需登录' : '当前接口未提供';
+      rows.push(`<div class="qrow locked"><div>${esc(q.Label)}</div><div class="res">${why}</div><div></div></div>`);
+    }
+    const videoNote = r.Progressive ? '（合并流，只能下载最高画质）'
+      : !wantsVideo() ? `（「下载内容」为「${content}」，不下载视频）` : '（点选可指定，再点一次取消）';
+    const videoSec = r.Videos.length
+      ? `<div class="sec">视频流 · ${r.Videos.length} 条${videoNote}</div><div class="qtable">${rows.join('')}</div>` : '';
+    const labelCount = new Map();
+    r.Audios.forEach((a) => labelCount.set(a.Label, (labelCount.get(a.Label) || 0) + 1));
+    const audioSec = r.Audios.length
+      ? `<div class="sec">音频流${audioOn ? '' : `（「下载内容」为「${content}」，不下载音频）`}</div><div class="pills">${r.Audios.map((a) => audioPill(a, r, labelCount.get(a.Label) > 1, audioOn, p)).join('')}</div>` : '';
+    return videoSec + audioSec;
+  }
+
+  function renderParse() {
+    const r = parsed;
+    const acc = r.Account;
+    const who = r.Api === 'WEB'
+      ? (acc.WebLoggedIn ? `${esc(acc.WebUserName || '已登录')}${acc.IsVip ? '（' + esc(acc.VipLabel || '大会员') + '）' : '（非大会员）'}` : '未登录')
+      : r.Api === 'INTL' ? '国际版' : (acc.ApiAuthenticated ? `${r.Api} 凭证已保存` : `${r.Api} 未登录`);
+    const hints = r.Hints.map((h) => `<div class="hintbar ${h.Level}"><span>${esc(h.Message)}</span>${hintAction(h.Code)}</div>`).join('');
+    const langSec = r.AudioLanguages.length
+      ? `<div class="sec"><label for="dubSel">配音</label></div><select id="dubSel" class="dub-sel">${['<option value="">默认音轨</option>', ...r.AudioLanguages.map((l) => `<option value="${esc(l.Code)}">${esc(l.Title)}${l.IsAi ? '（AI）' : ''}</option>`)].join('')}</select>` : '';
+    const pageSec = r.PageCount > 1
+      ? `<div class="sec">分P · 共 ${r.PageCount} 个<span class="spacer"></span><button class="btn small" data-act="all" type="button">全选</button><button class="btn small" data-act="none" type="button">全不选</button></div>
+         <div class="plist">${r.Pages.map((p) => `<div class="prow${p.Index === r.StreamsPage ? ' cur' : ''}"><input type="checkbox" id="pagebox${p.Index}" data-pagebox="${p.Index}"${pick.pages.has(p.Index) ? ' checked' : ''}><label class="pt" for="pagebox${p.Index}">P${p.Index} ${esc(p.Title)}</label><small>${fmtClock(p.Duration)}</small>${p.Index === r.StreamsPage ? '<small class="look-cur">上面的画质来自此P</small>' : `<button class="btn small look" data-pagepick="${p.Index}" type="button" aria-label="查看 P${p.Index} 的画质">看画质</button>`}</div>`).join('')}</div>
+         ${$('page').value.trim() ? '<div class="hint">已在上方「分P」中填写，下载时以填写内容为准</div>' : ''}` : '';
+    const subSec = r.Subtitles.length ? `<div class="sec">字幕：${r.Subtitles.map((x) => esc(x.Title) + (x.IsAi ? '（AI）' : '')).join('、')}</div>` : '';
+    const dur = (r.Pages.find((p) => p.Index === r.StreamsPage) || {}).Duration || 0;
+    $('result').hidden = false;
+    $('result').innerHTML = `
+      <div class="r-head">
+        <div class="cover">${coverHtml(r.Pic)}</div>
+        <div class="r-main">
+          <div class="r-title">${esc(r.Title)}</div>
+          <div class="r-meta">${r.OwnerName ? `<span>UP主：${esc(r.OwnerName)}</span>` : ''}<span>${fmtClock(dur)}</span><span>${r.PageCount} 个分P</span>
+            <span title="解析耗时 ${esc(String(r.ElapsedMs))} ms">接口：<b>${esc(r.Api)}</b>${r.RequestedApi !== r.Api ? '（已从 ' + esc(r.RequestedApi) + ' 回退）' : ''}</span><span>账号：<b>${who}</b></span></div>
+        </div>
+        <button class="icon-btn" data-act="close" type="button" title="关闭解析结果（Esc）" aria-label="关闭解析结果">${ICON.x}</button>
+      </div>
+      ${hints}<div class="hintbar info" id="prefHint" hidden><span></span></div>${streamSecs(r, pick)}${langSec}${pageSec}${subSec}
+      <div class="r-foot"><div class="sum" id="pickSum"></div><button class="btn primary" data-act="download" type="button">下载</button></div>`;
+    if ($('dubSel')) $('dubSel').value = pick.dub;
+    renderPrefHint();
+    syncParseState();
+  }
+
+  // 点选后只更新按钮状态和底部说明，不重绘整个结果区（保持键盘焦点）
+  function updatePickUi() {
+    const r = $('result');
+    r.querySelectorAll('[data-video]').forEach((b) => {
+      const on = b.dataset.video === pick.video;
+      b.classList.toggle('sel', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    r.querySelectorAll('[data-audio]').forEach((b) => {
+      const on = b.dataset.audio === pick.audio;
+      b.classList.toggle('sel', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    r.querySelectorAll('[data-pagebox]').forEach((box) => { box.checked = pick.pages.has(parseInt(box.dataset.pagebox, 10)); });
+    if (!pick.autoVideo) r.querySelectorAll('[data-video] .tag.last').forEach((el) => el.remove());
+    if (!pick.autoAudio) r.querySelectorAll('[data-audio] .tag.last').forEach((el) => el.remove());
+    renderPrefHint();
+    syncParseState();
+  }
+
+  // 下载时会用到的、按上次的选择自动选中的流（如「4K 超清 HEVC + 192K」）；没有时为空
+  function autoPickLabel() {
+    if (!parsed) return '';
+    const v = pick.autoVideo && wantsVideo() && !parsed.Progressive && parsed.Videos.find((x) => x.Key === pick.video);
+    const a = pick.autoAudio && wantsAudio() && parsed.Audios.find((x) => x.Id === pick.audio);
+    return [v ? `${v.Quality} ${v.Codec}` : '', a ? a.Label : ''].filter(Boolean).join(' + ');
+  }
+  // 底部「已选」后的说明：哪一项是按上次的选择自动选中的（另一项可能只是默认的流），取消后会怎样
+  function autoNote(v, a) {
+    const autoV = pick.autoVideo && v && v.Key === pick.video && !parsed.Progressive ? pick.autoVideo : null;
+    const autoA = pick.autoAudio && a && a.Id === pick.audio ? pick.autoAudio : null;
+    if (!autoV && !autoA) return '';
+    const what = autoV && autoA ? '' : autoV ? `视频 ${v.Quality} ${v.Codec} ` : `音频 ${a.Label} `;
+    const then = [autoV, autoA].filter(Boolean).every((how) => how === 'exact') ? '，之后不再自动选择' : '';
+    return `（${what}按上次的选择自动选中；点一下可取消${then}）`;
+  }
+  // 底部说明：结果过时时说明原因，否则说明下载时会用哪些流
+  function renderFoot() {
+    const sum = $('pickSum');
+    if (!parsed || !sum) return;
+    if (!isFresh()) {
+      sum.textContent = parseTimer || parseCtl ? '链接或解析接口已变化，正在重新解析…' : '链接或解析接口已变化，请点「解析」更新。';
+      return;
+    }
+    const v0 = wantsVideo(), a0 = wantsAudio();
+    const describe = (v, a) => {
+      const parts = [];
+      if (v) parts.push(`${v.Quality} ${v.Codec}`);
+      if (a) parts.push(a.Label);
+      const size = (v ? v.Size : 0) + (a ? a.Size : 0);
+      return parts.join(' + ') + (size ? `，约 ${fmtBytes(size)}${parsed.PageCount > 1 ? '/P' : ''}` : '');
+    };
+    const typed = $('page').value.trim();
+    const pages = parsed.PageCount > 1
+      ? `，${typed ? '分P ' + typed : pick.pagesTouched ? pick.pages.size + ' 个分P' : (parsed.DownloadPages ? parsed.DownloadPages.length : parsed.PageCount) + ' 个分P'}` : '';
+    if (!v0 && !a0) {
+      sum.textContent = `「下载内容」为「${CONTENT_LABEL[$('content').value]}」，不下载音视频${pages}。`;
+      return;
+    }
+    const find = (key, id) => [v0 ? parsed.Videos.find((x) => x.Key === key) : null, a0 ? parsed.Audios.find((x) => x.Id === id) : null];
+    if (effectivePick()) {
+      const [v, a] = find(pick.video || parsed.DefaultVideo, pick.audio || parsed.DefaultAudio);
+      sum.textContent = `已选：${describe(v, a)}${pages}${autoNote(v, a)}`;
+    } else {
+      const [v, a] = find(parsed.DefaultVideo, parsed.DefaultAudio);
+      const d = describe(v, a);
+      sum.textContent = d ? `未指定：「下载」按上方「画质」设置自动选择（${d}${pages}）。${parsed.Progressive ? '' : '点选上面的流可指定。'}` : '';
+    }
+  }
+
+  $('result').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-video],[data-audio],[data-act],[data-pagepick]');
+    if (!t || t.disabled) return;
+    if (t.dataset.act === 'close') { closeParse(); return; }
+    if (!parsed) return;
+    // 结果过时（链接或接口已变化）时不能再点选：选择不会用于新的链接
+    const picking = t.dataset.video || t.dataset.audio || t.dataset.pagepick || t.dataset.act === 'all' || t.dataset.act === 'none';
+    if (picking && !isFresh()) return;
+    if (t.dataset.video) {
+      togglePick('video', t.dataset.video);
+      updatePickUi();
+    } else if (t.dataset.audio) {
+      togglePick('audio', t.dataset.audio);
+      updatePickUi();
+    }
+    else if (t.dataset.pagepick) doParse({ page: parseInt(t.dataset.pagepick, 10) });
+    else switch (t.dataset.act) {
+      case 'web': $('api').value = ''; store.set('opt.api', ''); apiMigrationNote = ''; renderApiNote(); doParse(); break;
+      case 'login': openBiliLogin(); break;
+      case 'all': pick.pages = new Set(parsed.Pages.map((p) => p.Index)); pick.pagesTouched = true; updatePickUi(); break;
+      case 'none': pick.pages = new Set(); pick.pagesTouched = true; updatePickUi(); break;
+      case 'download': $('taskForm').requestSubmit(); break;
+    }
+  });
+  $('result').addEventListener('change', (e) => {
+    if (!isFresh()) {
+      // 结果过时：撤销这次改动（键盘仍可能操作到）
+      if (e.target.id === 'dubSel') e.target.value = pick.dub; else updatePickUi();
+      return;
+    }
+    if (e.target.id === 'dubSel') { pick.dub = e.target.value; syncParseState(); return; }
+    const box = e.target.closest('[data-pagebox]');
+    if (box) {
+      const i = parseInt(box.dataset.pagebox, 10);
+      if (box.checked) pick.pages.add(i); else pick.pages.delete(i);
+      pick.pagesTouched = true;
+      syncParseState();
+    }
+  });
+  // Esc 关闭解析结果（焦点在结果区内或页面空白处时）
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || $('result').hidden || !$('tokenModal').hidden || !$('biliModal').hidden) return;
+    const el = document.activeElement;
+    if (!el || el === document.body || $('result').contains(el)) closeParse();
+  });
+
+  // 有对应的解析结果、且用户点选过时，按所选的流精确下载；其他分P找不到该流时按画质/编码回退。
+  // 什么都没选时与不解析完全相同。
+  function pinnedRequest(link) {
+    const body = buildRequest(link);
+    if (!pinnable(link) || !effectivePick()) return body;
+    const v = pick.video && parsed.Videos.find((x) => x.Key === pick.video);
+    const a = pick.audio && parsed.Audios.find((x) => x.Id === pick.audio);
+    if (v && wantsVideo() && !parsed.Progressive) {
+      body.VideoStream = v.Key;
+      body.DfnPriority = v.Quality;
+      if (CODEC_TIP[v.Codec]) body.EncodingPriority = v.Codec.toLowerCase();
+    }
+    if (a && wantsAudio()) body.AudioStream = a.Id;
+    if (pick.dub) body.AudioLanguage = pick.dub;
+    if (pick.pagesTouched && parsed.PageCount > 1 && !body.SelectPage) {
+      if (!pick.pages.size) throw new Error('请至少选择一个分P');
+      body.SelectPage = pagesExpr(pick.pages, parsed.PageCount);
+    }
+    return body;
+  }
+
+  // ---------- 多个链接：逐个解析的列表 ----------
+  // 去重后有两个以上链接、其中有单个视频时（batchPlan），单个视频的链接按输入顺序逐个解析：一次一个，两次请求至少间隔 BATCH_GAP_MS，
+  // 与单个链接共用 60 秒缓存；输入或选项变了时取消进行中的请求、只重新解析变了的行。结果一行一个视频列在 #batch 里，
+  // 每行写明下载时用的流（按上次的选择自动选中，规则与单个链接相同；否则为按「画质」「视频编码优先」的默认流），
+  // 展开后可只为这个视频改选。「全部下载」按行逐个添加任务，每行与单个链接的 pinnedRequest 一样指定选中的流；
+  // 解析失败、没解析完的行和列表链接按原方式提交。分P不按行选择，多P视频都按上方「分P」下载
+  const BATCH_GAP_MS = 400;
+  const BATCH_WAIT_MS = 90000;
+  // rows：{ key, link, kind, status, body, reqKey, res, err, api, pick, prefState, open, force }（kind、status 见 batch-rules）。
+  // ctl：进行中的解析（一次只有一个）；timer：防抖或间隔的定时器；lastAt：上次请求结束的时间；over：超过 BATCH_MAX 个的视频数；
+  // started：点过「解析」（关掉自动解析时也逐个解析）；halted：访问令牌失效，停到下次操作；waiters：等解析的提交（settleBatch）
+  const batch = { rows: [], over: 0, ctl: null, timer: null, lastAt: 0, started: false, halted: false, waiters: [] };
+  let submitWait = '';   // 等解析时「下载」按钮上的进度
+  const newRowPick = () => ({ video: null, audio: null, autoVideo: null, autoAudio: null, skipVideoPref: false, skipAudioPref: false });
+  const batchWants = () => ({ video: wantsVideo(), audio: wantsAudio() });
+  const batchBusy = () => !batch.halted && batchProgress(batch.rows).pending > 0;
+  const batchTick = () => new Promise((resolve) => batch.waiters.push(resolve));
+
+  // 按输入框里的链接更新列表：同一视频、同样请求的行保留结果和选中的流；请求变了（如改了接口、画质）的重新排队。
+  // 不是多个链接时收起列表并返回 false
+  function syncBatch(links) {
+    const plan = batchPlan(links, BATCH_MAX);
+    if (!plan.batch) {
+      if (batch.rows.length) closeBatch();
+      return false;
+    }
+    const old = new Map(batch.rows.map((r) => [r.key, r]));
+    const apiNow = $('api').value;
+    const auto = $('autoParse').checked || batch.started;
+    batch.rows = plan.rows.map((x) => {
+      const row = old.get(x.key) || { key: x.key, reqKey: '', res: null, err: null, api: apiNow, pick: newRowPick(), prefState: { video: null, audio: null }, open: false };
+      row.link = x.link;
+      row.kind = x.kind;
+      if (x.kind !== 'single') {
+        Object.assign(row, { status: x.kind, reqKey: '', res: null, err: null, open: false });
+        return row;
+      }
+      const body = parseBody(x.link);
+      const reqKey = JSON.stringify({ ...body, Url: x.key });
+      if (row.reqKey !== reqKey) {
+        row.body = body;
+        row.reqKey = reqKey;
+        row.status = auto ? 'queued' : 'idle';
+        // 单个链接时已解析过这个视频（如又粘贴了别的链接）：沿用结果和选中的流
+        if (!row.res && parsed && parsedKey === reqKey && parsedApi === apiNow) {
+          Object.assign(row, { res: parsed, api: parsedApi, status: 'done', prefState: { ...prefState } });
+          Object.assign(row.pick, { video: pick.video, audio: pick.audio, autoVideo: pick.autoVideo, autoAudio: pick.autoAudio,
+            skipVideoPref: pick.skipVideoPref, skipAudioPref: pick.skipAudioPref });
+        }
+      } else if (row.status === 'idle' && auto) row.status = 'queued';
+      return row;
+    });
+    batch.over = plan.over;
+    batch.halted = false;
+    // 进行中的解析对应的行已移除，或请求变了：取消
+    const ctl = batch.ctl;
+    if (ctl && !(batch.rows.includes(ctl.row) && ctl.row.reqKey === ctl.reqKey)) { ctl.abort(); batch.ctl = null; }
+    // 缓存里有的直接显示
+    for (const row of batch.rows) {
+      const hit = row.status === 'queued' && cacheGet(row.reqKey);
+      if (hit) finishRow(row, hit.res, hit.err);
+    }
+    // 收起单个链接的结果区（结果已沿用到对应的行）
+    if (parsed || parseCtl || parseTimer || !$('result').hidden) closeParse();
+    renderBatch();
+    if (nextBatchRow(batch.rows)) batchKick(PARSE_DEBOUNCE_MS);
+    return true;
+  }
+  function closeBatch() {
+    clearTimeout(batch.timer);
+    batch.timer = null;
+    if (batch.ctl) { batch.ctl.abort(); batch.ctl = null; }
+    Object.assign(batch, { rows: [], over: 0, started: false, halted: false });
+    renderBatch();
+    setParseBusy(false);
+  }
+  function batchKick(delay) {
+    clearTimeout(batch.timer);
+    batch.timer = setTimeout(() => { batch.timer = null; pumpBatch(); }, delay);
+  }
+  // 解析下一个排队的行；缓存里有的不发请求
+  async function pumpBatch() {
+    if (batch.ctl || batch.halted) return;
+    let row;
+    while ((row = nextBatchRow(batch.rows))) {
+      const hit = !row.force && cacheGet(row.reqKey);
+      if (!hit) break;
+      finishRow(row, hit.res, hit.err);
+    }
+    if (!row) { renderBatch(); return; }
+    const wait = batch.lastAt + BATCH_GAP_MS - Date.now();
+    if (wait > 0) { renderBatch(); batchKick(wait); return; }
+    clearTimeout(batch.timer);
+    batch.timer = null;
+    const ctl = batch.ctl = new AbortController();
+    ctl.row = row;
+    ctl.reqKey = row.reqKey;
+    row.status = 'parsing';
+    row.force = false;
+    renderBatch();
+    const timer = setTimeout(() => { ctl.timedOut = true; ctl.abort(); }, PARSE_TIMEOUT_MS);
+    let res = null;
+    let err = null;
+    try {
+      res = await api('/parse', { method: 'POST', body: row.body, signal: ctl.signal });
+      cachePut(ctl.reqKey, { res });
+    } catch (e) {
+      err = e;
+    } finally {
+      clearTimeout(timer);
+      batch.lastAt = Date.now();
+    }
+    // 已被取消（链接或选项变了）：syncBatch/closeBatch 已另行安排
+    if (batch.ctl !== ctl) return;
+    batch.ctl = null;
+    if (err instanceof AuthError) {
+      // 访问令牌失效：停下，重新输入令牌后点「解析」或改动输入时继续
+      row.status = 'queued';
+      batch.halted = true;
+      renderBatch();
+      return;
+    }
+    if (!err) finishRow(row, res, null);
+    else {
+      // 与单个链接相同：链接无法识别、列表链接、分P写错这类结果固定的错误也缓存
+      if (err.status === 400 || err.status === 422) cachePut(ctl.reqKey, { err: { status: err.status, message: err.message } });
+      finishRow(row, null, ctl.timedOut ? { status: 504, message: '解析超时（60 秒），B站接口可能较慢' } : err);
+    }
+    renderBatch();
+    if (nextBatchRow(batch.rows)) batchKick(BATCH_GAP_MS);
+    else {
+      const prog = batchProgress(batch.rows);
+      announce(`已解析 ${prog.done - prog.failed} 个视频${prog.failed ? `，${prog.failed} 个失败` : ''}`);
+    }
+  }
+  function finishRow(row, res, err) {
+    if (res) { applyRowParse(row, res); return; }
+    row.status = 'failed';
+    row.open = false;
+    row.err = { status: err.status, message: String(err.message ?? '').replace(/^解析失败[：:]\s*/, '') };
+  }
+  // 与单个链接的 applyParse 相同：同一接口重新解析时保留点选的流，自动选中的按上次的选择重新匹配
+  function applyRowParse(row, res) {
+    const apiNow = $('api').value;
+    if (row.api !== apiNow) row.pick = newRowPick();
+    Object.assign(row, { api: apiNow, res, err: null, status: 'done' });
+    const p = row.pick;
+    if (p.autoVideo) { p.video = null; p.autoVideo = null; }
+    if (p.autoAudio) { p.audio = null; p.autoAudio = null; }
+    if (res.Progressive || (p.video && !res.Videos.some((v) => v.Key === p.video))) p.video = null;
+    if (p.audio && !res.Audios.some((a) => a.Id === p.audio)) p.audio = null;
+    row.prefState = pickByPref(res, p, loadPref(), prefHold(res), codecOrder($('encoding').value));
+  }
+  // 点「解析」：开始逐个解析（关掉自动解析时也会），失败的重试；都已解析时全部重新解析（不用缓存）
+  function parseBatchNow() {
+    batch.started = true;
+    batch.halted = false;
+    const singles = batch.rows.filter((r) => r.kind === 'single');
+    const todo = singles.filter((r) => r.status !== 'done' && r.status !== 'parsing');
+    (todo.length ? todo : singles).forEach((r) => {
+      if (r.status === 'parsing') return;
+      r.force = !todo.length || r.status === 'failed';
+      r.status = 'queued';
+    });
+    clearTimeout(batch.timer);
+    batch.timer = null;
+    pumpBatch();
+    syncParseState();
+  }
+  // 改「画质」或「视频编码优先」：与单个链接相同，取消各行选中的视频流，按新的设置重新解析
+  function clearBatchVideoPicks() {
+    let n = 0;
+    for (const row of batch.rows) {
+      if (row.pick.video) n++;
+      Object.assign(row.pick, { video: null, autoVideo: null, skipVideoPref: false });
+      row.prefState.video = null;
+    }
+    return n;
+  }
+  // 在某一行点选或取消：只用于这个视频，不记作上次的选择；取消后这个视频按默认的流下载，重新解析时也不再自动选择（'all'）
+  function toggleRowPick(row, part, value) {
+    const p = row.pick;
+    p[part] = p[part] === value ? null : value;
+    p[part === 'video' ? 'autoVideo' : 'autoAudio'] = null;
+    const pref = loadPref()[part];
+    if (p[part]) row.prefState[part] = null;
+    else {
+      p[part === 'video' ? 'skipVideoPref' : 'skipAudioPref'] = 'all';
+      row.prefState[part] = pref && !prefHold(row.res) ? { pref, how: 'skipped' } : null;
+    }
+  }
+  // 移除一行：输入框改成剩下的链接（一行一个），列表随之更新；只剩一个链接时回到单个链接的解析
+  function removeBatchRow(row) {
+    const i = batch.rows.indexOf(row);
+    urlBox.value = batch.rows.filter((r) => r !== row).map((r) => r.link).join('\n');
+    urlBox.dispatchEvent(new Event('input'));
+    const next = batch.rows.length ? $('batch').querySelectorAll('[data-act="remove"]')[Math.min(i, batch.rows.length - 1)] : null;
+    (next || urlBox).focus();
+  }
+  function batchNoteText() {
+    const n = batch.rows.length;
+    let text = $('autoParse').checked || batch.started
+      ? `识别到 ${n} 个链接：逐个解析，结果见下方列表；点「全部下载」按每行写明的流逐个添加任务。`
+      : `识别到 ${n} 个链接：已关闭自动解析，点「解析」逐个解析；点「全部下载」逐个添加任务。`;
+    if (batch.over) text += `单个视频超过 ${BATCH_MAX} 个，只解析前 ${BATCH_MAX} 个，其余 ${batch.over} 个按「画质」等设置下载。`;
+    return text;
+  }
+
+  // 一行的封面、文字和展开后的流表格
+  function batchRowParts(row, wants) {
+    const r = row.res;
+    const meta = [];
+    if (r && r.OwnerName) meta.push(`<span>UP主：${esc(r.OwnerName)}</span>`);
+    if (r) meta.push(`<span>${fmtClock((r.Pages.find((pg) => pg.Index === r.StreamsPage) || {}).Duration || 0)}</span>`);
+    if (r && r.PageCount > 1) {
+      const n = r.DownloadPages ? r.DownloadPages.length : 0;
+      meta.push(`<span>共 ${r.PageCount} 个分P，按上方「分P」设置下载${n ? (n === r.PageCount ? '全部' : `其中 ${n} 个`) : ''}</span>`);
+    }
+    const st = {
+      idle: '<span class="b-st">未解析（点「解析」开始）</span>',
+      queued: `<span class="b-st">${r ? '排队重新解析' : '排队解析'}</span>`,
+      parsing: `<span class="b-st"><span class="spin"></span>${r ? '重新解析中' : '解析中'}</span>`,
+      done: '<span class="b-st">已解析</span>',
+      failed: row.err ? `<span class="b-st ${row.err.status === 422 ? 'note' : 'failed'}">${row.err.status === 422 ? '' : '解析失败：'}${esc(row.err.message)}；下载时按「画质」等设置</span>` : '',
+      list: '<span class="b-st note">列表链接，按原方式下载</span>',
+      unknown: '<span class="b-st note">认不出的链接，不解析，下载时交给服务器判断</span>',
+      over: `<span class="b-st note">超过 ${BATCH_MAX} 个，不解析，按「画质」等设置下载</span>`,
+    }[row.status] || '';
+    let stream = '';
+    let hint = '';
+    if (row.status === 'done') {
+      const s = rowStreams(r, row.pick, wants);
+      const tag = (how) => (how === 'default' ? '' : how === 'manual' ? '<span class="tag">已选</span>'
+        : `<span class="tag last" title="${how === 'exact' ? '与上次选择的流相同' : '上次选择的流不可用，按上次的选择选了最接近的'}">${how === 'exact' ? '上次选择' : '按上次选择'}</span>`);
+      const names = [];
+      if (s.video) names.push(`${esc(s.video.Quality)} ${esc(s.video.Codec)}${tag(s.videoHow)}`);
+      if (s.audio) names.push(`${esc(s.audio.Label)}${tag(s.audioHow)}`);
+      const size = (s.video ? s.video.Size : 0) + (s.audio ? s.audio.Size : 0);
+      const picked = s.videoHow !== 'default' || s.audioHow !== 'default';
+      const what = !wants.video && !wants.audio ? `「下载内容」为「${esc(CONTENT_LABEL[$('content').value])}」，不下载音视频`
+        : names.length ? `将下载：${names.join(' + ')}${size ? `，约 ${fmtBytes(size)}${r.PageCount > 1 ? '/P' : ''}` : ''}${picked ? '' : '（按「画质」设置自动选择）'}`
+        : '没有可下载的音视频流';
+      const canPick = (wants.video && !r.Progressive && r.Videos.length) || (wants.audio && r.Audios.length);
+      stream = `<div class="b-stream"><span>${what}</span>${canPick || row.open
+        ? `<button class="btn small" data-act="expand" type="button" aria-expanded="${row.open}">${row.open ? '收起' : '选择流'}</button>` : ''}</div>`;
+      hint = prefHintText(r, row.pick, row.prefState);
+    }
+    const main = `<div class="b-top"><div class="b-title" title="${esc(r ? r.Title : row.link)}">${esc(r ? r.Title : shortLink(row.link))}</div>`
+      + `<button class="icon-btn" data-act="remove" type="button" title="移除这个链接" aria-label="移除这个链接">${ICON.x}</button></div>`
+      + `<div class="r-meta">${meta.join('')}${st}</div>${stream}${hint ? `<div class="hint">${esc(hint)}</div>` : ''}`;
+    const panel = row.open && row.status === 'done'
+      ? r.Hints.map((h) => `<div class="hintbar ${h.Level}"><span>${esc(h.Message)}</span>${hintAction(h.Code)}</div>`).join('')
+        + streamSecs(r, row.pick) + '<div class="hint">在这里点选的流只用于这个视频，不会记作上次的选择。</div>'
+      : '';
+    return { cover: coverHtml(r && r.Pic), main, panel };
+  }
+  // 按行保留元素、只改变化的部分（封面不闪）；焦点在某一行的按钮上时，重绘后放回同一个按钮
+  const batchItemHtml = new WeakMap();
+  function renderBatch() {
+    const box = $('batch');
+    const rows = batch.rows;
+    const waiters = batch.waiters;
+    batch.waiters = [];
+    waiters.forEach((resolve) => resolve());
+    if (!rows.length) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    if (box.hidden || !box.firstElementChild) {
+      box.innerHTML = '<div class="b-head"></div><div class="b-list"></div>'
+        + '<div class="r-foot"><div class="sum"></div><button class="btn primary" data-act="download" type="button">全部下载</button></div>';
+      box.hidden = false;
+    }
+    const prog = batchProgress(rows);
+    const busy = prog.pending > 0 && !batch.halted;
+    const head = `<b>${rows.length} 个链接</b>`
+      + (prog.total ? `<span class="b-st">${busy ? '<span class="spin"></span>' : ''}已解析 ${prog.done}/${prog.total}${prog.failed ? `，${prog.failed} 个失败` : ''}</span>` : '')
+      + (batch.halted ? '<span>访问令牌失效，输入令牌后点「解析」继续</span>' : '');
+    if (box.firstElementChild.innerHTML !== head) box.firstElementChild.innerHTML = head;
+
+    const active = document.activeElement;
+    let refocus = null;
+    if (active && box.contains(active) && active.closest('.b-item')) {
+      const attr = ['video', 'audio', 'act'].find((k) => active.dataset[k] !== undefined);
+      if (attr) refocus = { key: active.closest('.b-item').dataset.key, attr, value: active.dataset[attr] };
+    }
+    const list = box.querySelector('.b-list');
+    const wants = batchWants();
+    const existing = new Map([...list.children].map((el) => [el.dataset.key, el]));
+    let prev = null;
+    for (const row of rows) {
+      let el = existing.get(row.key);
+      existing.delete(row.key);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'b-item';
+        el.dataset.key = row.key;
+        el.innerHTML = '<div class="b-row"><div class="cover"></div><div class="b-main"></div></div><div class="b-panel" hidden></div>';
+        batchItemHtml.set(el, {});
+      }
+      const parts = batchRowParts(row, wants);
+      const last = batchItemHtml.get(el);
+      if (last.cover !== parts.cover) { el.querySelector('.cover').innerHTML = parts.cover; last.cover = parts.cover; }
+      if (last.main !== parts.main) { el.querySelector('.b-main').innerHTML = parts.main; last.main = parts.main; }
+      if (last.panel !== parts.panel) {
+        const panel = el.querySelector('.b-panel');
+        panel.innerHTML = parts.panel;
+        panel.hidden = !parts.panel;
+        last.panel = parts.panel;
+      }
+      const want = prev ? prev.nextElementSibling : list.firstElementChild;
+      if (want !== el) list.insertBefore(el, want);
+      prev = el;
+    }
+    existing.forEach((el) => el.remove());
+    if (refocus && !box.contains(document.activeElement)) {
+      const item = [...list.children].find((el) => el.dataset.key === refocus.key);
+      const t = item && item.querySelector(`[data-${refocus.attr}="${CSS.escape(refocus.value)}"]`);
+      if (t) t.focus();
+    }
+
+    const pref = loadPref();
+    const notes = [];
+    if (prog.failed) notes.push(`解析失败的 ${prog.failed} 个按「画质」等设置下载`);
+    if (busy && (pref.video || pref.audio)) notes.push('还没解析完的会先等解析完成，以便按上次的选择下载');
+    box.querySelector('.r-foot .sum').textContent = `点「全部下载」逐个添加 ${rows.length} 个任务${notes.length ? '；' + notes.join('；') : ''}。`;
+    const btn = busy ? `<span class="spin"></span>解析中 ${prog.done}/${prog.total}` : '解析';
+    if ($('parseBtn').innerHTML !== btn) $('parseBtn').innerHTML = btn;
+    $('parseBtn').disabled = busy;
+  }
+  $('batch').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-video],[data-audio],[data-act]');
+    if (!t || t.disabled) return;
+    const act = t.dataset.act;
+    if (act === 'download') { $('taskForm').requestSubmit(); return; }
+    if (act === 'login') { openBiliLogin(); return; }
+    if (act === 'web') {
+      $('api').value = '';
+      store.set('opt.api', '');
+      apiMigrationNote = '';
+      renderApiNote();
+      onParseOptionChange();
+      return;
+    }
+    const item = t.closest('.b-item');
+    const row = item && batch.rows.find((r) => r.key === item.dataset.key);
+    if (!row) return;
+    if (act === 'remove') { if (!submitting) removeBatchRow(row); return; }
+    if (act === 'expand') row.open = !row.open;
+    else if (row.status !== 'done') return;
+    else if (t.dataset.video) toggleRowPick(row, 'video', t.dataset.video);
+    else if (t.dataset.audio) toggleRowPick(row, 'audio', t.dataset.audio);
+    renderBatch();
+  });
+
+  // ---------- 多个链接：全部下载 ----------
+  // 记住了上次选择的流、还有行在排队或正在解析时，先等这些解析完成（最多 BATCH_WAIT_MS）：只有解析结果才能把上次的选择
+  // 对应到这个视频的流。超时没解析完的照常按「画质」等设置提交。没有记住的选择时不等，没解析的行本来就按「画质」等设置下载
+  async function settleBatch() {
+    const pref = loadPref();
+    if ((!pref.video && !pref.audio) || !batchBusy()) return { waited: false, timedOut: false };
+    // 还在防抖或间隔：马上开始
+    if (batch.timer) { clearTimeout(batch.timer); batch.timer = null; pumpBatch(); }
+    const deadline = Date.now() + BATCH_WAIT_MS;
+    while (batchBusy()) {
+      const left = deadline - Date.now();
+      if (left <= 0) break;
+      const prog = batchProgress(batch.rows);
+      submitWait = `等待解析 ${prog.done}/${prog.total}…`;
+      $('submitText').textContent = submitWait;
+      let timer;
+      await Promise.race([batchTick(), new Promise((resolve) => { timer = setTimeout(resolve, left); })]);
+      clearTimeout(timer);
+    }
+    return { waited: true, timedOut: batchBusy() };
+  }
+  async function submitBatch(links, ignored) {
+    let wait = { waited: false, timedOut: false };
+    // 等解析时不能改输入框，提交的仍是按下「下载」时的链接
+    urlBox.readOnly = true;
+    try {
+      wait = await settleBatch();
+    } finally {
+      urlBox.readOnly = false;
+      submitWait = '';
+      syncParseState();
+    }
+    // 等待期间输入框被换掉了（如在「已下载文件」里点了继续下载）：不提交旧的链接
+    if (wait.waited && currentLinks().map(linkKey).join('\n') !== links.map(linkKey).join('\n')) return;
+    const wants = batchWants();
+    const rows = batch.rows.slice();
+    let ok = 0;
+    let auto = 0;
+    let parseFailed = 0;
+    let unparsed = 0;
+    const failed = [];
+    const errors = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        await api('/add-task', { method: 'POST', body: batchRowRequest(buildRequest(row.link), row, wants) });
+        ok++;
+        if (row.status === 'failed') parseFailed++;
+        else if (row.kind === 'single' && row.status !== 'done') unparsed++;
+        else if (row.status === 'done') {
+          const s = rowStreams(row.res, row.pick, wants);
+          if (![s.videoHow, s.audioHow].every((how) => how === 'default' || how === 'manual')) auto++;
+        }
+      } catch (err) {
+        if (err instanceof AuthError) { failed.push(...rows.slice(i).map((r) => r.link)); break; }
+        failed.push(row.link);
+        errors.push(`${err.message}（${shortLink(row.link)}）`);
+      }
+    }
+    // 添加失败的链接留在输入框里，列表随之更新
+    if (ok || failed.length < rows.length) {
+      urlBox.value = failed.join('\n');
+      urlBox.dispatchEvent(new Event('input'));
+    }
+    if (errors.length) {
+      showFormMsg(errors.join('\n'));
+      if (errors.some((x) => x.startsWith('「分P」'))) $('page').classList.add('invalid');
+    }
+    if (ignored.length) {
+      $('linkNote').textContent = `上次输入中有文字不是链接或编号，已忽略、没有提交：${describeIgnored(ignored)}。`;
+      $('linkNote').hidden = false;
+    }
+    if (ok) {
+      resumeTarget = null;
+      resumeHint = null;
+      const notes = [];
+      if (auto) notes.push(`${auto} 个按上次的选择下载`);
+      if (parseFailed) notes.push(`${parseFailed} 个解析失败，按「画质」等设置下载`);
+      if (unparsed && wait.timedOut) notes.push(`${unparsed} 个等了 ${BATCH_WAIT_MS / 1000} 秒还没解析完，按「画质」等设置下载，没有用上次选择的流`);
+      toast((errors.length ? `已添加 ${ok} 个，${errors.length} 个失败（原因见输入框下方）` : `已添加 ${ok} 个任务`)
+        + (notes.length ? `。其中 ${notes.join('；')}` : ''), false, notes.length ? 6000 : undefined);
+      switchTab('tasks');
+      refreshTasks();
+    }
+  }
+
+  // ---------- tabs ----------
+  let activeTab = 'tasks';
+  function switchTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+    $('tasksPane').hidden = tab !== 'tasks';
+    $('filesPane').hidden = tab !== 'files';
+    $('historyPane').hidden = tab !== 'history';
+    $('clearDone').hidden = tab !== 'tasks';
+    $('clearHistory').hidden = tab !== 'history';
+    syncTaskTools();
+    if (tab === 'files') refreshFiles();
+    if (tab === 'history') refreshHistory();
+  }
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+  // ---------- tasks ----------
+  let lastTasks = null;
+  let finishedIds = new Set();
+  function taskCard(t, state) {
+    // 标题获取到之前显示BV号或链接
+    const title = t.Title || shortLink(t.Url);
+    let badge = '';
+    if (state === 'pending') badge = '<span class="badge pending">排队中</span>';
+    else if (state === 'running') badge = '<span class="badge running">下载中</span>';
+    else if (t.IsSuccessful) badge = '<span class="badge done">已完成</span>';
+    else badge = '<span class="badge failed">失败</span>';
+
+    const meta = [];
+    if (state === 'running') {
+      meta.push(`<span>${(t.Progress * 100).toFixed(1)}%</span>`);
+      if (t.DownloadSpeed > 0) meta.push(`<span>${fmtBytes(t.DownloadSpeed)}/s</span>`);
+      if (t.TotalDownloadedBytes > 0) meta.push(`<span>已下载 ${fmtBytes(t.TotalDownloadedBytes)}</span>`);
+    } else if (state === 'finished') {
+      if (t.TaskFinishTime) meta.push(`<span>${fmtTime(t.TaskFinishTime)} 完成</span>`);
+      if (t.TaskFinishTime && t.TaskCreateTime) meta.push(`<span>耗时 ${fmtDuration(Math.max(0, t.TaskFinishTime - t.TaskCreateTime))}</span>`);
+      if (t.IsSuccessful && t.TotalDownloadedBytes > 0) meta.push(`<span>${fmtBytes(t.TotalDownloadedBytes)}</span>`);
+    } else {
+      meta.push(`<span>${fmtTime(t.TaskCreateTime)} 添加</span>`);
+    }
+    if (!t.Title && state === 'running') meta.push('<span>正在获取标题…</span>');
+    if (title !== t.Url) meta.push(`<span class="src">${esc(t.Url)}</span>`);
+
+    let progress = '';
+    if (state === 'running') {
+      const pct = Math.max(0, Math.min(100, t.Progress * 100));
+      progress = `<div class="progress${pct === 0 ? ' indeterminate' : ''}"><div style="width:${pct}%"></div></div>`;
+    }
+    const err = t.Error ? `<div class="err">${esc(t.Error)}</div>` : '';
+    const streams = (t.Streams || []).length ? `<div class="streams">${t.Streams.slice(0, 3).map(esc).join('<br>')}${t.Streams.length > 3 ? `<br>… 共 ${t.Streams.length} 个分P` : ''}</div>` : '';
+    const outputs = (t.SavePaths || []).map((p, i) => {
+      const ext = extOf(p);
+      const icon = VIDEO_EXT.includes(ext) ? ICON.film : AUDIO_EXT.includes(ext) ? ICON.music : ICON.file;
+      const href = `/files/download?task=${encodeURIComponent(t.TaskId)}&index=${i}`;
+      return `<a class="out" href="${href}" download title="下载 ${esc(baseName(p))}">${icon}<span>${esc(baseName(p))}</span></a>`;
+    }).join('');
+    // 排队中（还没开始）的任务可以取消；正在下载的任务不能取消
+    const actions = state === 'finished'
+      ? `<button class="icon-btn" data-remove="${esc(t.TaskId)}" type="button" title="移除记录（不删除文件）">${ICON.x}</button>`
+      : state === 'pending'
+        ? `<button class="btn small" data-cancel="${esc(t.TaskId)}" type="button" title="从队列中移除这个任务，不会下载">取消排队</button>`
+        : '';
+    return {
+      cover: coverHtml(t.Pic),
+      main: `<div class="task-head"><div class="task-title" title="${esc(title)}">${esc(title)}</div>${badge}<div class="task-actions">${actions}</div></div>
+        <div class="meta">${meta.join('')}</div>
+        ${streams}${progress}${err}
+        ${outputs ? `<div class="outputs">${outputs}</div>` : ''}`,
+    };
+  }
+  // 下载中每次轮询都会变的只有文字和进度条：按任务保留卡片，只改变化的部分。
+  // 整个列表重写 innerHTML 会让封面图片被删掉重建，每刷新一次就闪一下。
+  const taskCardHtml = new WeakMap();
+  let pendingCount = 0;
+  // 「清空排队」只在任务页、有两个以上排队中的任务时显示（只有一个时用卡片上的「取消排队」）
+  function syncTaskTools() {
+    $('clearPending').hidden = activeTab !== 'tasks' || pendingCount < 2;
+  }
+  function renderTasks(c) {
+    const finished = [...c.Finished].sort((a, b) => (b.TaskFinishTime || 0) - (a.TaskFinishTime || 0));
+    const items = [
+      ...c.Running.map((t) => [t, 'running']),
+      ...c.Pending.map((t) => [t, 'pending']),
+      ...finished.map((t) => [t, 'finished']),
+    ];
+    pendingCount = c.Pending.length;
+    syncTaskTools();
+    $('taskCount').textContent = items.length ? String(items.length) : '';
+    const list = $('taskList');
+    if (!items.length) {
+      list.innerHTML = `<div class="card empty">${ICON.inbox}<p>还没有任务，粘贴链接开始下载吧</p></div>`;
+      return;
+    }
+    list.querySelectorAll(':scope > .empty').forEach((el) => el.remove());
+    const existing = new Map([...list.querySelectorAll(':scope > .card.task[data-id]')].map((el) => [el.dataset.id, el]));
+    let prev = null;
+    for (const [t, state] of items) {
+      const id = String(t.TaskId);
+      let el = existing.get(id);
+      existing.delete(id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'card task';
+        el.dataset.id = id;
+        el.innerHTML = '<div class="cover"></div><div class="task-main"></div>';
+        taskCardHtml.set(el, {});
+      }
+      const card = taskCard(t, state);
+      const last = taskCardHtml.get(el);
+      if (last.cover !== card.cover) { el.firstElementChild.innerHTML = card.cover; last.cover = card.cover; }
+      if (last.main !== card.main) { el.lastElementChild.innerHTML = card.main; last.main = card.main; }
+      const want = prev ? prev.nextElementSibling : list.firstElementChild;
+      if (want !== el) list.insertBefore(el, want);
+      prev = el;
+    }
+    existing.forEach((el) => el.remove());
+  }
+  $('taskList').addEventListener('click', async (e) => {
+    const cancel = e.target.closest('[data-cancel]');
+    if (cancel) {
+      if (cancel.disabled) return;
+      // 成功时按钮保持禁用，直到刷新后卡片移除（否则这期间再点一次会再发一次取消，提示「已不在队列里」）
+      cancel.disabled = true;
+      try {
+        await api('/remove-pending/' + encodeURIComponent(cancel.dataset.cancel), { method: 'DELETE' });
+        toast('已取消排队');
+      } catch (err) {
+        // 卡片按内容是否变化重绘：失败时内容不变、按钮不会被重建，要自己恢复可用
+        cancel.disabled = false;
+        if (!(err instanceof AuthError)) {
+          // 409：队列恰好在这时开始执行它，或者它已经结束（服务器的消息写明是哪一种）；404：已不在队列里（如已被取消）
+          toast(err.status === 409 ? err.message || '任务已开始，无法取消' : err.status === 404 ? '这个任务已不在队列里' : err.message, true);
+        }
+      }
+      refreshTasks().catch(() => {});
+      return;
+    }
+    const btn = e.target.closest('[data-remove]');
+    if (!btn) return;
+    await api('/remove-finished/' + encodeURIComponent(btn.dataset.remove), { method: 'DELETE' }).catch(() => {});
+    refreshTasks();
+  });
+  $('clearPending').addEventListener('click', async () => {
+    if (!confirm(`取消全部 ${pendingCount} 个排队中的任务？正在下载的任务不受影响。`)) return;
+    try {
+      const r = await api('/remove-pending/', { method: 'DELETE' });
+      toast(`已取消 ${(r && r.Removed) || 0} 个排队中的任务`);
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, true);
+    }
+    refreshTasks().catch(() => {});
+  });
+  $('clearDone').addEventListener('click', async () => {
+    await api('/remove-finished/', { method: 'DELETE' }).catch(() => {});
+    refreshTasks();
+  });
+
+  async function refreshTasks() {
+    const c = await api('/get-tasks/');
+    const json = JSON.stringify(c);
+    if (json !== lastTasks) {
+      lastTasks = json;
+      renderTasks(c);
+    }
+    // 有任务完成时刷新文件列表
+    const ids = new Set(c.Finished.map((t) => t.TaskId));
+    const hasNew = [...ids].some((id) => !finishedIds.has(id));
+    finishedIds = ids;
+    if (hasNew && filesLoaded) refreshFiles();
+    if (hasNew && hist.loaded) refreshHistory();
+    return c.Running.length + c.Pending.length > 0;
+  }
+
+  // ---------- files ----------
+  // 已下载文件按视频分组（GET /files/groups）：一次完成的下载一组（视频和同名的字幕、弹幕、封面；多P文件夹整个一组），
+  // 中断的下载（临时文件夹里的分片）一组，可以继续下载或整组删除。
+  // 与任务列表一样按组保留卡片、只改变化的部分，刷新时封面不会闪
+  let fileGroups = [];
+  let filesTruncated = false;
+  let filesLoaded = false;
+  let filesAt = 0;
+  let filesSeq = 0;
+  let filesJson = '';
+  let titleRetry = 0;
+  let titleTimer = null;
+  // 用户展开的组（按组 Id），刷新后保持；搜索时匹配的组自动展开，搜索期间手动收起的记在 closedInSearch
+  const openGroups = new Set();
+  const closedInSearch = new Set();
+  let lastFileKw = '';
+  let fileEmptyHtml = null;
+  const fileGroupHtml = new WeakMap();
+  function fileUrl(path, inline) {
+    return '/files/download?path=' + encodeURIComponent(path) + (inline ? '&inline=1' : '');
+  }
+  const fileKind = (p) => VIDEO_EXT.includes(extOf(p)) ? 'video' : AUDIO_EXT.includes(extOf(p)) ? 'audio' : '';
+  function pathHtml(path) {
+    const slash = path.lastIndexOf('/');
+    return `<span class="file-dir">${esc(slash >= 0 ? path.slice(0, slash + 1) : '')}</span>${esc(path.slice(slash + 1))}`;
+  }
+  // 合并分片或混流中断留下的隐藏暂存文件（.<名>.<32位十六进制>.partial.mp4）
+  const isStagedFile = (p) => /^\..+\.[0-9a-f]{32}\.partial(\.[^.]*)?$/.test(baseName(p));
+  // inWork：未完成的下载里的文件，不能单独删除（下载会用到它们；要删就删除整组）
+  function fileRow(f, inWork) {
+    const ext = extOf(f.Path);
+    const staged = isStagedFile(f.Path);
+    const kind = staged ? '' : fileKind(f.Path);
+    const icon = kind === 'video' ? ICON.film : kind === 'audio' ? ICON.music : ICON.file;
+    const playable = kind || (!staged && IMAGE_EXT.includes(ext));
+    return `<div class="file">
+        <div class="file-icon ${kind}">${icon}</div>
+        <div class="file-main">
+          <div class="file-name">${pathHtml(f.Path)}</div>
+          <div class="file-meta">${fmtBytes(f.Size)} · ${fmtTime(f.ModifiedTime)}${staged ? ' · 合并中断留下的临时文件' : ''}</div>
+        </div>
+        <div class="file-actions">
+          ${playable ? `<a class="icon-btn" href="${fileUrl(f.Path, true)}" target="_blank" rel="noopener" title="在线播放/预览">${ICON.play}</a>` : ''}
+          <a class="icon-btn" href="${fileUrl(f.Path)}" download title="${inMacApp ? '在访达中显示' : '下载到本机'}">${ICON.down}</a>
+          ${inWork ? '' : `<button class="icon-btn" data-del="${esc(f.Path)}" type="button" title="从服务器删除">${ICON.trash}</button>`}
+        </div>
+      </div>`;
+  }
+  // 本地封面（下载时保存的 .jpg）：没有B站封面链接或B站封面加载失败时使用
+  function localCoverHtml(path) {
+    const src = fileUrl(path, true);
+    return failedCovers.has(src) ? ICON.film : `<img src="${esc(src)}" alt="" loading="lazy">`;
+  }
+  // 引擎固定的分片大小（20 MiB）。旧版本留下的文件夹没有记下上次的请求：按视频分片估算上次的视频大小，
+  // 重新解析后标出大小相近的视频流，方便选回同一个流（选对了才能沿用已下载的分片）
+  const CLIP_BYTES = 20 * 1024 * 1024;
+  function lastVideoSize(g) {
+    const clips = (g.Clips || []).filter((c) => c.Track === 'video');
+    if (!clips.length) return null;
+    const page = Math.min(...clips.map((c) => c.Page || 0));
+    const last = clips.filter((c) => (c.Page || 0) === page).reduce((a, c) => (c.Index > a.Index ? c : a));
+    const count = last.Index + 1;
+    // 最后一段完整且不足 20 MiB：它就是整条轨道的最后一段，大小是准的；否则只知道至少这么大
+    const exact = last.Complete && last.Size < CLIP_BYTES;
+    return { page, count, exact, bytes: exact ? (count - 1) * CLIP_BYTES + last.Size : count * CLIP_BYTES };
+  }
+  let resumeHint = null;   // { aid, page, bytes }：继续下载旧文件夹时，解析结果里标出与上次大小相近的视频流
+  // { aid, link }：继续下载旧文件夹时填入的视频。解析它时不自动选用上次的选择、点选的流也不记住（prefHold）：
+  // 要选的是这个文件夹之前下载的流，选错了已下载的分片不能沿用。添加任务后清除
+  let resumeTarget = null;
+  function isResumeParse(r) {
+    const t = resumeTarget;
+    return !!t && ((!!t.aid && String(r.Aid) === String(t.aid)) || (r === parsed && parsedLink === t.link));
+  }
+  function hintedVideo(r) {
+    const h = resumeHint;
+    if (!h || String(r.Aid) !== String(h.aid) || (h.page && r.StreamsPage !== h.page)) return null;
+    let best = null;
+    for (const v of r.Videos) {
+      const diff = Math.abs(v.Size - h.bytes) / h.bytes;
+      if (v.Size > 0 && diff <= 0.1 && (!best || diff < best.diff)) best = { key: v.Key, diff };
+    }
+    return best && best.key;
+  }
+  function clipsHtml(g) {
+    const clips = g.Clips || [];
+    if (!clips.length) return '';
+    const tracks = ['video', 'audio'].filter((t) => clips.some((c) => c.Track === t));
+    const pages = new Set(clips.map((c) => c.Page || 0)).size > 1;
+    const trackName = (t) => t === 'video' ? '视频' : '音频';
+    const summary = tracks.map((t) => {
+      const list = clips.filter((c) => c.Track === t);
+      return `${trackName(t)}分片 ${list.length} 个（${list.filter((c) => c.Complete).length} 个已完成）`;
+    }).join('，');
+    const label = (c) => (pages && c.Page ? `P${c.Page} ` : '') + (tracks.length > 1 ? trackName(c.Track) + ' ' : '') + '#' + c.Index;
+    return `<div class="clips"><div class="clips-head">${summary}</div><div class="clip-grid">${clips.map((c) =>
+      `<span class="clip${c.Complete ? '' : ' part'}" title="${esc(c.Path)}"><span class="idx">${esc(label(c))}</span><span>${fmtBytes(c.Size)}</span><span class="st">${c.Complete ? '已完成' : '部分'}</span></span>`).join('')}</div></div>`;
+  }
+  const groupExpandable = (g) => g.FileCount > 1 || (g.Clips || []).length > 0;
+  function groupMatches(g, kw) {
+    if ((g.Title || '').toLowerCase().includes(kw)) return true;
+    if (g.Bvid && g.Bvid.toLowerCase().includes(kw)) return true;
+    if (g.Aid && ('av' + g.Aid).includes(kw)) return true;
+    if (g.Folder && g.Folder.toLowerCase().includes(kw)) return true;
+    return (g.Files || []).some((f) => f.Path.toLowerCase().includes(kw)) || (g.Clips || []).some((c) => c.Path.toLowerCase().includes(kw));
+  }
+  function isGroupOpen(g, kw) {
+    if (!groupExpandable(g)) return false;
+    return kw ? !closedInSearch.has(g.Id) : openGroups.has(g.Id);
+  }
+  function groupParts(g, open) {
+    const incomplete = g.Status === 'incomplete';
+    const expandable = groupExpandable(g);
+    // B站封面加载失败时改用组里的本地封面
+    const cover = g.Pic ? coverHtml(g.Pic, g.CoverFile ? fileUrl(g.CoverFile, true) : '') : g.CoverFile ? localCoverHtml(g.CoverFile) : ICON.film;
+    const badge = g.Active ? '<span class="badge running">下载中</span>'
+      : incomplete ? `<span class="badge partial">未完成${g.ClipCount ? `·${g.ClipCount} 个分片` : ''}</span>`
+      : '<span class="badge done">完成</span>';
+    const meta = [badge];
+    if (g.Unavailable) meta.push('<span class="badge gone" title="按 av 号查询时B站返回视频不存在或不可见">视频已失效</span>');
+    if (g.FileCount > 1 && !incomplete) meta.push(`<span>${g.FileCount} 个文件</span>`);
+    meta.push(`<span>${fmtBytes(g.TotalBytes)}</span>`);
+    const ts = g.FinishedAt || g.ModifiedTime;
+    if (ts) meta.push(`<span title="${esc(fmtExact(ts))}">${esc(fmtTime(ts))}${incomplete ? ' 更新' : g.FinishedAt ? ' 完成' : ''}</span>`);
+    const title = esc(g.Title) + (g.TitlePending ? '<span class="fg-pending">（正在查询标题…）</span>' : '');
+    let main;
+    if (expandable) {
+      main = `<button class="fg-toggle" type="button" data-gtoggle aria-expanded="${open}" title="${esc(g.Title)}">
+          <span class="fg-title">${title}</span>
+          <span class="fg-meta">${meta.join('')}<span class="fg-more">${open ? '收起' : (incomplete ? '查看分片' : '展开文件')}</span></span>
+        </button>`;
+    } else {
+      const only = (g.Files || [])[0];
+      main = `<div class="fg-title" title="${esc(g.Title)}">${title}</div><div class="fg-meta">${meta.join('')}</div>`
+        + (only && baseName(only.Path) !== g.Title ? `<div class="fg-sub">${pathHtml(only.Path)}</div>` : '');
+    }
+    const actions = [];
+    const deleteButton = (label) => g.Active
+      ? `<button class="btn small danger" type="button" disabled title="正在下载，下载结束后才能删除">${label}</button>`
+      : `<button class="btn small danger" type="button" data-gdel="${esc(g.Id)}">${label}</button>`;
+    if (incomplete) {
+      const size = !(g.Request && g.Request.Url) && lastVideoSize(g);
+      const resumeTip = g.Request && g.Request.Url
+        ? '按上次的设置继续下载，已下载完整的分片经校验后直接沿用'
+        : '填入链接并解析；选择与上次相同的画质和编码才能沿用已下载的分片'
+          + (size ? `（上次的视频${size.exact ? '约' : '至少约'} ${fmtBytes(size.bytes)}）` : '');
+      actions.push(g.Active
+        ? `<button class="btn small" type="button" disabled title="正在下载">${ICON.down}继续下载</button>`
+        : g.Unavailable || !(g.Request && g.Request.Url) && !g.Url
+          ? `<button class="btn small" type="button" disabled title="${g.Unavailable ? 'B站上找不到这个视频（可能已删除或不可见），无法继续下载' : '找不到这个下载的链接'}">${ICON.down}继续下载</button>`
+          : `<button class="btn small" type="button" data-gresume="${esc(g.Id)}" title="${esc(resumeTip)}">${ICON.down}继续下载</button>`);
+      actions.push(deleteButton('删除'));
+    } else {
+      const mainFile = g.MainFile;
+      if (mainFile && fileKind(mainFile)) {
+        actions.push(`<a class="btn small" href="${fileUrl(mainFile, true)}" target="_blank" rel="noopener" title="播放：${esc(mainFile)}">${ICON.play}播放</a>`);
+      }
+      const reveal = mainFile || ((g.Files || [])[0] || {}).Path;
+      if (reveal) {
+        actions.push(`<a class="btn small" href="${fileUrl(reveal)}" download title="${inMacApp ? '在访达中显示' : '下载'}：${esc(reveal)}">${inMacApp ? '打开位置' : '下载到本机'}</a>`);
+      }
+      actions.push(deleteButton(g.FileCount > 1 ? '删除整组' : '删除'));
+    }
+    return {
+      cover,
+      main,
+      actions: actions.join(''),
+      body: expandable ? (g.Files || []).map((f) => fileRow(f, incomplete)).join('') + clipsHtml(g) : '',
+    };
+  }
+  function renderFiles() {
+    const kw = $('fileSearch').value.trim().toLowerCase();
+    if (kw !== lastFileKw) {
+      closedInSearch.clear();
+      lastFileKw = kw;
+    }
+    // 标签上的数字是视频（组）数，不是文件数
+    $('fileCount').textContent = fileGroups.length ? String(fileGroups.length) : '';
+    $('fileNote').hidden = !filesTruncated;
+    const box = $('fileList');
+    // 搜索时不匹配的卡片只隐藏、不移出页面：清空搜索后不用重建卡片，封面不会闪
+    const existing = new Map([...box.querySelectorAll(':scope > .fgroup[data-id]')].map((el) => [el.dataset.id, el]));
+    let prev = null;
+    let shown = 0;
+    for (const g of fileGroups) {
+      const match = !kw || groupMatches(g, kw);
+      let el = existing.get(g.Id);
+      existing.delete(g.Id);
+      if (!el && !match) continue;
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'card fgroup';
+        el.dataset.id = g.Id;
+        el.innerHTML = '<div class="fg-row"><div class="cover"></div><div class="fg-main"></div><div class="fg-actions"></div></div><div class="fg-body" hidden></div>';
+        fileGroupHtml.set(el, {});
+      }
+      el.hidden = !match;
+      if (match) {
+        shown++;
+        const open = isGroupOpen(g, kw);
+        const parts = groupParts(g, open);
+        const last = fileGroupHtml.get(el);
+        const [coverEl, mainEl, actionsEl] = el.firstElementChild.children;
+        if (last.cover !== parts.cover) { coverEl.innerHTML = parts.cover; last.cover = parts.cover; }
+        if (last.main !== parts.main) { mainEl.innerHTML = parts.main; last.main = parts.main; }
+        if (last.actions !== parts.actions) { actionsEl.innerHTML = parts.actions; last.actions = parts.actions; }
+        const body = open ? parts.body : '';
+        if (last.body !== body) { el.lastElementChild.innerHTML = body; last.body = body; }
+        el.lastElementChild.hidden = !body;
+        el.classList.toggle('open', open);
+        el.classList.toggle('incomplete', g.Status === 'incomplete');
+      }
+      const want = prev ? prev.nextElementSibling : box.firstElementChild;
+      if (want !== el) box.insertBefore(el, want);
+      prev = el;
+    }
+    existing.forEach((el) => el.remove());
+    const empty = $('fileEmpty');
+    const emptyHtml = shown ? '' : `${ICON.inbox}<p>${kw ? '没有匹配的视频或文件' : '还没有下载完成的文件'}</p>`;
+    if (fileEmptyHtml !== emptyHtml) { empty.innerHTML = emptyHtml; fileEmptyHtml = emptyHtml; }
+    empty.hidden = shown > 0;
+  }
+  async function refreshFiles() {
+    const seq = ++filesSeq;
+    try {
+      const res = await api('/files/groups');
+      if (seq !== filesSeq) return;
+      fileGroups = res.Groups || [];
+      filesTruncated = !!res.Truncated;
+      filesLoaded = true;
+      filesAt = Date.now();
+      // 内容没变时不重绘（保留焦点和悬停状态）；「今天 hh:mm」按分钟更新
+      const json = JSON.stringify([res, Math.floor(Date.now() / 60000)]);
+      if (json !== filesJson) {
+        filesJson = json;
+        renderFiles();
+      }
+      // 未完成的下载正在按 av 号查询标题：过几秒再取一次（最多几次）
+      clearTimeout(titleTimer);
+      if (!fileGroups.some((g) => g.TitlePending)) titleRetry = 0;
+      else if (titleRetry < 5) {
+        titleRetry++;
+        titleTimer = setTimeout(refreshFiles, 3000);
+      }
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, true);
+    }
+  }
+  const findGroup = (id) => fileGroups.find((g) => g.Id === id);
+  $('fileSearch').addEventListener('input', renderFiles);
+  $('refreshFiles').addEventListener('click', refreshFiles);
+  $('fileList').addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-del],[data-gtoggle],[data-gdel],[data-gresume]');
+    if (!t || t.disabled) return;
+    if (t.hasAttribute('data-gtoggle')) {
+      const id = t.closest('.fgroup').dataset.id;
+      const g = findGroup(id);
+      if (!g) return;
+      const kw = $('fileSearch').value.trim().toLowerCase();
+      if (isGroupOpen(g, kw)) {
+        openGroups.delete(id);
+        if (kw) closedInSearch.add(id);
+      } else {
+        openGroups.add(id);
+        closedInSearch.delete(id);
+      }
+      renderFiles();
+      // 标题区域整个重写了：把焦点放回展开/收起按钮，方便键盘操作
+      const again = [...$('fileList').querySelectorAll(':scope > .fgroup')].find((el) => el.dataset.id === id);
+      if (again) again.querySelector('[data-gtoggle]')?.focus();
+      return;
+    }
+    if (t.dataset.del) {
+      const path = t.dataset.del;
+      if (!confirm(`从服务器删除「${baseName(path)}」？此操作无法撤销。`)) return;
+      try {
+        await api('/files/?path=' + encodeURIComponent(path), { method: 'DELETE' });
+        toast('已删除');
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.message, true);
+      }
+      refreshFiles();
+      return;
+    }
+    const g = findGroup(t.dataset.gdel || t.dataset.gresume);
+    if (!g) return;
+    if (t.dataset.gdel) {
+      const files = (g.Files || []).map((f) => baseName(f.Path));
+      const shown = files.slice(0, 5).map((n) => '· ' + n).join('\n') + (files.length > 5 ? `\n… 等 ${files.length} 个文件` : '');
+      // FileCount 是删除时会删掉的全部文件数（未完成的下载含分片、续传校验文件、说明文件和临时文件）
+      const msg = (g.Status === 'incomplete'
+        ? `删除「${g.Title}」未完成的下载？\n\n将删除临时文件夹「${g.Folder}」里的全部 ${g.FileCount} 个文件（其中 ${g.ClipCount} 个分片，其余是封面、续传用的校验文件等，共 ${fmtBytes(g.TotalBytes)}），删除后不能再继续下载。此操作无法撤销。`
+        : g.FileCount > 1
+          ? `删除「${g.Title}」的全部 ${g.FileCount} 个文件（共 ${fmtBytes(g.TotalBytes)}）？此操作无法撤销。\n\n${shown}`
+          : `从服务器删除「${files[0] || g.Title}」？此操作无法撤销。`)
+        + (filesTruncated ? '\n\n文件太多，列表只统计了最新的一部分，这一组可能还有没列出的文件，它们不会被删除。' : '');
+      if (!confirm(msg)) return;
+      t.disabled = true;
+      try {
+        // 带上确认时看到的文件数、大小和修改时间：这一组之后有了变化时服务器拒绝删除（409）
+        const r = await api(`/files/groups?id=${encodeURIComponent(g.Id)}&count=${g.FileCount}&bytes=${g.TotalBytes}&mtime=${g.ModifiedTime}`, { method: 'DELETE' });
+        if (r && r.Failed) toast(`已删除 ${r.Deleted} 个文件，${r.Failed} 个未能删除`, true);
+        else toast('已删除');
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.status === 404 ? '这些文件已经不在了' : err.message, true);
+      } finally {
+        // 删除失败时列表可能没有变化、不会重绘，按钮要恢复可用
+        t.disabled = false;
+      }
+      refreshFiles();
+      return;
+    }
+    // 继续下载：有下载开始时记下的请求就直接重新提交（已下载完整的分片经远端校验后沿用）；
+    // 没有（旧版本留下的文件夹）时填入链接并解析，由用户选择与上次相同的画质
+    if (g.Request && g.Request.Url) {
+      t.disabled = true;
+      try {
+        await api('/add-task', { method: 'POST', body: g.Request });
+        toast('已加入下载队列：' + g.Title);
+        switchTab('tasks');
+        refreshTasks().catch(() => {});
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.message, true);
+      } finally {
+        t.disabled = false;
+      }
+      return;
+    }
+    // 服务器在视频已失效（B站返回不存在或不可见）时不给链接
+    const link = g.Url;
+    if (!link) {
+      toast(g.Unavailable ? 'B站上找不到这个视频，无法继续下载' : '找不到这个下载的链接，请粘贴视频链接后重新下载', true);
+      return;
+    }
+    const size = lastVideoSize(g);
+    resumeHint = size && size.exact && g.Aid ? { aid: g.Aid, page: size.page, bytes: size.bytes } : null;
+    resumeTarget = { aid: g.Aid || null, link: linkKey(link) };
+    urlBox.value = link;
+    urlBox.dispatchEvent(new Event('input'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    urlBox.focus({ preventScroll: true });
+    doParse({ manual: true });
+    toast(!size ? '已填入链接并解析。选择与上次相同的画质和编码，才能沿用已下载的分片'
+      : size.exact ? `已填入链接并解析。上次的视频约 ${fmtBytes(size.bytes)}（${size.count} 个分片），请选标有「接近上次」的视频流和上次的音质，才能沿用已下载的分片`
+      : `已填入链接并解析。上次的视频至少约 ${fmtBytes(size.bytes)}（已有 ${size.count} 个分片），请选择大小相近的画质和编码，才能沿用已下载的分片`, false, 8000);
+  });
+
+  // ---------- history ----------
+  // 下载历史保存在服务器的数据目录（history.json），服务重启、「清除已完成」后仍保留
+  const HISTORY_PAGE = 50;
+  // next：下一页在服务器上的起始位置
+  const hist = { items: [], total: 0, matched: 0, next: 0, q: '', loaded: false, json: '', at: 0 };
+  let histSeq = 0;
+  let histTimer = null;
+  const pad2 = (x) => String(x).padStart(2, '0');
+  function fmtExact(ts) {
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }
+  function fmtAgo(ts) {
+    const s = Math.floor(Date.now() / 1000) - ts;
+    if (s < 60) return '刚刚';
+    if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+    if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+    if (s < 7 * 86400) return Math.floor(s / 86400) + ' 天前';
+    const d = new Date(ts * 1000);
+    return (d.getFullYear() === new Date().getFullYear() ? '' : d.getFullYear() + '年') + `${d.getMonth() + 1}月${d.getDate()}日`;
+  }
+  const fileIcon = (p) => VIDEO_EXT.includes(extOf(p)) ? ICON.film : AUDIO_EXT.includes(extOf(p)) ? ICON.music : ICON.file;
+  const redoUrl = (h) => (h.Request && h.Request.Url) || h.Url;
+
+  function historyCard(h) {
+    const title = h.Title || shortLink(h.Url);
+    const files = h.Files || [];
+    const existing = files.filter((f) => f.Exists);
+    const gone = files.length > 0 && !existing.length;
+    const media = files.filter((f) => VIDEO_EXT.includes(extOf(f.Path)) || AUDIO_EXT.includes(extOf(f.Path)));
+    const playFile = existing.find((f) => VIDEO_EXT.includes(extOf(f.Path))) || existing.find((f) => AUDIO_EXT.includes(extOf(f.Path)));
+    const openFile = playFile || existing[0];
+    // 文件都已存在而跳过下载的仍算成功，但要让人看出这次没有重新下载
+    const state = !h.Success ? '<span class="badge failed">失败</span>'
+      : h.Skipped ? '<span class="badge skipped" title="下载目录里已有这些文件，这次跳过了下载；大小是已有文件的">已存在，未重新下载</span>'
+      : '<span class="badge done">成功</span>';
+    const badges = `<span class="hist-badges">${state}${gone ? '<span class="badge gone">文件已删除</span>' : ''}</span>`;
+    const head = h.PageUrl
+      ? `<a class="task-title" href="${esc(h.PageUrl)}" target="_blank" rel="noopener noreferrer" title="${esc(title)}（在B站打开）">${esc(title)}</a>`
+      : `<div class="task-title" title="${esc(title)}">${esc(title)}</div>`;
+
+    const meta = [];
+    if (h.Owner) meta.push(`<span>UP主：${esc(h.Owner)}</span>`);
+    meta.push(`<span title="${esc(fmtExact(h.FinishedAt))}">${esc(fmtAgo(h.FinishedAt))}</span>`);
+    if (h.TotalBytes > 0) meta.push(`<span>${fmtBytes(h.TotalBytes)}</span>`);
+    const pages = h.Pages || [];
+    if (pages.length > 1) meta.push(`<span title="${esc(pages.map((p) => `P${p.Index} ${p.Title}`).join('\n'))}">${pages.length} 个分P</span>`);
+    else if (pages.length === 1 && pages[0].Index > 1) meta.push(`<span>P${pages[0].Index} ${esc(pages[0].Title)}</span>`);
+    // 标题已链接到B站页面；没有标题（解析前就失败）时才显示链接
+    if (!h.Title && title !== h.Url) meta.push(`<span class="src">${esc(h.Url)}</span>`);
+
+    const tags = (h.StreamTags || []).map((t) => `<span>${esc(t)}</span>`);
+    if (h.Api && h.Api !== 'WEB') tags.push(`<span class="api">${esc(h.Api)} 接口</span>`);
+    const err = !h.Success && h.Error ? `<div class="err">${esc(h.Error)}</div>` : '';
+    // 多个文件（多P、字幕、弹幕等）逐个列出；单个文件用下面的按钮
+    const outputs = files.length > 1 ? files.slice(0, 8).map((f) => f.Exists
+      ? `<a class="out" href="${fileUrl(f.Path)}" download title="${inMacApp ? '在访达中显示' : '下载'}：${esc(f.Path)}">${fileIcon(f.Path)}<span>${esc(baseName(f.Path))}</span></a>`
+      : `<span class="out missing" title="文件已删除：${esc(f.Path)}">${fileIcon(f.Path)}<span>${esc(baseName(f.Path))}</span></span>`).join('')
+      + (files.length > 8 ? `<span class="out">… 共 ${files.length} 个文件</span>` : '') : '';
+
+    const why = gone ? '文件已删除' : '没有可用的文件';
+    const actions = [];
+    if (media.length) {
+      actions.push(playFile
+        ? `<a class="btn small" href="${fileUrl(playFile.Path, true)}" target="_blank" rel="noopener" title="播放：${esc(playFile.Path)}">${ICON.play}播放</a>`
+        : `<button class="btn small" type="button" disabled title="${why}">${ICON.play}播放</button>`);
+    }
+    if (files.length) {
+      const label = inMacApp ? '打开位置' : '下载到本机';
+      actions.push(openFile
+        ? `<a class="btn small" href="${fileUrl(openFile.Path)}" download title="${inMacApp ? '在访达中显示' : '下载'}：${esc(openFile.Path)}">${label}</a>`
+        : `<button class="btn small" type="button" disabled title="${why}">${label}</button>`);
+    }
+    actions.push(`<button class="btn small" data-redo="${esc(h.Id)}" type="button" title="按这次的解析接口、画质和下载内容重新添加任务">重新下载</button>`);
+    if (linkKind(redoUrl(h)) === 'single') {
+      actions.push(`<button class="btn small" data-reparse="${esc(h.Id)}" type="button" title="把链接填入输入框并解析，可重新选择画质">重新解析</button>`);
+    }
+    return `<div class="card task hist">
+      <div class="cover">${coverHtml(h.Pic)}</div>
+      <div class="task-main">
+        <div class="task-head">${head}${badges}<div class="task-actions"><button class="icon-btn" data-hdel="${esc(h.Id)}" type="button" title="删除记录（不删除文件）" aria-label="删除记录">${ICON.x}</button></div></div>
+        <div class="meta">${meta.join('')}</div>
+        ${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}
+        ${err}
+        ${outputs ? `<div class="outputs">${outputs}</div>` : ''}
+      </div>
+      <div class="hist-actions">${actions.join('')}</div>
+    </div>`;
+  }
+  function renderHistory() {
+    $('historyCount').textContent = hist.total ? String(hist.total) : '';
+    $('clearHistory').disabled = !hist.total;
+    $('historyMore').hidden = hist.next >= hist.matched;
+    if (!hist.items.length) {
+      $('historyList').innerHTML = hist.q
+        ? `<div class="card empty">${ICON.inbox}<p>没有匹配的记录</p></div>`
+        : `<div class="card empty">${ICON.inbox}<p>还没有下载历史</p><p class="hint">下载完成或失败的任务会记录在这里，服务重启后也会保留</p></div>`;
+      return;
+    }
+    $('historyList').innerHTML = hist.items.map(historyCard).join('');
+  }
+  async function refreshHistory(opts = {}) {
+    const seq = ++histSeq;
+    const q = $('historySearch').value.trim();
+    const more = !!opts.more && q === hist.q;
+    // 刷新时保留已加载的条数，避免列表变短、滚动位置跳动
+    const offset = more ? hist.next : 0;
+    const limit = more ? HISTORY_PAGE : Math.max(HISTORY_PAGE, q === hist.q ? hist.items.length : 0);
+    try {
+      const res = await api(`/history/?q=${encodeURIComponent(q)}&offset=${offset}&limit=${limit}`);
+      if (seq !== histSeq) return;
+      // 两页之间有新记录插到最前面时，下一页开头会是已加载过的记录：按 Id 去掉重复的
+      const seen = new Set(more ? hist.items.map((h) => h.Id) : []);
+      const items = more ? hist.items.concat(res.Items.filter((h) => !seen.has(h.Id))) : res.Items;
+      // 内容没变时不重绘（保留焦点和悬停状态）；「几分钟前」每分钟最多更新一次
+      const json = JSON.stringify([res.Total, res.Matched, offset + res.Items.length, items, Math.floor(Date.now() / 60000)]);
+      Object.assign(hist, { items, total: res.Total, matched: res.Matched, next: offset + res.Items.length, q, loaded: true, at: Date.now() });
+      if (json === hist.json) return;
+      hist.json = json;
+      renderHistory();
+    } catch (err) {
+      if (!(err instanceof AuthError) && seq === histSeq && activeTab === 'history') toast(err.message, true);
+    }
+  }
+  const findHistory = (id) => hist.items.find((h) => h.Id === id);
+  $('historySearch').addEventListener('input', () => {
+    clearTimeout(histTimer);
+    histTimer = setTimeout(() => refreshHistory(), 250);
+  });
+  $('refreshHistory').addEventListener('click', () => refreshHistory());
+  $('historyMoreBtn').addEventListener('click', () => refreshHistory({ more: true }));
+  $('clearHistory').addEventListener('click', async () => {
+    if (!confirm(`清空全部 ${hist.total} 条下载历史？只删除记录，已下载的文件不会被删除。`)) return;
+    try {
+      await api('/history/', { method: 'DELETE' });
+      toast('已清空下载历史');
+    } catch (err) {
+      if (!(err instanceof AuthError)) toast(err.message, true);
+    }
+    refreshHistory();
+  });
+  $('historyList').addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-hdel],[data-redo],[data-reparse]');
+    if (!t || t.disabled) return;
+    const h = findHistory(t.dataset.hdel || t.dataset.redo || t.dataset.reparse);
+    if (!h) return;
+    const name = h.Title || shortLink(h.Url);
+    if (t.dataset.hdel) {
+      if (!confirm(`删除「${name}」的下载记录？已下载的文件不会被删除。`)) return;
+      try {
+        await api('/history/' + encodeURIComponent(h.Id), { method: 'DELETE' });
+      } catch (err) {
+        if (err instanceof AuthError) return;
+        if (err.status !== 404) toast(err.message, true);
+      }
+      refreshHistory();
+    } else if (t.dataset.redo) {
+      // 引擎发现输出的 MP4 已存在时直接跳过（默认文件名不含画质），这次下载什么也不会变；只下音频的 M4A 会重新下载并覆盖
+      const kept = (h.Files || []).filter((f) => f.Exists && extOf(f.Path) === 'mp4');
+      if (kept.length && !confirm(`「${name}」的视频文件还在下载目录里，重新下载会直接跳过（不覆盖，也不换画质）。要换画质重新下载，请先在「已下载文件」里删除原文件。\n\n仍要重新添加任务？`)) return;
+      t.disabled = true;
+      try {
+        await api('/add-task', { method: 'POST', body: h.Request && h.Request.Url ? h.Request : { Url: h.Url } });
+        toast('已重新添加任务：' + name);
+        switchTab('tasks');
+        refreshTasks().catch(() => {});
+      } catch (err) {
+        if (!(err instanceof AuthError)) toast(err.message, true);
+      } finally {
+        t.disabled = false;
+      }
+    } else {
+      // 填入链接并解析：按当前的画质、接口等设置列出可选的流
+      urlBox.value = redoUrl(h);
+      urlBox.dispatchEvent(new Event('input'));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      urlBox.focus({ preventScroll: true });
+      doParse({ manual: true });
+    }
+  });
+
+  // ---------- polling ----------
+  let pollTimer = null;
+  let polling = false;
+  function stopPolling() {
+    polling = false;
+    clearTimeout(pollTimer);
+  }
+  async function poll() {
+    if (!polling) return;
+    let busy = false;
+    try {
+      busy = await refreshTasks();
+    } catch (err) {
+      if (err instanceof AuthError) return;
+    }
+    // UP主空间批量下载逐个视频写入历史：查看历史时每隔几秒刷新
+    if (busy && activeTab === 'history' && Date.now() - hist.at > 5000) refreshHistory();
+    // 查看已下载文件时，下载中的视频（临时文件夹里的分片）每隔几秒更新一次
+    if (busy && activeTab === 'files' && Date.now() - filesAt > 5000) refreshFiles();
+    if (!polling) return;
+    pollTimer = setTimeout(poll, document.hidden ? 10000 : busy ? 1200 : 4000);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && polling) { clearTimeout(pollTimer); poll(); }
+  });
+
+  async function start() {
+    try {
+      await loadStatus();
+    } catch (err) {
+      if (err instanceof AuthError) return;
+      toast('无法连接服务器：' + err.message, true);
+    }
+    refreshFiles();
+    refreshHistory();
+    stopPolling();
+    polling = true;
+    poll();
+  }
+  switchTab('tasks');
+  syncParseState();
+  start();
+})();
+</script>
+</body>
+</html>

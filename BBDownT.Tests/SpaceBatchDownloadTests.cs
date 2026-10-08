@@ -57,6 +57,13 @@ public class SpaceBatchDownloadTests
     [InlineData("https://space.bilibili.com/42/favlist", false)]
     [InlineData("https://space.bilibili.com/42/channel/seriesdetail?sid=1", false)]
     [InlineData("https://www.bilibili.com/video/av1", false)]
+    // 以下几条也在网页前端 isSpaceUrl 中按同一规则处理
+    [InlineData("http://SPACE.bilibili.com/7/", true)]
+    [InlineData("https://space.bilibili.com/42/dynamic", true)]
+    [InlineData("https://space.bilibili.com/42?spm_id_from=1", true)]
+    [InlineData("https://space.bilibili.com/abc", false)]
+    [InlineData("https://space.bilibili.com/", false)]
+    [InlineData("ftp://space.bilibili.com/42", false)]
     public void DownloadAll_OnlyAcceptsSpaceSubmissions(string url, bool valid)
     {
         Assert.Equal(valid, SpaceBatchDownload.ValidateOptions(new MyOption { Url = url, DownloadAll = true }) is null);

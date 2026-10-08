@@ -9,6 +9,14 @@ internal class MyOption
     public bool UseMP4box { get; set; }
     public string? EncodingPriority { get; set; }
     public string? DfnPriority { get; set; }
+    /// <summary>
+    /// 精确指定视频流：画质代码[:编码]，如 "120:HEVC"；找不到时按画质/编码优先级回退
+    /// </summary>
+    public string? VideoStream { get; set; }
+    /// <summary>
+    /// 精确指定音频流ID，如 30280(192K)、30250(杜比全景声)、30251(Hi-Res无损)
+    /// </summary>
+    public string? AudioStream { get; set; }
     internal bool EncodingPriorityFirst { get; set; }
     public bool OnlyShowInfo { get; set; }
     public bool ShowAll { get; set; }
@@ -77,6 +85,11 @@ internal class MyOption
     public bool AddDfnSubfix { get; set; }
     public bool NoPaddingPageNum { get; set; }
     public bool BandwithAscending { get; set; }
+
+    /// <summary>
+    /// 浅拷贝(保留派生类型)，用于解析预览等不应修改原请求的流程
+    /// </summary>
+    internal MyOption CloneOption() => (MyOption)MemberwiseClone();
 
     internal MyOption ForBatchVideo(string url, string workDir)
     {

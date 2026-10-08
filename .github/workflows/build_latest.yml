@@ -160,6 +160,11 @@ jobs:
           cp artifact-arm64/BBDownT release-assets/BBDownT_osx-arm64
           chmod +x release-assets/BBDownT_osx-x64 release-assets/BBDownT_osx-arm64
 
+      - name: Build BBDownT.app [osx]
+        run: |
+          bash macos/build.sh --engine artifact-arm64/BBDownT --engine-x64 artifact/BBDownT --zip --out app-build
+          cp app-build/BBDownT_macOS.zip release-assets/BBDownT_macOS_universal.zip
+
       - name: Upload artifacts [osx]
         uses: actions/upload-artifact@v7
         with:

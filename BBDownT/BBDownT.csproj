@@ -34,6 +34,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="WebUi\index.html" LogicalName="BBDownT.WebUi.index.html" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="BBDownT.Tests" />
   </ItemGroup>
 

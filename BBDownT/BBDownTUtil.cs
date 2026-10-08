@@ -106,6 +106,10 @@ static partial class BBDownTUtil
                 string bizId = GetQueryString("business_id", input);
                 avid = $"seriesBizId:{bizId}";
             }
+            else if (FavMediaListRegex().Match(input) is { Success: true } favMatch) // 旧版收藏夹播放列表，如 /medialist/detail/ml123
+            {
+                avid = $"favId:{favMatch.Groups[1].Value}:";
+            }
             else if (input.Contains("/channel/collectiondetail?sid="))
             {
                 string bizId = GetQueryString("sid", input);
@@ -165,6 +169,9 @@ static partial class BBDownTUtil
             }
             else
             {
+                // 兜底：按番剧页面解析。只抓取B站自己的网页，不代为请求其他网址(短链展开后也可能指向站外)
+                if (!Uri.TryCreate(input, UriKind.Absolute, out var pageUri) || !IsBilibiliHost(pageUri.Host))
+                    throw new Exception("输入有误");
                 string web = await GetWebSourceAsync(input);
                 Regex regex = StateRegex();
                 string json = regex.Match(web).Groups[1].Value;
@@ -215,6 +222,16 @@ static partial class BBDownTUtil
             throw new Exception("输入有误");
         }
         return await FixAvidAsync(avid, fetchLocation);
+    }
+
+    /// <summary>
+    /// B站的网站域名：bilibili.com 及国际站 bilibili.tv、biliintl.com，含子域(短链域名见 <see cref="IsShortLinkUri"/>)
+    /// </summary>
+    internal static bool IsBilibiliHost(string host)
+    {
+        var name = host.Trim().TrimEnd('.').ToLowerInvariant();
+        static bool Under(string name, string domain) => name == domain || name.EndsWith("." + domain, StringComparison.Ordinal);
+        return Under(name, "bilibili.com") || Under(name, "bilibili.tv") || Under(name, "biliintl.com");
     }
 
     internal static bool IsShortLinkUri(string input)
@@ -547,7 +564,7 @@ static partial class BBDownTUtil
     public static string? FindExecutable(string name)
     {
         var fileExt = OperatingSystem.IsWindows() ? ".exe" : "";
-        var searchPath = new [] { Environment.CurrentDirectory, Program.APP_DIR };
+        var searchPath = new [] { Environment.CurrentDirectory, Program.APP_DIR, Program.EXE_DIR }.Distinct();
         var envPath = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
         return searchPath.Concat(envPath).Select(p => Path.Combine(p, name + fileExt)).FirstOrDefault(File.Exists);
     }
@@ -558,7 +575,7 @@ static partial class BBDownTUtil
         return sub[..sub.LastIndexOf('.')];
     }
 
-    private static string GetMixinKey(string orig)
+    internal static string GetMixinKey(string orig)
     {
         byte[] mixinKeyEncTab = 
         [
@@ -612,6 +629,8 @@ static partial class BBDownTUtil
     private static partial Regex StateRegex();
     [GeneratedRegex("md(\\d+)")]
     private static partial Regex MdRegex();
+    [GeneratedRegex(@"/medialist/(?:detail|play)/ml(\d+)")]
+    private static partial Regex FavMediaListRegex();
     [GeneratedRegex("(^|&)?(\\w+)=([^&]+)(&|$)?", RegexOptions.Compiled)]
     private static partial Regex QueryRegex();
     [GeneratedRegex("libavutil\\s+(\\d+)\\. +(\\d+)\\.")]

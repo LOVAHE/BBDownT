@@ -375,3 +375,11 @@ BBDownT.web.json
 /BBDownT/*.mp4
 /BBDownT/*.xml
 /BBDownT/*.ass
+
+# 网页版部署数据
+.env
+/data/
+/downloads/
+
+# macOS 应用打包输出（macos/build.sh）
+/macos/build/

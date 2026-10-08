@@ -116,6 +116,30 @@ public class CommandLineEntryTests
     }
 
     [Theory]
+    [InlineData("-vs", "-as")]
+    [InlineData("--video-stream", "--audio-stream")]
+    public async Task StreamPins_AreBoundFromShortAndLongOptions(string videoOption, string audioOption)
+    {
+        var result = await Invoke(["BV1xx411c7mD", videoOption, "120:HEVC", audioOption, "30280"]);
+
+        Assert.Equal(0, result.ExitCode);
+        var option = Assert.IsType<MyOption>(result.Option);
+        Assert.Equal("120:HEVC", option.VideoStream);
+        Assert.Equal("30280", option.AudioStream);
+    }
+
+    [Theory]
+    [InlineData("-vs", "4K")]
+    [InlineData("-as", "192K")]
+    public async Task InvalidStreamPins_AreRejectedBeforeDownloading(string option, string value)
+    {
+        var result = await Invoke(["BV1xx411c7mD", option, value]);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(1)]
     public async Task Migration_IsExplicitAndReturnsItsResult(int exitCode)

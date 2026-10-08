@@ -15,21 +15,27 @@ public class ApiJsonContractTests
         task.SetMetadata("Title", "cover.jpg", 90);
         task.ReportDownloadedBytes(100);
         task.AddSavePath("file.mp4");
+        task.SetStream("1/100/1", "P1 · WEB · 4K 超清 3840x2160 HEVC · 192K M4A");
         task.Finish(102, true);
         var snapshot = task.CreateSnapshot();
         task.AddSavePath("later.mp4");
+        task.SetStream("1/101/2", "later");
         task.SetError("later change");
 
         var json = JsonSerializer.Serialize(snapshot, AppJsonSerializerContext.Default.DownloadTask);
 
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""
+        var expected = JsonNode.Parse("""
             {
               "TaskId":"task-42", "Aid":"1", "Url":"fixture", "TaskCreateTime":100,
               "Title":"Title", "Pic":"cover.jpg", "VideoPubTime":90, "TaskFinishTime":102,
               "Progress":1, "DownloadSpeed":50, "TotalDownloadedBytes":100,
-              "IsSuccessful":true, "Error":null, "SavePaths":["file.mp4"]
+              "IsSuccessful":true, "Error":null, "SavePaths":[],
+              "Streams":["P1 · WEB · 4K 超清 3840x2160 HEVC · 192K M4A"]
             }
-            """), JsonNode.Parse(json)), json);
+            """)!;
+        // 相对路径按任务执行时的工作目录(下载目录)记录为绝对路径
+        expected["SavePaths"] = new JsonArray(JsonValue.Create(Path.GetFullPath("file.mp4")));
+        Assert.True(JsonNode.DeepEquals(expected, JsonNode.Parse(json)), json);
     }
 
     [Fact]
@@ -85,6 +91,42 @@ public class ApiJsonContractTests
 
         Assert.False(binding.IsValid);
         Assert.IsType<InvalidOperationException>(binding.Exception);
+    }
+
+    [Fact]
+    public void UiStatus_ReportsVipAndPerApiTokenState()
+    {
+        var json = JsonSerializer.Serialize(
+            new UiStatus("2.1.4", false, true, "user", true, "年度大会员", false, true),
+            AppJsonSerializerContext.Default.UiStatus);
+
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""
+            {
+              "Version":"2.1.4", "AuthRequired":false, "BiliCookieSaved":true, "BiliUserName":"user",
+              "BiliVip":true, "BiliVipLabel":"年度大会员", "TvTokenSaved":false, "AppTokenSaved":true
+            }
+            """), JsonNode.Parse(json)), json);
+    }
+
+    [Fact]
+    public void WebAccount_ParsesNavLoginVipAndWbiKey()
+    {
+        const string vip = """
+            {"code":0,"data":{"isLogin":true,"uname":"user","vipStatus":1,"vip_label":{"text":"年度大会员"},
+             "wbi_img":{"img_url":"https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png","sub_url":"https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}}}
+            """;
+        const string guest = """
+            {"code":-101,"data":{"isLogin":false,
+             "wbi_img":{"img_url":"https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png","sub_url":"https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}}}
+            """;
+
+        var account = WebAccount.Parse(vip, out var wbi);
+        var anonymous = WebAccount.Parse(guest, out var guestWbi);
+
+        Assert.Equal(new WebAccount(true, "user", true, "年度大会员"), account);
+        Assert.Equal(32, wbi?.Length);
+        Assert.Equal(WebAccount.Anonymous, anonymous);
+        Assert.Equal(wbi, guestWbi);
     }
 
     private static MemoryStream Body(string json) => new(Encoding.UTF8.GetBytes(json));

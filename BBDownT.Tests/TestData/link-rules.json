@@ -1,0 +1,81 @@
+{
+  "_说明": "网页前端(BBDownT/WebUi/index.html 的 link-rules 段)与服务端共用的链接规则对照用例。space 同时用于 C# 的 SpaceBatchDownload.IsSpaceUrl，clean 同时用于 C# 的 DownloadHistory.CleanUrl（下载历史记录的链接，去掉分享跟踪参数和 access_key 等登录凭证参数）；其余只用于前端。运行方法见 devdocs/webui-tests.md。",
+  "space": [
+    { "url": "https://space.bilibili.com/123", "expected": true },
+    { "url": "https://space.bilibili.com/123/", "expected": true },
+    { "url": "https://space.bilibili.com/123/video", "expected": true },
+    { "url": "http://space.bilibili.com/123?spm_id_from=333.1007", "expected": true },
+    { "url": "https://SPACE.bilibili.com/123", "expected": true },
+    { "url": "https://space.bilibili.com/123/lists/456?type=season", "expected": false },
+    { "url": "https://space.bilibili.com/123/favlist?fid=789", "expected": false },
+    { "url": "https://space.bilibili.com/123/channel/collectiondetail?sid=1", "expected": false },
+    { "url": "https://space.bilibili.com/abc", "expected": false },
+    { "url": "https://space.bilibili.com/", "expected": false },
+    { "url": "https://www.bilibili.com/video/BV1xx411c7mD", "expected": false },
+    { "url": "space.bilibili.com/123", "expected": false },
+    { "url": "ftp://space.bilibili.com/123", "expected": false }
+  ],
+  "split": [
+    { "input": "【标题】 https://b23.tv/abc123", "links": ["https://b23.tv/abc123"], "ignored": [] },
+    { "input": "【标题-哔哩哔哩】 https://www.bilibili.com/video/BV1t1YxzWEkz/?share_source=copy_web，看看", "links": ["https://www.bilibili.com/video/BV1t1YxzWEkz/?share_source=copy_web"], "ignored": [] },
+    { "input": "BV1xx411c7mD space.bilibili.com/123", "links": ["BV1xx411c7mD", "https://space.bilibili.com/123"], "ignored": [] },
+    { "input": "cheese/ep123\nBV1xx411c7mD", "links": ["cheese/ep123", "BV1xx411c7mD"], "ignored": [] },
+    { "input": "www.bilibili.com/video/BV1xx411c7mD，\nb23.tv/xyz", "links": ["https://www.bilibili.com/video/BV1xx411c7mD", "https://b23.tv/xyz"], "ignored": [] },
+    { "input": "这个视频不错\nhttps://www.bilibili.com/video/BV1xx411c7mD", "links": ["https://www.bilibili.com/video/BV1xx411c7mD"], "ignored": ["这个视频不错"] },
+    { "input": "BV1xx411c7mD 随便写点", "links": ["BV1xx411c7mD"], "ignored": ["随便写点"] },
+    { "input": "BV1xx411c7mD\nBV1xx411c7mD", "links": ["BV1xx411c7mD"], "ignored": [] },
+    { "input": "abc def", "links": ["abc", "def"], "ignored": [] },
+    { "input": "", "links": [], "ignored": [] }
+  ],
+  "linkKey": [
+    { "same": ["BV1t1YxzWEkz", "bv1t1YxzWEkz", "https://www.bilibili.com/video/BV1t1YxzWEkz/", "https://m.bilibili.com/video/BV1t1YxzWEkz?spm_id_from=333.788&vd_source=abc", "【标题】 https://www.bilibili.com/video/BV1t1YxzWEkz/?share_source=copy_web#reply123"] },
+    { "same": ["https://www.bilibili.com/video/BV1t1YxzWEkz?p=2", "https://www.bilibili.com/video/BV1t1YxzWEkz/?p=2&vd_source=x", "https://m.bilibili.com/video/BV1t1YxzWEkz?vd_source=y&p=2"] },
+    { "different": ["BV1t1YxzWEkz", "https://www.bilibili.com/video/BV1t1YxzWEkz/?p=2"] },
+    { "same": ["av170001", "AV170001", "https://www.bilibili.com/video/av170001/"] },
+    { "same": ["ep123", "https://www.bilibili.com/bangumi/play/ep123"] },
+    { "different": ["ep123", "cheese/ep123"] },
+    { "same": ["cheese/ep123", "https://www.bilibili.com/cheese/play/ep123?query_from=0"] },
+    { "same": ["https://b23.tv/abc", "https://b23.tv/abc?share_medium=android#x"] },
+    { "different": ["https://b23.tv/abc", "https://b23.tv/abd"] }
+  ],
+  "kind": [
+    { "link": "BV1xx411c7mD", "expected": "single" },
+    { "link": "av170001", "expected": "single" },
+    { "link": "ep123", "expected": "single" },
+    { "link": "EP123", "expected": "unknown" },
+    { "link": "cheese/ep123", "expected": "single" },
+    { "link": "cheese/ss123", "expected": "course" },
+    { "link": "https://b23.tv/abc", "expected": "single" },
+    { "link": "https://www.bilibili.com/video/BV1xx411c7mD?p=3", "expected": "single" },
+    { "link": "https://www.bilibili.com/bangumi/play/ss28747", "expected": "single" },
+    { "link": "https://www.bilibili.com/cheese/play/ss123", "expected": "course" },
+    { "link": "https://space.bilibili.com/123", "expected": "space" },
+    { "link": "https://space.bilibili.com/123/favlist?fid=1", "expected": "list" },
+    { "link": "https://www.bilibili.com/medialist/detail/ml1052622027", "expected": "list" },
+    { "link": "https://www.bilibili.com/list/123?sid=1", "expected": "list" },
+    { "link": "https://www.bilibili.com/festival/2021bnj", "expected": "unknown" },
+    { "link": "https://www.biliintl.com/en/play/34613/341736", "expected": "single" },
+    { "link": "https://example.com/video/BV1xx411c7mD", "expected": "unknown" }
+  ],
+  "pagesExpr": [
+    { "pages": [1, 2, 3], "total": 3, "expected": "ALL" },
+    { "pages": [1, 3, 4, 5], "total": 9, "expected": "1,3-5" },
+    { "pages": [5, 2, 1], "total": 9, "expected": "1-2,5" },
+    { "pages": [7], "total": 9, "expected": "7" }
+  ],
+  "clean": [
+    { "input": "https://www.bilibili.com/video/BV1t1YxzWEkz/?spm_id_from=333.788&vd_source=abc", "expected": "https://www.bilibili.com/video/BV1t1YxzWEkz/" },
+    { "input": "https://www.bilibili.com/video/BV1t1YxzWEkz/?share_source=copy_web#reply123", "expected": "https://www.bilibili.com/video/BV1t1YxzWEkz/" },
+    { "input": "https://www.bilibili.com/video/BV1t1YxzWEkz?p=2&vd_source=x", "expected": "https://www.bilibili.com/video/BV1t1YxzWEkz?p=2" },
+    { "input": "https://m.bilibili.com/video/BV1t1YxzWEkz?vd_source=y&p=3&share_plat=ios", "expected": "https://m.bilibili.com/video/BV1t1YxzWEkz?p=3" },
+    { "input": "https://www.bilibili.com/medialist/play/ml123?business=space_collection&business_id=456&spm_id_from=1", "expected": "https://www.bilibili.com/medialist/play/ml123?business=space_collection&business_id=456" },
+    { "input": "https://space.bilibili.com/392959666/lists/1560264?type=season", "expected": "https://space.bilibili.com/392959666/lists/1560264?type=season" },
+    { "input": "https://www.bilibili.com/bangumi/play/ep123", "expected": "https://www.bilibili.com/bangumi/play/ep123" },
+    { "input": "https://b23.tv/abc123", "expected": "https://b23.tv/abc123" },
+    { "input": "BV1t1YxzWEkz", "expected": "BV1t1YxzWEkz" },
+    { "input": "  av170001 ", "expected": "av170001" },
+    { "input": "https://www.bilibili.com/video/BV1t1YxzWEkz/?access_key=abc123&p=2", "expected": "https://www.bilibili.com/video/BV1t1YxzWEkz/?p=2" },
+    { "input": "https://www.bilibili.com/bangumi/play/ep123?ACCESS_TOKEN=x&refresh_token=y&SESSDATA=z", "expected": "https://www.bilibili.com/bangumi/play/ep123" },
+    { "input": "https://www.bilibili.com/video/BV1t1YxzWEkz?bili_jct=a&DedeUserID=1&ac_time_value=b&vd_source=c&t=30", "expected": "https://www.bilibili.com/video/BV1t1YxzWEkz?t=30" }
+  ]
+}

@@ -216,7 +216,7 @@ public static partial class Parser
         Func<bool>? rotateUserAgent = null)
     {
         ParsedResult parsedResult = new();
-        riskControlDelay ??= Task.Delay;
+        riskControlDelay ??= delay => Task.Delay(delay, HTTPUtil.FlowCancellation);
         rotateUserAgent ??= HTTPUtil.PrepareRiskControlRetry;
 
         Task<string> FetchPrimaryAsync(string requestedQn) =>

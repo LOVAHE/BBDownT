@@ -1,0 +1,58 @@
+name: macOS App
+
+# 每次推送（改到程序或 macos/ 时）都打包一份 BBDownT.app，在 Actions 的运行结果里下载。
+# 正式版本由 Build Latest / Release 一起附到 Releases（BBDownT_macOS_universal.zip）。
+on:
+  push:
+    paths:
+      - "BBDownT/**"
+      - "BBDownT.Core/**"
+      - "macos/**"
+      - ".github/workflows/macos-app.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-app-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_SDK_VERSION: "9.0.317"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Publish [osx]
+        run: |
+          dotnet publish BBDownT -r osx-x64 -c Release -o artifact
+          dotnet publish BBDownT -r osx-arm64 -c Release -o artifact-arm64
+
+      - name: Build BBDownT.app
+        run: bash macos/build.sh --engine artifact-arm64/BBDownT --engine-x64 artifact/BBDownT --zip --out app-build
+
+      - name: Check app
+        run: |
+          app=app-build/BBDownT.app/Contents/MacOS
+          lipo -archs "$app/BBDownT"
+          lipo -archs "$app/bbdownt-engine"
+          "$app/bbdownt-engine" --version
+          codesign --verify --strict app-build/BBDownT.app
+
+      # 压缩包里是 ditto 打的 BBDownT_macOS.zip（保留可执行权限和签名），下载后解压两次
+      - name: Upload BBDownT.app
+        uses: actions/upload-artifact@v7
+        with:
+          name: BBDownT-macOS-app
+          path: app-build/BBDownT_macOS.zip
+          retention-days: 30

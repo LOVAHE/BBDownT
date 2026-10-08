@@ -35,6 +35,20 @@ internal static class SpaceBatchDownload
         return null;
     }
 
+    /// <summary>
+    /// 服务器(网页和API)使用的校验：规则与 <see cref="ValidateOptions"/> 相同，
+    /// 提示改用网页界面上的名称，并注明对应的API字段名
+    /// </summary>
+    internal static string? ValidateServerOptions(MyOption option)
+    {
+        if (option.DelayPerVideo < 0 || option.DelayPerVideo > MaxDelaySeconds)
+            return $"「投稿之间间隔（秒）」必须是 0 到 {MaxDelaySeconds} 之间的整数（API 字段 DelayPerVideo）";
+        if (option.DownloadAll && !IsSpaceUrl(option.Url))
+            return "「UP主空间链接：下载全部投稿」只适用于 space.bilibili.com/数字 形式的空间链接（API 字段 DownloadAll）；"
+                + "下载多P视频的全部分P请在「分P」里填 ALL";
+        return null;
+    }
+
     internal static async Task HandleExportAsync(
         string path,
         MyOption option,

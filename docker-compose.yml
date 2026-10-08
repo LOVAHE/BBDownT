@@ -1,0 +1,15 @@
+services:
+  bbdownt:
+    build: .
+    image: bbdownt-web
+    container_name: bbdownt
+    restart: unless-stopped
+    ports:
+      - "${BBDOWNT_PORT:-23333}:23333"
+    environment:
+      # 网页和API的访问令牌，由 deploy.sh 自动生成到 .env
+      BBDOWNT_API_TOKEN: ${BBDOWNT_API_TOKEN:?请先在 .env 中设置 BBDOWNT_API_TOKEN，或运行 ./deploy.sh}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./data:/data
+      - ./downloads:/downloads

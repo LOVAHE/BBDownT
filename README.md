@@ -28,6 +28,10 @@ dotnet tool update --global BBDownT
 
 独立二进制可运行 `BBDownT --update`（改名后如 `bbd --update`）更新到最新正式版。
 
+# 网页版
+
+`serve` 模式自带网页前端，可在浏览器中提交下载、查看进度、扫码登录B站并取回文件；「历史」页保留每次下载的标题、画质和文件（保存在数据目录的 `history.json`，重启后仍在），可直接播放或重新下载。用 Docker 一键部署到服务器的方法见 [DEPLOY.md](./DEPLOY.md)。
+
 # 下载
 Release版本：https://github.com/LOVAHE/BBDownT/releases
 
@@ -52,6 +56,8 @@ Options:
   --use-mp4box                                   使用MP4Box来混流
   -e, --encoding-priority <encoding-priority>    视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"；与 -q 同时使用时越靠前越优先
   -q, --dfn-priority <dfn-priority>              画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"；与 -e 同时使用时越靠前越优先
+  -vs, --video-stream <video-stream>             精确指定视频流: 画质代码[:编码], 如 "120:HEVC"(4K HEVC)、"80:AVC"; -info 每条视频流末尾的 (-vs ...) 即可直接使用；某个分P没有这条流时按 -q/-e 回退并给出警告
+  -as, --audio-stream <audio-stream>             精确指定音频流ID: -info 每条音频流末尾的 (-as ...)，如 30280(192K)、30232(132K)、30216(64K)、30250(杜比全景声)、30251(Hi-Res无损); 没有这条流时按编码/码率回退并给出警告
   -info, --only-show-info                        仅解析音视频和字幕信息，不下载；配合 --sub-only 仅列出字幕
   --show-all                                     展示所有分P标题
   -aria2, --use-aria2c                           调用aria2c进行下载(你需要自行准备好二进制可执行文件)
@@ -338,6 +344,27 @@ BBDownT -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 ```
+
+</details>
+
+<details>
+<summary>精确指定音视频流</summary>
+
+先用 `-info` 查看可用的流，每条视频流末尾标有 `(-vs 画质代码:编码)`，每条音频流末尾标有 `(-as 音频流ID)`：
+
+```bash
+BBDownT -info "BVxxxx"
+```
+
+再把需要的值传给 `-vs`、`-as`，例如 4K HEVC 视频加 192K 音频：
+
+```bash
+BBDownT -vs 120:HEVC -as 30280 "BVxxxx"
+```
+
+- 只写画质代码（如 `-vs 80`）时，同一画质内仍按 `-e` 的编码优先级选择；认不出编码的视频流在 `-info` 里也只标画质代码。
+- 多P视频中某个分P没有指定的流时，按 `-q`/`-e` 的优先级回退并输出警告，不会中断下载。
+- 合并流（FLV/MP4 分段）只能下载最高画质，不支持精确指定。
 
 </details>
 

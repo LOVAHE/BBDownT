@@ -336,8 +336,8 @@ public static partial class SubUtil
             using var request = new HttpRequestMessage(HttpMethod.Get, api);
             ApplyWebRequestHeaders(request, api);
             request.Headers.TryAddWithoutValidation("Accept", "application/octet-stream");
-            using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
-            return ParseSubtitleWebResponse(await response.Content.ReadAsByteArrayAsync());
+            using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, FlowCancellation)).EnsureSuccessStatusCode();
+            return ParseSubtitleWebResponse(await response.Content.ReadAsByteArrayAsync(FlowCancellation));
         }
         catch (Exception ex)
         {
@@ -353,8 +353,8 @@ public static partial class SubUtil
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
         var client = !Config.COOKIE_IS_INTL ? AppHttpClient
             : ShouldSendCookie(api) ? GetWebHttpClient(true) : GetMediaHttpClient(true);
-        using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync();
+        using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, FlowCancellation)).EnsureSuccessStatusCode();
+        return await response.Content.ReadAsStringAsync(FlowCancellation);
     }
 
     internal static List<Subtitle> ParseSubtitleWebResponse(ReadOnlySpan<byte> payload)
