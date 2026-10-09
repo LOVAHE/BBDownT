@@ -375,3 +375,5 @@ BBDownT.web.json
 /BBDownT/*.mp4
 /BBDownT/*.xml
 /BBDownT/*.ass
+
+/devdocs/
