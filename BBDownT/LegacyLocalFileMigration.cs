@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BBDownT.Core.Util;
 using static BBDownT.Core.Logger;
 
 namespace BBDownT;
@@ -84,7 +85,7 @@ internal static class LegacyLocalFileMigration
             catch (Exception error)
             {
                 failed++;
-                LogWarn($"迁移{oldName}失败: {error.Message}");
+                LogWarn($"迁移{oldName}失败: {ErrorText.Describe(error)}");
             }
         }
         Log($"迁移完成：成功{migrated}个，失败{failed}个");
@@ -102,7 +103,7 @@ internal static class LegacyLocalFileMigration
         }
         catch (Exception error)
         {
-            LogWarn($"无法清理迁移临时文件 {path}: {error.Message}，请手动检查并删除");
+            LogWarn($"无法清理迁移临时文件 {path}: {ErrorText.Describe(error)}，请手动检查并删除");
         }
     }
 
@@ -116,7 +117,7 @@ internal static class LegacyLocalFileMigration
         }
         catch (Exception error)
         {
-            LogWarn($"无法恢复迁移备份 {sourcePath} -> {destinationPath}: {error.Message}，请手动检查备份文件");
+            LogWarn($"无法恢复迁移备份 {sourcePath} -> {destinationPath}: {ErrorText.Describe(error)}，请手动检查备份文件");
         }
     }
 }

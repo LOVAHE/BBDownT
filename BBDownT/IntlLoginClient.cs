@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -106,17 +107,9 @@ internal sealed class IntlLoginClient : IDisposable
             }
             // Finish the official SSO flow, then verify the API's login state.
             // Cookie names alone cannot establish an international login.
-            if (ReadCode(root) != 0 || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
-                || !data.TryGetProperty("sso", out var sso) || sso.ValueKind != JsonValueKind.Array)
+            if (ReadCode(root) != 0)
                 throw new InvalidOperationException("国际站尚未确认登录，请重试或手动导入Cookie");
-            var targets = new List<Uri>();
-            foreach (var target in sso.EnumerateArray())
-            {
-                if (target.ValueKind != JsonValueKind.String) throw new InvalidOperationException(LoginFailure);
-                targets.Add(ResolveTrusted(target.GetString()!, Passport));
-            }
-            // Validate every listed target before following any of them.
-            foreach (var target in targets) await TryFollowAsync(target, cancellationToken);
+            foreach (var target in ReadSsoTargets(root)) await TryFollowAsync(target, cancellationToken);
             // A return-page navigation is unnecessary once the API confirms login.
             // If SSO alone has not established it, try that trusted fallback once.
             var verifiedCookie = await GetVerifiedCookieAsync(cancellationToken);
@@ -135,6 +128,30 @@ internal sealed class IntlLoginClient : IDisposable
             ReportFailure(error);
             throw;
         }
+    }
+
+    private List<Uri> ReadSsoTargets(JsonElement root)
+    {
+        var targets = new List<Uri>();
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+            || !data.TryGetProperty("sso", out var sso) || sso.ValueKind != JsonValueKind.Array)
+        {
+            diagnostic($"国际站登录 stage={CurrentStage} sso_list=missing");
+            return targets;
+        }
+        var skipped = new List<string>();
+        foreach (var target in sso.EnumerateArray())
+        {
+            if (target.ValueKind == JsonValueKind.String && Uri.TryCreate(Passport, target.GetString(), out var uri))
+            {
+                if (IsTrusted(uri)) targets.Add(uri);
+                else skipped.Add(uri.IsAbsoluteUri ? uri.IdnHost : "invalid");
+            }
+            else skipped.Add("invalid");
+        }
+        diagnostic($"国际站登录 stage={CurrentStage} sso_targets={targets.Count} sso_skipped={skipped.Count}"
+            + (skipped.Count > 0 ? $" skipped_hosts={string.Join(",", skipped.Distinct())}" : ""));
+        return targets;
     }
 
     private async Task<string?> GetVerifiedCookieAsync(CancellationToken cancellationToken)
@@ -300,10 +317,14 @@ internal sealed class IntlLoginClient : IDisposable
 
     private static void ValidateTrusted(Uri uri)
     {
+        if (!IsTrusted(uri)) throw new InvalidOperationException(InvalidAddress);
+    }
+
+    private static bool IsTrusted(Uri uri)
+    {
         var host = uri.IsAbsoluteUri ? uri.IdnHost : "";
-        if (!uri.IsAbsoluteUri || uri.Scheme != Uri.UriSchemeHttps || uri.Port != 443
-            || uri.UserInfo.Length != 0 || !(TrustedHost(host, "bilibili.tv") || TrustedHost(host, "biliintl.com")))
-            throw new InvalidOperationException(InvalidAddress);
+        return uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps && uri.Port == 443
+            && uri.UserInfo.Length == 0 && (TrustedHost(host, "bilibili.tv") || TrustedHost(host, "biliintl.com"));
     }
 
     private static bool TrustedHost(string host, string domain) => host.Equals(domain, StringComparison.OrdinalIgnoreCase)

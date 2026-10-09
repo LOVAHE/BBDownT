@@ -20,6 +20,7 @@ public static partial class SubUtil
     //https://i0.hdslb.com/bfs/subtitle/subtitle_lan.json
     public static (string, string) GetSubtitleCode(string key)
     {
+        var original = key;
         //zh-hans => zh-Hans
         if (NonCapsRegex().Match(key) is { Success: true } result)
         {
@@ -47,6 +48,7 @@ public static partial class SubUtil
             "sq"                => ("alb", "Gjuha shqipe"),
             "ase"               => ("ase", "American Sign Language"),
             "am"                => ("amh", "አማርኛ"),
+            "ar"                => ("ara", "العربية"),
             "arc"               => ("arc", "ܐܪܡܝܐ"),
             "hy"                => ("arm", "հայերեն"),
             "as"                => ("asm", "অসমীয়া"),
@@ -175,51 +177,52 @@ public static partial class SubUtil
             "uk"                => ("ukr", "Українська"),
             "ur"                => ("urd", "Urdu"),
             "vi"                => ("vie", "Tiếng Việt"),
-            //太多了，我蚌埠住了，后面懒得查
-            //"ie"                => ("", ""),
-            //"oc"                => ("",   ""),
-            //"or"                => ("",   ""),
-            //"om"                => ("",   ""),
-            //"ps"                => ("",   ""),
-            //"pa"                => ("",   ""),
-            //"qu"                => ("",   ""),
-            //"rm"                => ("",   ""),
-            //"rn"                => ("",   ""),
-            //"sm"                => ("",   ""),
-            //"sg"                => ("",   ""),
-            //"sa"                => ("",   ""),
-            //"gd"                => ("",   ""),
-            //"sdp"               => ("",   ""),
-            //"sn"                => ("",   ""),
-            //"scn"               => ("",   ""),
-            //"sd"                => ("",   ""),
-            //"si"                => ("",   ""),
-            //"sl"                => ("",   ""),
-            //"so"                => ("",   ""),
-            //"st"                => ("",   ""),
-            //"su"                => ("",   ""),
-            //"sw"                => ("",   ""),
-            //"ss"                => ("",   ""),
-            //"tg"                => ("",   ""),
-            //"ta"                => ("",   ""),
-            //"tt"                => ("",   ""),
-            //"te"                => ("",   ""),
-            //"ti"                => ("",   ""),
-            //"to"                => ("",   ""),
-            //"ts"                => ("",   ""),
-            //"tn"                => ("",   ""),
-            //"tk"                => ("",   ""),
-            //"tw"                => ("",   ""),
-            //"uz"                => ("",   ""),
-            //"vo"                => ("",   ""),
-            //"cy"                => ("",   ""),
-            //"fy"                => ("",   ""),
-            //"wo"                => ("",   ""),
-            //"xh"                => ("",   ""),
-            //"yi"                => ("",   ""),
-            //"yo"                => ("",   ""),
-            //"zu"                => ("",   ""),
-            _ => ("und", "Undetermined")
+            "ie"                => ("ile", "Interlingue"),
+            "oc"                => ("oci", "Occitan"),
+            "or"                => ("ori", "ଓଡ଼ିଆ"),
+            "om"                => ("orm", "Afaan Oromoo"),
+            "ps"                => ("pus", "پښتو"),
+            "pa"                => ("pan", "ਪੰਜਾਬੀ"),
+            "qu"                => ("que", "Runa Simi"),
+            "rm"                => ("roh", "Rumantsch"),
+            "rn"                => ("run", "Ikirundi"),
+            "sm"                => ("smo", "Gagana Samoa"),
+            "sg"                => ("sag", "Sängö"),
+            "sa"                => ("san", "संस्कृतम्"),
+            "gd"                => ("gla", "Gàidhlig"),
+            "sdp"               => ("sdp", "Sherdukpen"),
+            "sn"                => ("sna", "chiShona"),
+            "scn"               => ("scn", "Sicilianu"),
+            "sd"                => ("snd", "سنڌي"),
+            "si"                => ("sin", "සිංහල"),
+            "sl"                => ("slv", "Slovenščina"),
+            "so"                => ("som", "Soomaali"),
+            "st"                => ("sot", "Sesotho"),
+            "su"                => ("sun", "Basa Sunda"),
+            "sw"                => ("swa", "Kiswahili"),
+            "ss"                => ("ssw", "SiSwati"),
+            "tg"                => ("tgk", "Тоҷикӣ"),
+            "ta"                => ("tam", "தமிழ்"),
+            "tt"                => ("tat", "Татар теле"),
+            "te"                => ("tel", "తెలుగు"),
+            "ti"                => ("tir", "ትግርኛ"),
+            "to"                => ("ton", "Lea Faka-Tonga"),
+            "ts"                => ("tso", "Xitsonga"),
+            "tn"                => ("tsn", "Setswana"),
+            "tk"                => ("tuk", "Türkmençe"),
+            "tw"                => ("twi", "Twi"),
+            "uz"                => ("uzb", "Oʻzbekcha"),
+            "vo"                => ("vol", "Volapük"),
+            "cy"                => ("wel", "Cymraeg"),
+            "fy"                => ("fry", "Frysk"),
+            "wo"                => ("wol", "Wolof"),
+            "xh"                => ("xho", "isiXhosa"),
+            "yi"                => ("yid", "ייִדיש"),
+            "yo"                => ("yor", "Yorùbá"),
+            "zu"                => ("zul", "isiZulu"),
+            "he"                => ("heb", "עברית"),
+            "nb"                => ("nor", "Norsk bokmål"),
+            _ => ("und", string.IsNullOrWhiteSpace(original) ? "Undetermined" : original)
         };
     }
 
@@ -326,35 +329,57 @@ public static partial class SubUtil
         }
     }
 
-    private static async Task<List<Subtitle>?> GetSubtitlesFromWebApiAsync(string aid, string cid, HttpClient client)
+    private static Task<List<Subtitle>> GetSubtitlesFromWebApiAsync(string aid, string cid, HttpClient client,
+        Func<TimeSpan, Task>? delay)
     {
         string contextExt = Uri.EscapeDataString("{\"video_type\":1}");
         string api = $"https://api.bilibili.com/x/v2/subtitle/web/view?oid={Uri.EscapeDataString(cid)}&pid={Uri.EscapeDataString(aid)}" +
                      $"&context_ext={contextExt}&type=1&cur_production_type=0&preferred_language=ai-zh&playlist_switch=0";
-        try
+        return WithIdentityRotationAsync(api, async () =>
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, api);
-            ApplyWebRequestHeaders(request, api);
-            request.Headers.TryAddWithoutValidation("Accept", "application/octet-stream");
-            using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
-            return ParseSubtitleWebResponse(await response.Content.ReadAsByteArrayAsync());
-        }
-        catch (Exception ex)
-        {
-            LogDebug("新版字幕接口失败: {0}", ex.Message);
-            return null;
-        }
+            var payload = await GetWebBytesAsync(client, api, "application/octet-stream");
+            if (payload.Length > 0 && payload[0] == (byte)'{')
+            {
+                var refusal = BilibiliApi.GetError(Encoding.UTF8.GetString(payload), "获取字幕列表")
+                    ?? throw new InvalidDataException("字幕接口返回了无法识别的数据");
+                if (BilibiliApi.IsRateLimited(refusal.Code)) throw refusal;
+                LogDebug("{0}", refusal.Message);
+                return [];
+            }
+            return ParseSubtitleWebResponse(payload);
+        }, delay);
     }
 
-    private static async Task<string> GetSubtitleWebTextAsync(string api)
+    private static Task<string> GetSubtitleWebTextAsync(string api)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, api);
-        ApplyWebRequestHeaders(request, api);
-        request.Headers.TryAddWithoutValidation("Accept", "application/json");
         var client = !Config.COOKIE_IS_INTL ? AppHttpClient
             : ShouldSendCookie(api) ? GetWebHttpClient(true) : GetMediaHttpClient(true);
-        using var response = (await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead)).EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync();
+        return GetWebTextAsync(client, api, "application/json");
+    }
+
+    private const int SubtitleRounds = 3;
+
+    internal static async Task<T> WithIdentityRotationAsync<T>(string url, Func<Task<T>> fetch,
+        Func<TimeSpan, Task>? delay = null, Action? rotate = null)
+    {
+        delay ??= wait => Task.Delay(wait);
+        rotate ??= () => RotateRequestIdentity(url);
+        for (var round = 1; ; round++)
+        {
+            try
+            {
+                return await fetch();
+            }
+            catch (Exception error) when (error is not OperationCanceledException || NetworkRetry.IsTransient(error))
+            {
+                if (round >= SubtitleRounds)
+                    throw new SubtitleUnavailableException(
+                        $"获取字幕失败，已更换请求身份重试 {SubtitleRounds} 轮：{ErrorText.Describe(error)}", error);
+                LogWarn($"获取字幕失败（第 {round}/{SubtitleRounds} 轮）：{ErrorText.Describe(error)}，更换请求身份后重试...");
+                rotate();
+                await delay(TimeSpan.FromSeconds(2 * round));
+            }
+        }
     }
 
     internal static List<Subtitle> ParseSubtitleWebResponse(ReadOnlySpan<byte> payload)
@@ -475,21 +500,24 @@ public static partial class SubUtil
 
     // Domestic subtitles use the current web endpoint exclusively. Do not fall back
     // to player/view/DM APIs: their metadata and authentication requirements differ.
-    internal static async Task<List<Subtitle>> GetDomesticSubtitlesAsync(string aid, string cid, HttpClient client)
+    internal static async Task<List<Subtitle>> GetDomesticSubtitlesAsync(string aid, string cid, HttpClient client,
+        Func<TimeSpan, Task>? delay = null)
     {
-        var source = await GetSubtitlesFromWebApiAsync(aid, cid, client);
+        var source = await GetSubtitlesFromWebApiAsync(aid, cid, client, delay);
         var subtitles = MergeSubtitleSources([source], aid, cid);
         if (subtitles.Count == 0)
-            LogWarn(source is null ? "新版字幕接口请求失败" : "未找到可用字幕，可能需要登录或该视频没有字幕");
+            LogWarn("未找到可用字幕，可能需要登录或该视频没有字幕");
         return subtitles;
     }
 
     public static async Task SaveSubtitleAsync(string url, string path)
     {
-        if (path.EndsWith(".srt"))
-            await File.WriteAllTextAsync(path, ConvertSubFromJson(await GetSubtitleWebTextAsync(url)), Encoding.UTF8);
-        else
-            await File.WriteAllTextAsync(path, await GetSubtitleWebTextAsync(url), Encoding.UTF8);
+        var content = await WithIdentityRotationAsync(url, async () =>
+        {
+            var text = await GetSubtitleWebTextAsync(url);
+            return path.EndsWith(".srt") ? ConvertSubFromJson(text) : text;
+        });
+        await File.WriteAllTextAsync(path, content, Encoding.UTF8);
     }
 
     private static string ConvertSubFromJson(string jsonString)
@@ -525,3 +553,5 @@ public static partial class SubUtil
     [GeneratedRegex("-[a-z]")]
     private static partial Regex NonCapsRegex();
 }
+
+public sealed class SubtitleUnavailableException(string message, Exception inner) : IOException(message, inner);

@@ -10,8 +10,7 @@ internal static class MediaOutput
         destination = Path.GetFullPath(destination);
         var directory = Path.GetDirectoryName(destination)!;
         Directory.CreateDirectory(directory);
-        var staged = Path.Combine(directory,
-            $".{Path.GetFileNameWithoutExtension(destination)}.{Guid.NewGuid():N}.partial{Path.GetExtension(destination)}");
+        var staged = Path.Combine(directory, $".bbdownt-{Guid.NewGuid():N}.partial{Path.GetExtension(destination)}");
         try
         {
             if (write(staged) != 0 || !File.Exists(staged) || new FileInfo(staged).Length == 0)

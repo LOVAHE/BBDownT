@@ -32,7 +32,7 @@ internal sealed record DownloadResumeState(
         => SourceUriHash == SourceHash(url)
             || (!string.IsNullOrEmpty(SourceObjectHash) && !string.IsNullOrEmpty(sourceObjectHash)
                 && SourceObjectHash == sourceObjectHash
-                && Validator.HasStrongEntityTag);
+                && Validator.IsUsable);
 
     internal bool MatchesRange(string identity, long from, long? to, long? total = null)
         => Version == 1 && ResourceIdentity == identity && FromPosition == from && ToPosition == to
@@ -85,7 +85,8 @@ internal sealed record DownloadResumeState(
     internal async Task SaveAsync(string path, string? restrictedOutputRoot = null)
     {
         path = OutputPathPolicy.ResolveArtifact(path, restrictedOutputRoot);
-        var temporary = OutputPathPolicy.ResolveArtifact(path + ".writing-" + Guid.NewGuid().ToString("N"), restrictedOutputRoot);
+        var temporary = OutputPathPolicy.ResolveArtifact(Path.Combine(Path.GetDirectoryName(path) ?? "",
+            ".bbdownt-" + Guid.NewGuid().ToString("N") + ".resume.writing"), restrictedOutputRoot);
         try
         {
             await File.WriteAllTextAsync(temporary,

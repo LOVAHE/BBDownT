@@ -8,6 +8,28 @@ namespace BBDownT.Tests;
 public class OptionBehaviorTests
 {
     [Fact]
+    public void CookieTrust_ExtendsOnlyToApiHostsConfiguredOnTheCommandLine()
+    {
+        var domains = Config.COOKIE_ALLOWED_DOMAINS;
+        var (host, epHost, tvHost, cookie, token) = (Config.HOST, Config.EPHOST, Config.TVHOST, Config.COOKIE, Config.TOKEN);
+        try
+        {
+            Config.COOKIE_ALLOWED_DOMAINS = ["bilibili.com"];
+            Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", Host = "proxy.example.test", TvHost = "tv.example.test" });
+            Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", EpHost = "task.example.test" });
+
+            Assert.Contains("proxy.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+            Assert.DoesNotContain("tv.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+            Assert.DoesNotContain("task.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+        }
+        finally
+        {
+            Config.COOKIE_ALLOWED_DOMAINS = domains;
+            (Config.HOST, Config.EPHOST, Config.TVHOST, Config.COOKIE, Config.TOKEN) = (host, epHost, tvHost, cookie, token);
+        }
+    }
+
+    [Fact]
     public void AudioAndVideoOnly_KeepBothStreamsAndEnableSkipMux()
     {
         var option = new MyOption { AudioOnly = true, VideoOnly = true };
@@ -82,10 +104,12 @@ public class OptionBehaviorTests
     }
 
     [Theory]
-    [InlineData(true, "-e HEVC\n-q 1080P\n")]
-    [InlineData(true, "--encoding-priority=HEVC\n--dfn-priority=1080P\n")]
-    [InlineData(false, "-q 1080P\n-e HEVC\n")]
-    public async Task ConfigPriority_UsesWrittenOrder(bool encodingFirst, string config)
+    [InlineData(true, "", "-e HEVC\n-q 1080P\n")]
+    [InlineData(true, "", "--encoding-priority=HEVC\n--dfn-priority=1080P\n")]
+    [InlineData(false, "", "-q 1080P\n-e HEVC\n")]
+    [InlineData(true, "-e HEVC", "-q 1080P\n")]
+    [InlineData(false, "-q 1080P", "-e HEVC\n")]
+    public async Task PriorityOrder_FollowsTheCommandLineThenTheConfigFile(bool encodingFirst, string commandLine, string config)
     {
         var path = Path.GetTempFileName();
         await File.WriteAllTextAsync(path, config);
@@ -95,41 +119,9 @@ public class OptionBehaviorTests
             captured = option;
             return Task.CompletedTask;
         });
-        var arguments = new List<string> { "BV1xx411c7mD", "--config-file", path };
-        try
-        {
-            Assert.True(BBDownTConfigParser.HandleConfig(arguments, command));
-            Assert.Equal(0, await command.InvokeAsync(arguments.ToArray()));
-            Assert.NotNull(captured);
-            Assert.Equal(encodingFirst, captured.EncodingPriorityFirst);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Theory]
-    [InlineData(true, "-e", "HEVC", "-q 1080P\n")]
-    [InlineData(false, "-q", "1080P", "-e HEVC\n")]
-    public async Task CommandLinePriority_PrecedesLaterConfigPriority(
-        bool encodingFirst,
-        string commandOption,
-        string commandValue,
-        string config)
-    {
-        var path = Path.GetTempFileName();
-        await File.WriteAllTextAsync(path, config);
-        MyOption? captured = null;
-        var command = CommandLineInvoker.GetRootCommand(option =>
-        {
-            captured = option;
-            return Task.CompletedTask;
-        });
-        var arguments = new List<string>
-        {
-            "BV1xx411c7mD", commandOption, commandValue, "--config-file", path
-        };
+        var arguments = new List<string> { "BV1xx411c7mD" };
+        arguments.AddRange(commandLine.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        arguments.AddRange(["--config-file", path]);
         try
         {
             Assert.True(BBDownTConfigParser.HandleConfig(arguments, command));

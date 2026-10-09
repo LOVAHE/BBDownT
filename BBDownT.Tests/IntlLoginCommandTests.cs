@@ -55,10 +55,12 @@ public class IntlLoginCommandTests
                 loginIntl: _ => throw new Exception("Login must not run"));
 
             Assert.Equal(0, exit);
+            Assert.Contains("loginintl [options]", output.ToString());
             Assert.Contains("--debug", output.ToString());
             Assert.Contains("--import-cookie", output.ToString());
             Assert.DoesNotContain("--api-token", output.ToString());
             Assert.DoesNotContain("<url>", output.ToString());
+            Assert.DoesNotContain("--config-file", output.ToString());
         }
         finally { Console.SetOut(previous); }
     }

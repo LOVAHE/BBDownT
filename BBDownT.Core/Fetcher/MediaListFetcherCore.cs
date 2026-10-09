@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using static BBDownT.Core.Entity.Entity;
 
 namespace BBDownT.Core.Fetcher;
@@ -32,7 +33,7 @@ internal static class MediaListFetcherCore
                     // Report the original collection lookup failure below.
                 }
             }
-            throw CreateApiException($"获取{displayName}信息失败", infoRoot);
+            throw CreateApiException($"获取{displayName}信息", infoRoot);
         }
 
         var title = infoData.GetProperty("title").GetString()!;
@@ -53,7 +54,7 @@ internal static class MediaListFetcherCore
             var listRoot = listJson.RootElement;
             if (!TryGetData(listRoot, out var listData))
             {
-                throw CreateApiException($"获取{displayName}视频列表失败", listRoot);
+                throw CreateApiException($"获取{displayName}视频列表", listRoot);
             }
 
             hasMore = listData.GetProperty("has_more").GetBoolean();
@@ -122,16 +123,6 @@ internal static class MediaListFetcherCore
             && data.ValueKind == JsonValueKind.Object;
     }
 
-    private static Exception CreateApiException(string prefix, JsonElement root)
-    {
-        var code = root.TryGetProperty("code", out var codeElement)
-            && codeElement.ValueKind == JsonValueKind.Number
-            ? codeElement.GetInt32()
-            : 0;
-        var message = root.TryGetProperty("message", out var messageElement)
-            && messageElement.ValueKind == JsonValueKind.String
-            ? messageElement.GetString()
-            : "未知错误";
-        return new Exception($"{prefix}(code={code}): {message}");
-    }
+    private static BilibiliApiException CreateApiException(string operation, JsonElement root)
+        => BilibiliApi.GetError(root, operation) ?? new BilibiliApiException($"{operation}失败：接口没有返回数据", 0);
 }

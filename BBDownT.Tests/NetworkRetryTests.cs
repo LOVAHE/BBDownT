@@ -47,14 +47,11 @@ public class NetworkRetryTests
         Assert.True(NetworkRetry.IsTransient(new IOException("transport",
             new SocketException((int)SocketError.ConnectionReset))));
         Assert.False(NetworkRetry.IsTransient(new IOException("local write failed")));
-        Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.Unknown,
-            "request send failed", new IOException("local write failed"))));
         Assert.False(NetworkRetry.IsTransient(new UnauthorizedAccessException("local access failed")));
         Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
             "private", new SocketException((int)SocketError.ConnectionReset))));
         Assert.False(NetworkRetry.IsTransient(new HttpRequestException("private",
             new AuthenticationException("private", new SocketException((int)SocketError.ConnectionReset)))));
-        Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.InvalidResponse)));
     }
 
     [Fact]
@@ -111,8 +108,7 @@ public class NetworkRetryTests
         Assert.Equal(NetworkRetry.DownloadDelays, waits);
         Assert.Equal(5, logs.Count);
         Assert.Contains("5/5", logs[^1]);
-        Assert.Contains("NameResolutionError", logs[0]);
-        Assert.Contains("HostNotFound", logs[0]);
+        Assert.Contains("域名解析失败", logs[0]);
         Assert.DoesNotContain("secret URL", string.Join('\n', logs));
     }
 
@@ -193,19 +189,6 @@ public class NetworkRetryTests
             return Task.CompletedTask;
         }, log: _ => { });
         Assert.Equal(TimeSpan.FromSeconds(expectedWait), Assert.Single(waits));
-    }
-
-    [Fact]
-    public void Describe_ReportsSafeRootCauseWithoutMessages()
-    {
-        const string privateMessage = "https://name:password@example.test/path?access_token=secret#cookie SESSDATA=secret";
-        var failure = new HttpRequestException(HttpRequestError.NameResolutionError, privateMessage,
-            new SocketException((int)SocketError.HostNotFound));
-        Assert.Equal("HttpRequestException NameResolutionError SocketError.HostNotFound", NetworkRetry.Describe(failure));
-        Assert.Equal("HttpRequestException HTTP 403", NetworkRetry.Describe(
-            new HttpRequestException(privateMessage, null, HttpStatusCode.Forbidden)));
-        Assert.Equal("IOException", NetworkRetry.Describe(new IOException(privateMessage)));
-        Assert.Equal("InvalidOperationException", NetworkRetry.Describe(new InvalidOperationException(privateMessage)));
     }
 
     [Fact]

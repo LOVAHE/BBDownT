@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BBDownT.Core;
+using BBDownT.Core.Util;
 
 namespace BBDownT;
 
@@ -30,6 +32,10 @@ internal static class SpaceBatchDownload
     {
         if (option.DelayPerVideo < 0 || option.DelayPerVideo > MaxDelaySeconds)
             return $"DelayPerVideo（--delay-per-video）必须是0到{MaxDelaySeconds}之间的整数秒数";
+        if (option.DelayPerPage is not null
+            && (!int.TryParse(option.DelayPerPage, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pageDelay)
+                || pageDelay > MaxDelaySeconds))
+            return $"DelayPerPage（--delay-per-page）必须是不超过{MaxDelaySeconds}的整数秒数";
         if (option.DownloadAll && !IsSpaceUrl(option.Url))
             return "DownloadAll（--download-all）仅适用于UP主空间投稿链接";
         return null;
@@ -76,7 +82,7 @@ internal static class SpaceBatchDownload
             catch (Exception error)
             {
                 failed++;
-                Logger.LogError($"投稿下载失败 {urls[index]}：{(Config.DEBUG_LOG ? error.ToString() : error.Message)}");
+                Logger.LogError($"投稿下载失败 {urls[index]}：{(Config.DEBUG_LOG ? error.ToString() : ErrorText.Describe(error))}");
             }
         }
 

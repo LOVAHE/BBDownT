@@ -6,6 +6,18 @@ namespace BBDownT.Tests;
 public class ShortLinkTests
 {
     [Theory]
+    [InlineData("http://127.0.0.1:8080/admin")]
+    [InlineData("https://example.test/watch?v=1")]
+    [InlineData("https://bilibili.com.evil.test/page")]
+    public async Task UnrecognizedNonBilibiliUrl_IsRejectedWithoutBeingFetched(string input)
+    {
+        var error = await Assert.ThrowsAsync<Exception>(() => BBDownTUtil.GetAvIdAsync(input,
+            _ => throw new InvalidOperationException("an unrecognized URL must not be resolved")));
+
+        Assert.Equal("输入有误", error.Message);
+    }
+
+    [Theory]
     [InlineData("https://bili.im/lpKlb9c", "https://www.bilibili.tv/en/play/1034193?s_locale=zh-Hans_CN&from=COPY&jump_type=0", "intl:1034193")]
     [InlineData("HTTP://WWW.BILI.IM/share", "https://www.bilibili.tv/en/play/1034193/13287667?from=COPY", "intl:1034193:13287667")]
     [InlineData("https://bili.im/share", "https://bilibili.tv/play/1034193?ep_id=13287667&from=COPY", "intl:1034193:13287667")]
@@ -71,7 +83,6 @@ public class ShortLinkTests
     [InlineData("ftp://bili.im/share")]
     [InlineData("ftp://b23.tv/share")]
     [InlineData("bili.im/share")]
-    [InlineData("https://unsupported.test/share")]
     public void OtherHostsPathsQueriesAndUserInfo_DoNotTriggerShortLinkResolution(string input)
         => Assert.False(BBDownTUtil.IsShortLinkUri(input));
 
@@ -101,11 +112,7 @@ public class ShortLinkTests
     public void LocationClient_UsesInternationalCookieFreeRedirectClientAndPreservesApiClient()
     {
         Assert.Same(HTTPUtil.IntlMediaHttpClient, HTTPUtil.GetWebLocationHttpClient(international: true));
-        Assert.Same(HTTPUtil.IntlApiHttpClient, HTTPUtil.GetWebHttpClient(international: true));
         Assert.Same(HTTPUtil.AppHttpClient, HTTPUtil.GetWebLocationHttpClient(international: false));
-        using var handler = HTTPUtil.CreateWebHandler(useCookies: false, allowRedirects: true);
-        Assert.False(handler.UseCookies);
-        Assert.True(handler.AllowAutoRedirect);
     }
 
     [Fact]
@@ -130,7 +137,6 @@ public class ShortLinkTests
             sendCookie: false, delay: (_, _) => Task.CompletedTask, log: _ => { });
 
         Assert.Equal(location, resolved);
-        Assert.Equal("intl:1034193:13287667", await BBDownTUtil.GetAvIdAsync("https://bili.im/lpKlb9c", _ => Task.FromResult(resolved)));
         Assert.Equal(1, requests);
     }
 
@@ -183,7 +189,6 @@ public class ShortLinkTests
         Assert.Equal(new[] { HttpMethod.Head, HttpMethod.Get }, methods);
         Assert.False(content.ReadAttempted);
         Assert.True(content.Disposed);
-        Assert.Equal("intl:1034193", await BBDownTUtil.GetAvIdAsync(input, _ => Task.FromResult(resolved)));
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 ﻿using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using System.Text.Json;
 using static BBDownT.Core.Util.HTTPUtil;
 
@@ -14,7 +15,7 @@ public class BangumiInfoFetcher : IFetcher
         string api = $"https://{Config.EPHOST}/pgc/view/web/season?ep_id={id}";
         string json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
-        var result = infoJson.RootElement.GetProperty("result");
+        var result = BilibiliApi.ReadPayload(infoJson.RootElement, "获取番剧信息", "result");
         string cover = result.GetProperty("cover").ToString();
         string title = result.GetProperty("title").ToString();
         string desc = result.GetProperty("evaluate").ToString();

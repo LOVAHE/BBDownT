@@ -46,6 +46,22 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     public static async Task TryRefreshCookieAsync(string? cookieFilePath)
     {
+        using var client = new HttpClient(HTTPUtil.CreateWebHandler(useCookies: false, allowRedirects: true))
+        {
+            Timeout = HTTPUtil.AppHttpClient.Timeout
+        };
+        await TryRefreshCookieAsync(cookieFilePath, client, SaveCookieFileAsync);
+    }
+
+    private static Task SaveCookieFileAsync(string path, string cookie)
+    {
+        path = Path.GetFullPath(path);
+        return BBDownTLoginUtil.SaveLoginDataAsync(Path.GetDirectoryName(path)!, Path.GetFileName(path), cookie);
+    }
+
+    internal static async Task TryRefreshCookieAsync(string? cookieFilePath, HttpClient client,
+        Func<string, string, Task> save)
+    {
         if (string.IsNullOrWhiteSpace(Config.COOKIE))
         {
             return;
@@ -60,10 +76,16 @@ JNrRuoEUXpabUzGB8QIDAQAB
                 return;
             }
 
-            var refreshState = await GetCookieRefreshStateAsync(Config.COOKIE);
+            var refreshState = await GetCookieRefreshStateAsync(client, Config.COOKIE);
             if (!refreshState.Refresh)
             {
                 LogDebug("Cookie无需刷新");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(cookieFilePath))
+            {
+                LogWarn("当前Cookie已过期，可执行 BBDownT login 改用本地登录文件。");
                 return;
             }
 
@@ -75,14 +97,19 @@ JNrRuoEUXpabUzGB8QIDAQAB
             }
 
             Log("检测到Cookie需要刷新，正在自动刷新...");
-            var refreshCsrf = await GetRefreshCsrfAsync(Config.COOKIE, refreshState.Timestamp);
-            var refreshResult = await RefreshCookieAsync(Config.COOKIE, cookies["bili_jct"], refreshCsrf, oldRefreshToken);
-            await ConfirmRefreshAsync(refreshResult.CookieHeader, refreshResult.BiliJct, oldRefreshToken);
+            var refreshCsrf = await GetRefreshCsrfAsync(client, Config.COOKIE, refreshState.Timestamp);
+            var refreshResult = await RefreshCookieAsync(client, Config.COOKIE, cookies["bili_jct"], refreshCsrf, oldRefreshToken);
 
+            await save(cookieFilePath, refreshResult.CookieHeader);
             Config.COOKIE = refreshResult.CookieHeader;
-            if (!string.IsNullOrWhiteSpace(cookieFilePath))
+            try
             {
-                await File.WriteAllTextAsync(cookieFilePath, Config.COOKIE);
+                await ConfirmRefreshAsync(client, refreshResult.CookieHeader, refreshResult.BiliJct, oldRefreshToken);
+            }
+            catch (Exception ex)
+            {
+                LogWarn($"新Cookie已保存并在使用，但确认刷新请求失败。原因：{ErrorText.Describe(ex)}");
+                return;
             }
 
             Log("Cookie刷新成功");
@@ -158,10 +185,10 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return HasValue(cookies, "SESSDATA") && !HasValue(cookies, "bili_jct");
     }
 
-    private static async Task<CookieRefreshState> GetCookieRefreshStateAsync(string cookieHeader)
+    private static async Task<CookieRefreshState> GetCookieRefreshStateAsync(HttpClient client, string cookieHeader)
     {
         using var request = CreateRequest(HttpMethod.Get, CookieInfoUrl, cookieHeader);
-        using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
         return ParseCookieRefreshState(await response.Content.ReadAsStringAsync());
@@ -185,13 +212,13 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     internal static string FormatRefreshFailureMessage(Exception exception)
     {
-        return $"自动刷新 Cookie 失败，将继续使用当前 Cookie。原因：{exception.Message}";
+        return $"自动刷新 Cookie 失败，将继续使用当前 Cookie。原因：{ErrorText.Describe(exception)}";
     }
 
-    private static async Task<string> GetRefreshCsrfAsync(string cookieHeader, long timestamp)
+    private static async Task<string> GetRefreshCsrfAsync(HttpClient client, string cookieHeader, long timestamp)
     {
         using var request = CreateRequest(HttpMethod.Get, CorrespondUrlPrefix + GenerateCorrespondPath(timestamp), WithCookieValue(cookieHeader, "buvid3", Guid.NewGuid().ToString()));
-        using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
             throw new InvalidOperationException("correspondPath过期或错误");
@@ -208,7 +235,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return WebUtility.HtmlDecode(match.Groups[1].Value);
     }
 
-    private static async Task<RefreshCookieResult> RefreshCookieAsync(string cookieHeader, string biliJct, string refreshCsrf, string oldRefreshToken)
+    private static async Task<RefreshCookieResult> RefreshCookieAsync(HttpClient client, string cookieHeader, string biliJct, string refreshCsrf, string oldRefreshToken)
     {
         using var request = CreateRequest(HttpMethod.Post, RefreshCookieUrl, WithCookieValue(cookieHeader, "buvid3", Guid.NewGuid().ToString()));
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -219,7 +246,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
             ["source"] = "main_web"
         });
 
-        using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadAsStringAsync();
@@ -254,7 +281,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
         return new RefreshCookieResult(SerializeCookieHeader(mergedCookies), newBiliJct);
     }
 
-    private static async Task ConfirmRefreshAsync(string cookieHeader, string newBiliJct, string oldRefreshToken)
+    private static async Task ConfirmRefreshAsync(HttpClient client, string cookieHeader, string newBiliJct, string oldRefreshToken)
     {
         using var request = CreateRequest(HttpMethod.Post, ConfirmRefreshUrl, cookieHeader);
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -263,7 +290,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
             ["refresh_token"] = oldRefreshToken
         });
 
-        using var response = await HTTPUtil.AppHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -280,7 +307,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
         var request = new HttpRequestMessage(method, url);
         HTTPUtil.ApplyWebRequestHeaders(request, url, sendCookie: false, forceAuthenticatedProfile: true);
         request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com");
-        request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+        request.Headers.TryAddWithoutValidation("Cookie", HTTPUtil.WithoutRefreshToken(cookieHeader));
         request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
         request.Headers.Connection.Clear();
         return request;

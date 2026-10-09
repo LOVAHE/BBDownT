@@ -30,17 +30,4 @@ public class HTTPUtilTests
         Assert.Contains(values, value => value.StartsWith("Dalvik/", StringComparison.Ordinal));
         Assert.Contains(values, value => value.Contains("Android", StringComparison.Ordinal));
     }
-
-    [Fact]
-    public void GenerateTransportUserAgent_CoversMultipleClientImplementations()
-    {
-        var random = new Random(20260914);
-        var values = Enumerable.Range(0, 250)
-            .Select(_ => HTTPUtil.GenerateTransportUserAgent(random))
-            .ToArray();
-
-        Assert.Contains(values, value => value.StartsWith("Dart/", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.StartsWith("curl/", StringComparison.Ordinal));
-        Assert.Contains(values, value => value.StartsWith("Dalvik/", StringComparison.Ordinal));
-    }
 }

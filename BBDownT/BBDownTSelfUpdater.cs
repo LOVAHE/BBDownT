@@ -9,12 +9,13 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace BBDownT;
 
-internal static class BBDownTSelfUpdater
+internal static partial class BBDownTSelfUpdater
 {
     internal const string LatestReleaseUrl = "https://api.github.com/repos/LOVAHE/BBDownT/releases/latest";
     private const long MaxBinaryBytes = 256 * 1024 * 1024;
@@ -189,6 +190,7 @@ internal static class BBDownTSelfUpdater
             await verifyExecutable(staged, asset.Version, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             Install(staged, executable, backup, windows);
+            DeleteOlderBackups(executable, backup);
             return (asset.Version, backup);
         }
         finally
@@ -243,6 +245,39 @@ internal static class BBDownTSelfUpdater
             }
         }
     }
+
+    internal static void DeleteOlderBackups(string executable, string keep)
+    {
+        string name = Path.GetFileName(executable);
+        string[] candidates;
+        try
+        {
+            candidates = Directory.GetFiles(Path.GetDirectoryName(executable)!, name + ".backup-*");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine("无法检查更早的版本备份，请手动清理。");
+            return;
+        }
+        foreach (var path in candidates)
+        {
+            string file = Path.GetFileName(path);
+            if (file == Path.GetFileName(keep) || !file.StartsWith(name, StringComparison.Ordinal)
+                || !BackupSuffix().IsMatch(file[name.Length..])) continue;
+            try
+            {
+                File.Delete(path);
+                Console.WriteLine($"已删除更早的版本备份：{path}");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Console.WriteLine($"无法删除更早的版本备份，请手动删除：{path}");
+            }
+        }
+    }
+
+    [GeneratedRegex(@"^\.backup-[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{32}\z")]
+    private static partial Regex BackupSuffix();
 
     private static HttpRequestMessage CreateRequest(string url)
     {

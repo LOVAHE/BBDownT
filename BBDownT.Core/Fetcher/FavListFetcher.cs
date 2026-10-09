@@ -1,4 +1,5 @@
 ﻿using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using System.Text.Json;
 using static BBDownT.Core.Entity.Entity;
 using static BBDownT.Core.Util.HTTPUtil;
@@ -31,7 +32,10 @@ public class FavListFetcher : IFetcher
         {
             var favListApi = $"https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid={mid}";
             using var folders = JsonDocument.Parse(await fetch(favListApi));
-            favId = folders.RootElement.GetProperty("data").GetProperty("list").EnumerateArray().First().GetProperty("id").ToString();
+            var folderList = BilibiliApi.ReadPayload(folders.RootElement, "获取收藏夹列表");
+            if (!folderList.TryGetProperty("list", out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() == 0)
+                throw new InvalidOperationException("该用户没有公开的收藏夹");
+            favId = list[0].GetProperty("id").ToString();
         }
 
         int pageSize = 20;
@@ -41,23 +45,23 @@ public class FavListFetcher : IFetcher
         var api = $"https://api.bilibili.com/x/v3/fav/resource/list?media_id={favId}&pn=1&ps={pageSize}&order=mtime&type=2&tid=0&platform=web";
         var json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
-        var data = infoJson.RootElement.GetProperty("data");
+        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取收藏夹内容");
         int totalCount = data.GetProperty("info").GetProperty("media_count").GetInt32();
         int totalPage = (int)Math.Ceiling((double)totalCount / pageSize);
         var title = data.GetProperty("info").GetProperty("title").GetString()!;
         var intro = data.GetProperty("info").GetProperty("intro").GetString()!;
         long pubTime = data.GetProperty("info").GetProperty("ctime").GetInt64();
         var userName = data.GetProperty("info").GetProperty("upper").GetProperty("name").ToString();
-        var medias = data.GetProperty("medias").EnumerateArray().ToList();
+        var medias = MediaEntries(data).ToList();
 
         for (int page = 2; page <= totalPage; page++)
         {
             api = $"https://api.bilibili.com/x/v3/fav/resource/list?media_id={favId}&pn={page}&ps={pageSize}&order=mtime&type=2&tid=0&platform=web";
             json = await fetch(api);
             using var jsonDoc = JsonDocument.Parse(json);
-            var pageData = jsonDoc.RootElement.GetProperty("data");
+            var pageData = BilibiliApi.ReadPayload(jsonDoc.RootElement, "获取收藏夹内容");
             // JsonElement retains its document; clone entries used after this page is disposed.
-            medias.AddRange(pageData.GetProperty("medias").EnumerateArray().Select(media => media.Clone()));
+            medias.AddRange(MediaEntries(pageData).Select(media => media.Clone()));
         }
 
         foreach (var m in medias)
@@ -110,4 +114,8 @@ public class FavListFetcher : IFetcher
 
         return info;
     }
+
+    private static IEnumerable<JsonElement> MediaEntries(JsonElement data)
+        => data.TryGetProperty("medias", out var medias) && medias.ValueKind == JsonValueKind.Array
+            ? medias.EnumerateArray() : [];
 }

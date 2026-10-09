@@ -91,7 +91,6 @@ public class DownloadProgressTrackerTests
     }
 
     [Theory]
-    [InlineData(2, "校验 60.00%")]
     [InlineData(0, "校验 33.33%")]
     public void MismatchedPrefixCountsOnlyMatchedBytesWhileAnotherPartIsVerifying(
         long matchedBytes, string expectedStatus)

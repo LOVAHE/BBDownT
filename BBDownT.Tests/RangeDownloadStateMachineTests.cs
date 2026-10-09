@@ -156,19 +156,24 @@ public class RangeDownloadStateMachineTests
         }
     }
 
-    [Fact]
-    public async Task PartialResponse_RejectsMismatchedContentRange()
+    [Theory]
+    [InlineData(HttpStatusCode.PartialContent, 2, 2L, 3L, 4L, 0L, null, "与请求起点不一致")]
+    [InlineData(HttpStatusCode.PartialContent, 2, 0L, 1L, 4L, 0L, null, "未到达资源末尾")]
+    [InlineData(HttpStatusCode.PartialContent, 1, 10L, 10L, 20L, 10L, 11L, "未完整覆盖请求范围")]
+    [InlineData(HttpStatusCode.NoContent, 0, null, null, null, 0L, null, "不支持的下载响应状态: 204")]
+    public async Task InvalidResponses_AreRejectedByTheirOwnCheck(HttpStatusCode status, int bodyLength,
+        long? rangeStart, long? rangeEnd, long? totalLength, long from, long? to, string message)
     {
         var path = Path.GetTempFileName();
-        await File.WriteAllBytesAsync(path, [1, 2]);
         try
         {
-            using var client = CreateClient(_ =>
-                CreateResponse(HttpStatusCode.PartialContent, [3, 4], 0, 1, 4));
+            using var client = CreateClient(_ => CreateResponse(status, new byte[bodyLength], rangeStart, rangeEnd, totalLength));
 
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-                    0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://example.test/media", path, from, to,
+                    (_, _, _) => { }, failOnRangeNotSupported: to is not null, httpClient: client));
+
+            Assert.Contains(message, error.Message);
         }
         finally
         {
@@ -187,66 +192,6 @@ public class RangeDownloadStateMachineTests
                 CreateResponse(HttpStatusCode.OK, [1, 2], declaredLength: 4));
 
             await Assert.ThrowsAsync<BBDownT.Core.Util.DownloadInterruptedException>(() =>
-                BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-                    0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
-        }
-        finally
-        {
-            File.Delete(path);
-            File.Delete(path + ".resume");
-        }
-    }
-
-    [Fact]
-    public async Task UnexpectedSuccessfulStatus_IsRejected()
-    {
-        var path = Path.GetTempFileName();
-        try
-        {
-            using var client = CreateClient(_ => CreateResponse(HttpStatusCode.NoContent, []));
-
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-                    0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
-        }
-        finally
-        {
-            File.Delete(path);
-            File.Delete(path + ".resume");
-        }
-    }
-
-    [Fact]
-    public async Task BoundedPartialResponse_MustReachRequestedEnd()
-    {
-        var path = Path.GetTempFileName();
-        try
-        {
-            using var client = CreateClient(_ =>
-                CreateResponse(HttpStatusCode.PartialContent, [1], 10, 10, 20));
-
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-                    0, "https://example.test/media", path, 10, 11, (_, _, _) => { }, true, client));
-        }
-        finally
-        {
-            File.Delete(path);
-            File.Delete(path + ".resume");
-        }
-    }
-
-    [Fact]
-    public async Task UnboundedPartialResponse_MustReachResourceEnd()
-    {
-        var path = Path.GetTempFileName();
-        await File.WriteAllBytesAsync(path, [1, 2]);
-        try
-        {
-            using var client = CreateClient(_ =>
-                CreateResponse(HttpStatusCode.PartialContent, [3], 2, 2, 4));
-
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(
                     0, "https://example.test/media", path, 0, null, (_, _, _) => { }, httpClient: client));
         }

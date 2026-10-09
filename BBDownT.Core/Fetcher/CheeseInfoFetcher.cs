@@ -1,4 +1,5 @@
 ﻿using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using System.Text.Json;
 using static BBDownT.Core.Entity.Entity;
 using static BBDownT.Core.Util.HTTPUtil;
@@ -14,7 +15,7 @@ public class CheeseInfoFetcher : IFetcher
         string api = $"https://api.bilibili.com/pugv/view/web/season?ep_id={id}";
         string json = await GetWebSourceAsync(api);
         using var infoJson = JsonDocument.Parse(json);
-        var data = infoJson.RootElement.GetProperty("data");
+        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取课程信息");
         string cover = data.GetProperty("cover").ToString();
         string title = data.GetProperty("title").ToString();
         string desc = data.GetProperty("subtitle").ToString();

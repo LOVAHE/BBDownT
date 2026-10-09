@@ -63,22 +63,13 @@ public class ProgressLogRenderingTests
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
-    public void UnavailableTerminalWidth_PreservesTheOriginalDisplayStyle(int columns)
+    [InlineData(120)]
+    public void UnavailableOrWideTerminal_PreservesTheOriginalDisplayStyle(int columns)
     {
         var text = ProgressBar.FormatDisplayText(0.08, " - 1.00MB/s", "校验 80%", '|', columns);
 
         Assert.Equal(new string(' ', 28) + "[" + new string('#', 3) + new string('-', 37)
             + "] 8.00% | - 1.00MB/s - 校验 80%", text);
-    }
-
-    [Fact]
-    public void WideTerminal_KeepsOriginalPaddingBlocksSpeedAndPhaseWhenTheyFit()
-    {
-        var original = ProgressBar.FormatDisplayText(0.08, " - 1.00MB/s", "校验 80%", '|', 0);
-        var bounded = ProgressBar.FormatDisplayText(0.08, " - 1.00MB/s", "校验 80%", '|', 120);
-
-        Assert.Equal(original, bounded);
-        Assert.InRange(new TerminalRendering(bounded).MaximumColumn, 0, 119);
     }
 
     [Fact]

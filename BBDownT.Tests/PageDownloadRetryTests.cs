@@ -24,6 +24,17 @@ public class PageDownloadRetryTests
     }
 
     [Fact]
+    public void UnavailableSubtitlesAreNotRetriedEvenWhenCausedByTheNetwork()
+    {
+        var policy = new PageDownloadRetry();
+
+        Assert.False(policy.TryGetDelay(new SubtitleUnavailableException("获取字幕失败",
+            new HttpRequestException("connection failed", new SocketException((int)SocketError.ConnectionRefused))), out _));
+        Assert.False(policy.TryGetDelay(new SubtitleUnavailableException("获取字幕失败",
+            new BilibiliApiException("获取字幕列表失败：请求过于频繁（错误码 -352）", -352)), out _));
+    }
+
+    [Fact]
     public void NetworkAndOrdinaryErrorsDoNotConsumeEachOthersBudget()
     {
         var policy = new PageDownloadRetry();

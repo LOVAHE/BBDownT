@@ -13,6 +13,7 @@ using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using BBDownT.Core;
+using BBDownT.Core.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,22 +41,29 @@ public class BBDownTApiServer
         });
         builder.Services.AddCors((options) =>
         {
-            options.AddPolicy("AllowAnyOrigin",
+            options.AddPolicy("BrowserClients",
                 policy =>
                 {
-                    policy.AllowAnyOrigin()
+                    policy.SetIsOriginAllowed(origin => requireApiToken || IsLoopbackOrigin(origin))
                           .AllowAnyMethod()
                           .AllowAnyHeader();
                 });
         });
         app = builder.Build();
-        app.UseCors("AllowAnyOrigin");
+        app.UseCors("BrowserClients");
         app.Use(async (context, next) =>
         {
             if (!HasValidApiToken(context))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsync("Unauthorized");
+                return;
+            }
+            if (!requireApiToken && !IsDirectLocalRequest(context.Request))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(TokenlessAccessMessage);
                 return;
             }
             await next();
@@ -209,6 +217,23 @@ public class BBDownTApiServer
             return "Url不能为空";
         }
 
+        var url = req.Url.Trim();
+        if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !BBDownTUtil.IsBilibiliUrl(url))
+        {
+            return "Url只能是B站链接或av/BV/ep/ss等编号";
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.FFmpegPath) || !string.IsNullOrWhiteSpace(req.Mp4boxPath)
+            || !string.IsNullOrWhiteSpace(req.Aria2cPath))
+        {
+            return "服务器任务不能指定FFmpegPath、Mp4boxPath或Aria2cPath，请在服务器上安装这些程序或放到BBDownT程序目录";
+        }
+
+        if (UsesLegacyOption(req))
+        {
+            return "服务器任务不支持旧版兼容参数Aria2cProxy、OnlyHevc、OnlyAvc、OnlyAv1、AddDfnSubfix、NoPaddingPageNum、BandwithAscending，请改用对应的新参数";
+        }
+
         var batchValidation = SpaceBatchDownload.ValidateOptions(req);
         if (batchValidation is not null) return batchValidation;
         var subtitleValidation = SubtitleSelection.ValidateOptions(req);
@@ -312,6 +337,12 @@ public class BBDownTApiServer
         return string.Equals(actual?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool UsesLegacyOption(MyOption option)
+    {
+        return !string.IsNullOrEmpty(option.Aria2cProxy) || option.OnlyHevc || option.OnlyAvc || option.OnlyAv1
+            || option.AddDfnSubfix || option.NoPaddingPageNum || option.BandwithAscending;
+    }
+
     private static bool HasUnsafeOutputPattern(string? pattern)
     {
         if (string.IsNullOrWhiteSpace(pattern))
@@ -345,7 +376,7 @@ public class BBDownTApiServer
 
         if (!requireApiToken)
         {
-            Console.WriteLine("API鉴权未启用：当前仅监听本机地址。");
+            Console.WriteLine($"API鉴权未启用：{TokenlessAccessMessage}。");
             return;
         }
 
@@ -364,6 +395,27 @@ public class BBDownTApiServer
         }
 
         return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
+    }
+
+    private const string TokenlessAccessMessage =
+        "只接受来自本机的直接请求，如需经反向代理、其他主机名或外部网页访问，请配置 --api-token";
+
+    private static readonly string[] ForwardingHeaders = ["Forwarded", "X-Real-IP", "Via"];
+
+    internal static bool IsDirectLocalRequest(HttpRequest request)
+    {
+        if (!IsLoopbackListenHost(request.Host.Host.Trim('[', ']'))) return false;
+        if (request.Headers.TryGetValue("Origin", out var origin) && !IsLoopbackOrigin(origin.ToString()))
+            return false;
+        return !request.Headers.Keys.Any(header => ForwardingHeaders.Contains(header, StringComparer.OrdinalIgnoreCase)
+            || header.StartsWith("X-Forwarded-", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static bool IsLoopbackOrigin(string origin)
+    {
+        return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && IsLoopbackListenHost(uri.Host.Trim('[', ']'));
     }
 
     internal static bool IsPrivateOrReservedAddress(IPAddress address)
@@ -456,9 +508,10 @@ public class BBDownTApiServer
             Console.BackgroundColor = ConsoleColor.Red;
             Console.ForegroundColor = ConsoleColor.White;
             Console.WriteLine($"{(string.IsNullOrEmpty(task.Aid) ? task.TaskId : task.Aid)}下载失败");
-            var msg = Config.DEBUG_LOG ? e.ToString() : e.Message;
-            task.SetError(Logger.RedactSensitiveText(e.Message));
-            Console.Write($"{msg}{Environment.NewLine}请尝试升级到最新版本后重试!");
+            var description = ErrorText.Describe(e);
+            task.SetError(description);
+            Console.Write($"{(Config.DEBUG_LOG ? Logger.RedactSensitiveText(e.ToString()) : description)}{Environment.NewLine}");
+            if (ErrorText.SuggestsUpdate(e)) Console.Write("请尝试升级到最新版本后重试!");
             Console.ResetColor();
             Console.WriteLine();
         }

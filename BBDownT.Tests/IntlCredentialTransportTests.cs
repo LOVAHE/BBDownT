@@ -42,14 +42,6 @@ public class IntlCredentialTransportTests
         Assert.False(HTTPUtil.ShouldSendCookie("https://api.bilibili.tv/intl/gateway/web/playurl"));
     }
 
-    [Fact]
-    public void AddingProxyToCookieAllowlist_DoesNotAuthorizeCredentialForwarding()
-    {
-        using var config = new CredentialConfigScope();
-
-        Assert.False(HTTPUtil.ShouldSendCookie("https://proxy.example.test/intl/gateway/web/playurl"));
-    }
-
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -76,7 +68,6 @@ public class IntlCredentialTransportTests
     [InlineData("proxy.example.test:8443", "https://proxy.example.test:8443/intl/gatewayevil/web/playurl")]
     [InlineData("http://proxy.example.test:8443", "https://proxy.example.test:8443/intl/gateway/web/playurl")]
     [InlineData("https://synthetic-user@proxy.example.test:8443", "https://proxy.example.test:8443/intl/gateway/web/playurl")]
-    [InlineData("api.bilibili.com", "https://api.bilibili.com/intl/gateway/web/playurl")]
     public void ExplicitProxy_DoesNotAuthorizeHttpOtherPortsSubdomainsMediaPathsOrDomesticHosts(string configuredHost, string target)
     {
         using var config = new CredentialConfigScope();
@@ -110,7 +101,6 @@ public class IntlCredentialTransportTests
     {
         using var config = new CredentialConfigScope();
         Config.COOKIE_IS_INTL = false;
-        Assert.True(HTTPUtil.ShouldSendCookie(url));
 
         using var request = MediaRequestPolicy.CreateRequest(url, international: true, fromPosition: 0, toPosition: 99);
         var arguments = BBDownTAria2c.BuildDownloadArguments(url, "/in-memory/video.mp4", "", international: true);
@@ -118,9 +108,42 @@ public class IntlCredentialTransportTests
         Assert.False(request.Headers.Contains("Cookie"));
         Assert.Equal(url, request.RequestUri!.OriginalString);
         Assert.NotNull(request.Headers.Range);
-        Assert.DoesNotContain("Cookie:", arguments);
-        Assert.DoesNotContain("synthetic-credential", arguments);
-        Assert.Contains("\"" + url + "\"", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.Contains("Cookie"));
+        Assert.DoesNotContain(arguments, argument => argument.Contains("synthetic-credential"));
+        Assert.Contains(url, arguments);
+    }
+
+    [Theory]
+    [InlineData("https://api.bilibili.com/x/web-interface/view", true)]
+    [InlineData("http://api.bilibili.com/x/web-interface/view", false)]
+    [InlineData("http://comment.bilibili.com/1.xml", false)]
+    [InlineData("https://user@api.bilibili.com/x/web-interface/view", false)]
+    public void DomesticCookie_RequiresHttpsWithoutUrlCredentials(string url, bool allowed)
+    {
+        using var config = new CredentialConfigScope();
+        Config.COOKIE_IS_INTL = false;
+
+        Assert.Equal(allowed, HTTPUtil.ShouldSendCookie(url));
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        HTTPUtil.TryAddCookieHeader(request, url);
+        Assert.Equal(allowed, request.Headers.Contains("Cookie"));
+    }
+
+    [Fact]
+    public void DomesticCookieHeader_NeverCarriesTheStoredRefreshToken()
+    {
+        using var config = new CredentialConfigScope();
+        Config.COOKIE_IS_INTL = false;
+        Config.COOKIE = "SESSDATA=session;bili_jct=csrf;ac_time_value=refresh-secret;DedeUserID=1";
+        const string url = "https://api.bilibili.com/x/web-interface/view";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        HTTPUtil.TryAddCookieHeader(request, url);
+
+        var header = Assert.Single(request.Headers.GetValues("Cookie"));
+        Assert.Equal("SESSDATA=session; bili_jct=csrf; DedeUserID=1", header);
+        Assert.Equal("a=b", HTTPUtil.WithoutRefreshToken("a=b"));
+        Assert.Equal("a=b", HTTPUtil.WithoutRefreshToken("refresh_token=x; a=b"));
     }
 
     [Fact]
@@ -143,20 +166,23 @@ public class IntlCredentialTransportTests
         Assert.Equal(1, requests);
     }
 
-    [Fact]
-    public void DomesticMediaIdentity_PreservesAllowedCookieForwardingAndReferer()
+    [Theory]
+    [InlineData("https://upos.bilivideo.com/media/video.m4s")]
+    [InlineData("http://upos-sz-mirrorcoso1.bilivideo.com/media/video.m4s")]
+    [InlineData("http://i0.hdslb.com/bfs/archive/cover.jpg")]
+    [InlineData("http://comment.bilibili.com/1.xml")]
+    public void DomesticMedia_KeepsRefererButNeverForwardsTheSession(string url)
     {
         using var config = new CredentialConfigScope();
         Config.COOKIE_IS_INTL = false;
-        const string url = "https://upos.bilivideo.com/media/video.m4s";
 
         using var request = MediaRequestPolicy.CreateRequest(url, international: false);
         var arguments = BBDownTAria2c.BuildDownloadArguments(url, "/in-memory/video.mp4", "", international: false);
 
-        Assert.Equal(FixtureCookie, Assert.Single(request.Headers.GetValues("Cookie")));
+        Assert.False(request.Headers.Contains("Cookie"));
         Assert.Equal("https://www.bilibili.com/", request.Headers.Referrer!.AbsoluteUri);
-        Assert.Contains("--header=\"Cookie: " + FixtureCookie + "\"", arguments);
-        Assert.Contains("--header=\"Referer: https://www.bilibili.com\"", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.Contains("Cookie") || argument.Contains(FixtureCookie));
+        Assert.Contains("--header=Referer: https://www.bilibili.com", arguments);
     }
 
     [Theory]
@@ -166,9 +192,11 @@ public class IntlCredentialTransportTests
     public void TransportHandlers_PreserveApiMediaAndDomesticCookieRedirectPolicies(bool useCookies, bool allowRedirects)
     {
         using var handler = HTTPUtil.CreateWebHandler(useCookies, allowRedirects);
+        var transport = Assert.IsType<HttpClientHandler>(handler is DelegatingHandler redirects ? redirects.InnerHandler : handler);
 
-        Assert.Equal(useCookies, handler.UseCookies);
-        Assert.Equal(allowRedirects, handler.AllowAutoRedirect);
+        Assert.Equal(useCookies, transport.UseCookies);
+        Assert.False(transport.AllowAutoRedirect);
+        Assert.Equal(allowRedirects, handler is CookieScopedRedirectHandler);
     }
 
     [Fact]
@@ -187,9 +215,7 @@ public class IntlCredentialTransportTests
     [InlineData("", true)]
     [InlineData("-intl", false)]
     [InlineData("-intl --force-http true", true)]
-    [InlineData("-intl --force-http false", false)]
     [InlineData("--force-http false", false)]
-    [InlineData("--force-http true -intl", true)]
     public async Task ForceHttpCliBinding_UsesRealmDefaultAndPreservesExplicitValues(string options, bool expected)
     {
         MyOption? bound = null;
@@ -245,26 +271,6 @@ public class IntlCredentialTransportTests
 
         Assert.Equal(forceHttp, copy.ForceHttp);
         Assert.Equal(forceHttp, option.ForceHttp);
-    }
-
-    [Fact]
-    public void InternationalDefault_PreservesSignedHttpsResourceAcrossCdnAndRequestConstruction()
-    {
-        using var config = new CredentialConfigScope();
-        var option = new MyOption { UseIntlApi = true };
-        var video = new BBDownT.Core.Entity.Entity.Video { id = "64", dfn = "720P", codecs = "AVC", baseUrl = SignedUrl };
-
-        Program.HandlePcdn(option, video, null);
-        using var request = MediaRequestPolicy.CreateRequest(video.baseUrl, option.UseIntlApi, fromPosition: 0);
-        var arguments = BBDownTAria2c.BuildDownloadArguments(video.baseUrl, "/in-memory/video.mp4", "", option.UseIntlApi);
-
-        Assert.False(option.ForceHttp);
-        Assert.Equal(SignedUrl, video.baseUrl);
-        Assert.Equal(SignedUrl, request.RequestUri!.OriginalString);
-        Assert.Equal("https", request.RequestUri.Scheme);
-        Assert.Contains("\"" + SignedUrl + "\"", arguments);
-        Assert.False(request.Headers.Contains("Cookie"));
-        Assert.DoesNotContain("Cookie:", arguments);
     }
 
     private sealed class CredentialConfigScope : IDisposable

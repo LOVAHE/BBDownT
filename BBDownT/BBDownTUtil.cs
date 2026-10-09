@@ -13,6 +13,7 @@ using System.Web;
 using static BBDownT.Core.Entity.Entity;
 using static BBDownT.Core.Logger;
 using static BBDownT.Core.Util.HTTPUtil;
+using BBDownT.Core.Util;
 
 namespace BBDownT;
 
@@ -165,6 +166,7 @@ static partial class BBDownTUtil
             }
             else
             {
+                if (!IsBilibiliUrl(input)) throw new Exception("输入有误");
                 string web = await GetWebSourceAsync(input);
                 Regex regex = StateRegex();
                 string json = regex.Match(web).Groups[1].Value;
@@ -223,6 +225,15 @@ static partial class BBDownTUtil
             && uri.UserInfo.Length == 0
             && uri.Host.ToLowerInvariant() is "b23.tv" or "www.b23.tv" or "bili.im" or "www.bili.im";
 
+    private static readonly string[] BilibiliWebDomains = ["bilibili.com", "bilibili.tv", "biliintl.com", "b23.tv", "bili.im"];
+
+    internal static bool IsBilibiliUrl(string input)
+        => Uri.TryCreate(input, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && uri.UserInfo.Length == 0
+            && BilibiliWebDomains.Any(domain => uri.Host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+
     public static string FormatFileSize(double fileSize)
     {
         return fileSize switch
@@ -275,7 +286,7 @@ static partial class BBDownTUtil
         string api = $"https://api.bilibili.com/pugv/view/web/season?season_id={ssid}";
         string json = await GetWebSourceAsync(api);
         using var jDoc = JsonDocument.Parse(json);
-        string epId = jDoc.RootElement.GetProperty("data").GetProperty("episodes").EnumerateArray().First().GetProperty("id").ToString();
+        string epId = FirstEpisodeId(BilibiliApi.ReadPayload(jDoc.RootElement, "获取课程信息"), "课程");
         return epId;
     }
 
@@ -284,7 +295,7 @@ static partial class BBDownTUtil
         string api = $"https://{Core.Config.EPHOST}/pgc/view/web/season?season_id={ssId}";
         string json = await GetWebSourceAsync(api);
         using var jDoc = JsonDocument.Parse(json);
-        string epId = jDoc.RootElement.GetProperty("result").GetProperty("episodes").EnumerateArray().First().GetProperty("id").ToString();
+        string epId = FirstEpisodeId(BilibiliApi.ReadPayload(jDoc.RootElement, "获取番剧信息", "result"), "番剧");
         return epId;
     }
 
@@ -293,9 +304,16 @@ static partial class BBDownTUtil
         string api = $"https://api.bilibili.com/pgc/review/user?media_id={mdId}";
         string json = await GetWebSourceAsync(api);
         using var jDoc = JsonDocument.Parse(json);
-        string epId = jDoc.RootElement.GetProperty("result").GetProperty("media").GetProperty("new_ep").GetProperty("id").ToString();
+        string epId = BilibiliApi.ReadPayload(jDoc.RootElement, "获取番剧信息", "result")
+            .GetProperty("media").GetProperty("new_ep").GetProperty("id").ToString();
         return epId;
     }
+
+    private static string FirstEpisodeId(JsonElement season, string kind)
+        => season.TryGetProperty("episodes", out var episodes) && episodes.ValueKind == JsonValueKind.Array
+            && episodes.GetArrayLength() > 0
+            ? episodes[0].GetProperty("id").ToString()
+            : throw new InvalidOperationException($"该{kind}没有可下载的分集");
 
     /// <summary>
     /// 输入一堆已存在的文件, 合并到新文件

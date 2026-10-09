@@ -16,10 +16,12 @@ internal sealed class PageDownloadRunner(
     Func<int, CancellationToken, Task> delayMilliseconds,
     Action<string> log)
 {
+    internal const int MaxConsecutiveNetworkFailures = 3;
+
     internal async Task RunAsync(
         List<Page> pages, bool saveArchives, int delaySeconds,
         Func<Page, Task<DownloadPageOutcome>> downloadPage, IReadOnlyCollection<Page>? allPages = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string archiveVariant = "")
     {
         // A legacy AID cannot prove completion of every page. Only the original
         // unfiltered list can confirm that an AID still represents one page.
@@ -27,8 +29,10 @@ internal sealed class PageDownloadRunner(
             .Where(group => group.Count() == 1).Select(group => group.Key).ToHashSet()
             ?? new HashSet<string>();
         var failures = new List<(int PageIndex, Exception Error)>();
-        foreach (var page in pages)
+        var consecutiveNetworkFailures = 0;
+        for (var position = 0; position < pages.Count; position++)
         {
+            var page = pages[position];
             cancellationToken.ThrowIfCancellationRequested();
             // Preserve the existing wait before every selected page, including
             // the first page and pages subsequently skipped by the archive check.
@@ -38,11 +42,11 @@ internal sealed class PageDownloadRunner(
                 await delayMilliseconds(delaySeconds * 1000, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
             }
-            log($"开始解析P{page.index}: {page.DownloadId}... ({pages.IndexOf(page) + 1} of {pages.Count})");
+            log($"开始解析P{page.index}: {page.DownloadId}... ({position + 1} of {pages.Count})");
 
-            var archiveKey = $"{page.DownloadId}:{page.cid}";
+            var archiveKey = $"{page.DownloadId}:{page.cid}{archiveVariant}";
             if (saveArchives && (isArchived(archiveKey)
-                || (legacySinglePageAids.Contains(page.DownloadId) && isArchived(page.DownloadId))))
+                || (archiveVariant.Length == 0 && legacySinglePageAids.Contains(page.DownloadId) && isArchived(page.DownloadId))))
             {
                 log($"P{page.index}已下载过, 跳过下载...");
                 continue;
@@ -59,10 +63,17 @@ internal sealed class PageDownloadRunner(
                 && !MustStopBatch(error))
             {
                 failures.Add((page.index, error));
-                log($"P{page.index} 下载失败：{NetworkRetry.Describe(error)}；继续处理其余分P。");
+                consecutiveNetworkFailures = IsNetworkFailure(error) ? consecutiveNetworkFailures + 1 : 0;
+                if (consecutiveNetworkFailures >= MaxConsecutiveNetworkFailures && position < pages.Count - 1)
+                {
+                    log($"P{page.index} 下载失败：{ErrorText.Describe(error)}；连续 {consecutiveNetworkFailures} 个分P因网络错误失败，停止处理剩余分P。");
+                    throw new PageDownloadBatchException(failures, pages.Count - position - 1);
+                }
+                log($"P{page.index} 下载失败：{ErrorText.Describe(error)}；继续处理其余分P。");
                 continue;
             }
 
+            consecutiveNetworkFailures = 0;
             if (saveArchives && outcome.ShouldArchive())
                 archive(archiveKey);
         }
@@ -75,8 +86,16 @@ internal sealed class PageDownloadRunner(
     {
         var transient = NetworkRetry.IsTransient(error);
         for (Exception? cause = error; cause is not null; cause = cause.InnerException)
-            if (cause is OutOfMemoryException or AccessViolationException
+            if (cause is OutOfMemoryException or AccessViolationException or SubtitleUnavailableException
                 || (cause is OperationCanceledException && !transient)) return true;
+        return false;
+    }
+
+    private static bool IsNetworkFailure(Exception error)
+    {
+        if (NetworkRetry.IsTransient(error)) return true;
+        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
+            if (cause is BilibiliApiException api) return BilibiliApi.IsRateLimited(api.Code);
         return false;
     }
 }

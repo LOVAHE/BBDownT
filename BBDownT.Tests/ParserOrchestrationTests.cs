@@ -5,28 +5,17 @@ namespace BBDownT.Tests;
 
 public class ParserOrchestrationTests
 {
-    [Fact]
-    public async Task PreviewDash_InvalidQualityRefetchKeepsPreviewStatusWithRetainedTracks()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DashPreviewStatus_SurvivesTheQualityRefetch(bool initialPreview)
     {
-        var initial = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
-        initial["data"]!["is_preview"] = 1;
-        var responses = new Queue<string>([initial.ToJsonString(), "{\"code\":-1}"]);
-
-        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
-            _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
-
-        Assert.True(result.IsPreviewOnly);
-        Assert.Single(result.VideoTracks);
-        Assert.Single(result.AudioTracks);
-    }
-
-    [Fact]
-    public async Task CompleteDash_PreviewQualityRefetchMarksTheAccumulatedTracks()
-    {
-        var initial = DashFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s");
-        var final = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
-        final["data"]!["is_preview"] = 1;
-        var responses = new Queue<string>([initial, final.ToJsonString()]);
+        var preview = JsonNode.Parse(DashFixture("https://cdn.test/preview-v.m4s", "https://cdn.test/preview-a.m4s"))!;
+        preview["data"]!["is_preview"] = 1;
+        string[] bodies = initialPreview
+            ? [preview.ToJsonString(), "{\"code\":-1}"]
+            : [DashFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s"), preview.ToJsonString()];
+        var responses = new Queue<string>(bodies);
 
         var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
             _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
@@ -163,7 +152,6 @@ public class ParserOrchestrationTests
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
-    [InlineData(false, true)]
     public async Task HdrVivid_MapsReturnedTrackAndRequestsNewMaximum(bool tvApi, bool appApi)
     {
         var requestedQns = new List<string>();

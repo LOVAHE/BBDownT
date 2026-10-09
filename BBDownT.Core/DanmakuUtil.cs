@@ -1,4 +1,5 @@
 ﻿using static BBDownT.Core.Logger;
+using System.Globalization;
 using System.Text;
 using System.Xml;
 
@@ -26,18 +27,20 @@ public static class DanmakuUtil
         XmlDocument xmlFile = new();
         XmlReaderSettings settings = new()
         {
-            IgnoreComments = true//忽略文档里面的注释
+            IgnoreComments = true,//忽略文档里面的注释
+            CheckCharacters = false
         };
         var danmakus = new List<DanmakuItem>();
-        using (var reader = XmlReader.Create(xmlPath, settings))
+        var xml = RemoveInvalidXmlChars(File.ReadAllText(xmlPath));
+        using (var reader = XmlReader.Create(new StringReader(xml), settings))
         {
             try
             {
                 xmlFile.Load(reader);
             }
-            catch (Exception ex)
+            catch (XmlException ex)
             {
-                LogDebug("解析字幕xml时出现异常: {0}", ex.ToString());
+                LogDebug("解析弹幕xml时出现异常: {0}", ex.ToString());
                 return null;
             }
         }
@@ -66,6 +69,67 @@ public static class DanmakuUtil
             }
         }
         return danmakus.ToArray();
+    }
+
+    internal static string RemoveInvalidXmlChars(string text)
+    {
+        StringBuilder? cleaned = null;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (XmlConvert.IsXmlChar(c))
+            {
+                cleaned?.Append(c);
+                continue;
+            }
+            if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+            {
+                cleaned?.Append(c).Append(text[i + 1]);
+                i++;
+                continue;
+            }
+            cleaned ??= new StringBuilder(text.Length).Append(text, 0, i);
+        }
+        return cleaned?.ToString() ?? text;
+    }
+
+    internal static string EscapeAssText(string text)
+    {
+        var escaped = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case '\\':
+                    escaped.Append("\\\u200B");
+                    break;
+                case '{':
+                    escaped.Append("\\{");
+                    break;
+                case '}':
+                    escaped.Append("\\}");
+                    break;
+                case '\r':
+                    if (i + 1 < text.Length && text[i + 1] == '\n') i++;
+                    escaped.Append("\\N");
+                    break;
+                case '\n':
+                    escaped.Append("\\N");
+                    break;
+                default:
+                    escaped.Append(text[i]);
+                    break;
+            }
+        }
+        return escaped.ToString();
+    }
+
+    internal static string? AssColorTag(string rgb)
+    {
+        if (!int.TryParse(rgb, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value)) return null;
+        value &= 0xFFFFFF;
+        if (value == 0xFFFFFF) return null;
+        return $"\\c&H{value & 0xFF:X2}{(value >> 8) & 0xFF:X2}{value >> 16:X2}&";
     }
 
     /// <summary>
@@ -98,6 +162,7 @@ public static class DanmakuUtil
         Array.Sort(danmakus, comparer);
         foreach (DanmakuItem danmaku in danmakus)
         {
+            if (danmaku.IsAdvanced) continue;
             int height = controller.UpdatePosition(danmaku.DanmakuMode, danmaku.Second, danmaku.Content.Length);
             if (height == -1) continue;
             string effect = "";
@@ -107,11 +172,8 @@ public static class DanmakuUtil
                 2 => $"\\an8\\pos({MONITOR_WIDTH / 2}, {height})",
                 _ => $"\\move({MONITOR_WIDTH}, {height}, {-danmaku.Content.Length * FONT_SIZE}, {height})",
             };
-            if (danmaku.Color != "FFFFFF")
-            {
-                effect += $"\\c&{danmaku.Color}&";
-            }
-            sb.AppendLine($"Dialogue: 2,{danmaku.StartTime},{danmaku.EndTime},BBDOWNT_Style,,0000,0000,0000,,{{{effect}}}{danmaku.Content}");
+            effect += AssColorTag(danmaku.Color);
+            sb.AppendLine($"Dialogue: 2,{danmaku.StartTime},{danmaku.EndTime},BBDOWNT_Style,,0000,0000,0000,,{{{effect}}}{EscapeAssText(danmaku.Content)}");
         }
 
         await File.WriteAllTextAsync(outputPath, sb.ToString(), Encoding.UTF8);
@@ -176,6 +238,7 @@ public static class DanmakuUtil
                 "5" => POS_TOP,
                 _ => POS_MOVE,
             };
+            IsAdvanced = attrs[1] is "7" or "8" or "9";
             try
             {
                 double second = double.Parse(attrs[0]);
@@ -217,6 +280,7 @@ public static class DanmakuUtil
         // 消失时间
         public int DanmakuMode { get; set; } = POS_MOVE;
         // 弹幕类型
+        public bool IsAdvanced { get; set; }
         public string FontSize { get; set; } = "";
         // 字号
         public string Color { get; set; } = "";

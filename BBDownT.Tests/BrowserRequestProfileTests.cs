@@ -153,4 +153,47 @@ public class BrowserRequestProfileTests
             Directory.Delete(directory);
         }
     }
+
+    [Fact]
+    public void Store_ReplacesACorruptFileWithoutBlamingTheApi()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"bbd-web-profile-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, AuthenticatedWebProfileStore.FileName);
+        var originalOutput = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, "{");
+            Console.SetOut(output);
+
+            var profile = AuthenticatedWebProfileStore.LoadOrCreate(directory);
+
+            Assert.True(profile.IsValid());
+            Assert.Contains("内容无效", output.ToString());
+            Assert.DoesNotContain("接口", output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            File.Delete(path);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public void Store_UsesAGeneratedProfileWhenTheDirectoryIsNotWritable()
+    {
+        var blocker = Path.GetTempFileName();
+        try
+        {
+            var profile = AuthenticatedWebProfileStore.LoadOrCreate(Path.Combine(blocker, "profile"));
+
+            Assert.True(profile.IsValid());
+        }
+        finally
+        {
+            File.Delete(blocker);
+        }
+    }
 }

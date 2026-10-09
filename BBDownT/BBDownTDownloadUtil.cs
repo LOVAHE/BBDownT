@@ -519,9 +519,13 @@ internal static class BBDownTDownloadUtil
                 && saved.MatchesRange(identity, clip.from, clip.to, fileSize)
                 && !saved.Validator.KnownChanged(metadata.Validator)
                 && await saved.MatchesFileAsync(clipPaths[clip.index]))
-                tracker.Restore(clip.index, saved.LocalLength, !saved.MatchesSource(url, sourceObjectHash)
-                    || !saved.Validator.IsUsable || !saved.Validator.Matches(metadata.Validator)
-                    || new FileInfo(clipPaths[clip.index]).Length > saved.LocalLength);
+            {
+                var sameSource = saved.MatchesSource(url, sourceObjectHash);
+                var sameVersion = saved.Validator.IsUsable && saved.Validator.Matches(metadata.Validator);
+                var verify = !sameSource || !sameVersion || new FileInfo(clipPaths[clip.index]).Length > saved.LocalLength;
+                if (verify) LogDebug("分片 {0} 需逐字节核验：同一来源={1}，版本一致={2}", clip.index, sameSource, sameVersion);
+                tracker.Restore(clip.index, saved.LocalLength, verify);
+            }
         }
         tracker.ReportRestored();
         using var batch = CancellationTokenSource.CreateLinkedTokenSource(config.CancellationToken);
@@ -548,7 +552,7 @@ internal static class BBDownTDownloadUtil
                 {
                     var message = error is NotSupportedException
                         ? "服务器可能并不支持多线程下载，请使用 --multi-thread false 关闭多线程"
-                        : $"分片 {clip.index} 下载失败：{NetworkRetry.Describe(error)}";
+                        : $"分片 {clip.index} 下载失败";
                     var failure = new IOException(message, error);
                     if (Interlocked.CompareExchange(ref firstFailure, failure, null) is null) batch.Cancel();
                     throw failure;

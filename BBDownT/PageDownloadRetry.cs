@@ -21,7 +21,9 @@ internal sealed class PageDownloadRetry
     internal bool TryGetDelay(Exception error, out TimeSpan delay)
     {
         delay = default;
-        if (NetworkRetry.IsTransient(error))
+        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
+            if (cause is SubtitleUnavailableException) return false;
+        if (NetworkRetry.IsTransient(error) || IsRateLimited(error))
         {
             if (networkRetries >= NetworkDelays.Length) return false;
             delay = NetworkDelays[networkRetries++];
@@ -40,7 +42,7 @@ internal sealed class PageDownloadRetry
         // cancellation and local storage failures cannot be cured by waiting.
         for (Exception? cause = error; cause is not null; cause = cause.InnerException)
         {
-            if (cause is AudioLanguageUnavailableException or IntlApiException
+            if (cause is AudioLanguageUnavailableException or IntlApiException or BilibiliApiException
                 or ArgumentException or NotSupportedException or UnauthorizedAccessException
                 or InvalidDataException or JsonException or AuthenticationException or OperationCanceledException
                 or OutOfMemoryException or AccessViolationException)
@@ -51,5 +53,12 @@ internal sealed class PageDownloadRetry
         otherRetries++;
         delay = TimeSpan.FromSeconds(3);
         return true;
+    }
+
+    private static bool IsRateLimited(Exception error)
+    {
+        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
+            if (cause is BilibiliApiException api) return BilibiliApi.IsRateLimited(api.Code);
+        return false;
     }
 }

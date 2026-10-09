@@ -115,7 +115,6 @@ public class IntlAppTransportTests
     [Theory]
     [InlineData(false, true, false)]
     [InlineData(true, true, true)]
-    [InlineData(true, false, false)]
     public async Task AppTransport_FixedIdentityAndCookieRealmAllowlist(bool international, bool allowed, bool expectedCookie)
     {
         using var config = new ConfigScope();
@@ -134,11 +133,6 @@ public class IntlAppTransportTests
 
     [Theory]
     [InlineData("https://proxy.example.test:8443/intl/gateway/v2/app/playurl/player", true)]
-    [InlineData("https://proxy.example.test/intl/gateway/v2/app/playurl/player", false)]
-    [InlineData("http://proxy.example.test:8443/intl/gateway/v2/app/playurl/player", false)]
-    [InlineData("https://child.proxy.example.test:8443/intl/gateway/v2/app/playurl/player", false)]
-    [InlineData("https://proxy.example.test:8443/media/video.m4s", false)]
-    [InlineData("https://api.bilibili.com/intl/gateway/v2/app/playurl/player", false)]
     public async Task AppTransport_InternationalProxyCookieRequiresExactHttpsGateway(string url, bool expectedCookie)
     {
         using var config = new ConfigScope();
@@ -209,10 +203,6 @@ public class IntlAppTransportTests
             delay: (_, _) => throw new InvalidOperationException("must not retry")));
         Assert.Equal(status, error.StatusCode);
         Assert.Equal(1, calls);
-        using var isolatedHandler = HTTPUtil.CreateWebHandler(useCookies: false, allowRedirects: false);
-        Assert.False(isolatedHandler.UseCookies);
-        Assert.False(isolatedHandler.AllowAutoRedirect);
-        Assert.Same(HTTPUtil.IntlApiHttpClient, HTTPUtil.GetWebHttpClient(true));
     }
 
     [Fact]

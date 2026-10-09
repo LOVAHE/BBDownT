@@ -138,7 +138,8 @@ internal static class BBDownTLoginUtil
             AuthenticatedWebProfileStore.Configure(Program.APP_DIR);
             Log("获取登录地址...");
             string loginUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header";
-            string url = JsonDocument.Parse(await HTTPUtil.GetAuthenticatedWebSourceAsync(loginUrl)).RootElement.GetProperty("data").GetProperty("url").ToString();
+            using var qrDocument = JsonDocument.Parse(await HTTPUtil.GetAuthenticatedWebSourceAsync(loginUrl));
+            string url = BilibiliApi.ReadPayload(qrDocument.RootElement, "获取登录二维码").GetProperty("url").ToString();
             string qrcodeKey = GetQueryString("qrcode_key", url);
             Log("生成二维码...");
             await ShowQrCodeAsync(url);
@@ -147,7 +148,7 @@ internal static class BBDownTLoginUtil
             {
                 loginStatus = await GetLoginStatusAsync(qrcodeKey);
                 using var document = JsonDocument.Parse(loginStatus.ResponseBody);
-                return document.RootElement.GetProperty("data").GetProperty("code").GetInt32() switch
+                return BilibiliApi.ReadPayload(document.RootElement, "查询扫码状态").GetProperty("code").GetInt32() switch
                 {
                     86038 => QrLoginStatus.Expired,
                     86101 => QrLoginStatus.Waiting,
@@ -157,7 +158,7 @@ internal static class BBDownTLoginUtil
             }, Task.Delay, TimeSpan.FromSeconds(1), () => Log("扫码成功, 请确认..."));
             if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return; }
             using var loginDoc = JsonDocument.Parse(loginStatus.ResponseBody);
-            var loginData = loginDoc.RootElement.GetProperty("data");
+            var loginData = BilibiliApi.ReadPayload(loginDoc.RootElement, "完成登录");
             string cc = loginData.GetProperty("url").ToString();
             string? refreshToken = loginData.TryGetProperty("refresh_token", out var refreshTokenElement)
                 ? refreshTokenElement.GetString() : null;
@@ -168,7 +169,7 @@ internal static class BBDownTLoginUtil
             Log("登录成功");
             File.Delete("qrcode.png");
         }
-        catch (Exception e) { LogError(e.Message); }
+        catch (Exception e) { LogError(ErrorText.Describe(e)); }
     }
 
     public static async Task LoginTV()
@@ -181,8 +182,10 @@ internal static class BBDownTLoginUtil
             Log("获取登录地址...");
             byte[] responseArray = await (await HTTPUtil.AppHttpClient.PostAsync(loginUrl, new FormUrlEncodedContent(parms.ToDictionary()))).Content.ReadAsByteArrayAsync();
             string web = Encoding.UTF8.GetString(responseArray);
-            string url = JsonDocument.Parse(web).RootElement.GetProperty("data").GetProperty("url").ToString();
-            string authCode = JsonDocument.Parse(web).RootElement.GetProperty("data").GetProperty("auth_code").ToString();
+            using var qrDocument = JsonDocument.Parse(web);
+            var qrData = BilibiliApi.ReadPayload(qrDocument.RootElement, "获取登录二维码");
+            string url = qrData.GetProperty("url").ToString();
+            string authCode = qrData.GetProperty("auth_code").ToString();
             Log("生成二维码...");
             await ShowQrCodeAsync(url);
             parms.Set("auth_code", authCode);
@@ -203,12 +206,12 @@ internal static class BBDownTLoginUtil
             }, Task.Delay, TimeSpan.FromSeconds(1), () => Log("扫码成功, 请确认..."));
             if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return; }
             using var loginDoc = JsonDocument.Parse(web);
-            string cc = loginDoc.RootElement.GetProperty("data").GetProperty("access_token").ToString();
+            string cc = BilibiliApi.ReadPayload(loginDoc.RootElement, "完成登录").GetProperty("access_token").ToString();
             await SaveLoginDataAsync(Program.APP_DIR, "BBDownTTV.data", "access_token=" + cc);
             Log("登录成功");
             File.Delete("qrcode.png");
         }
-        catch (Exception e) { LogError(e.Message); }
+        catch (Exception e) { LogError(ErrorText.Describe(e)); }
     }
 
     private readonly record struct LoginStatusResult(string ResponseBody, string[] SetCookieHeaders);

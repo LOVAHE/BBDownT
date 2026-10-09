@@ -40,29 +40,6 @@ internal static class NetworkRetry
                 && (cause.InnerException is null || causes.Any(inner => inner is TimeoutException))));
     }
 
-    internal static string Describe(Exception error)
-    {
-        // Never include exception messages: they can contain credential-bearing URLs or headers.
-        var causes = Causes(error).ToArray();
-        // International API descriptions come from fixed messages and numeric
-        // codes, so normal output can retain actionable errors without raw URLs.
-        var international = causes.OfType<IntlApiException>().FirstOrDefault(cause => cause.UserDescription is not null);
-        if (international is not null) return international.UserDescription!;
-        var description = error.GetType().Name;
-        var httpError = causes.OfType<HttpRequestException>().FirstOrDefault(cause => cause.StatusCode.HasValue);
-        if (httpError is not null) description += $" HTTP {(int)httpError.StatusCode!.Value}";
-        var transportError = causes.OfType<HttpRequestException>().FirstOrDefault();
-        if (transportError is not null && transportError.HttpRequestError != HttpRequestError.Unknown)
-            description += $" {transportError.HttpRequestError}";
-        var readError = causes.OfType<HttpIOException>().FirstOrDefault();
-        if (readError is not null) description += $" {readError.HttpRequestError}";
-        var socketError = causes.OfType<SocketException>().FirstOrDefault();
-        if (socketError is not null) description += $" SocketError.{socketError.SocketErrorCode}";
-        if (causes.Any(cause => cause is AuthenticationException)) description += " AuthenticationException";
-        if (causes.Any(cause => cause is TimeoutException)) description += " TimeoutException";
-        return description;
-    }
-
     internal static async Task<T> ExecuteAsync<T>(
         Func<CancellationToken, Task<T>> action,
         IReadOnlyList<TimeSpan> delays,
@@ -90,7 +67,7 @@ internal static class NetworkRetry
                     if (retryAfter > wait) wait = retryAfter;
                 }
                 log($"{operation}遇到临时网络错误，重试 {attempt + 1}/{delays.Count}，"
-                    + $"等待 {wait.TotalSeconds:0.###} 秒：{Describe(error)}");
+                    + $"等待 {wait.TotalSeconds:0.###} 秒：{ErrorText.Describe(error)}");
                 await delay(wait, cancellationToken);
             }
         }

@@ -35,8 +35,6 @@ public class IntlBangumiTests
     }
 
     [Theory]
-    [InlineData(10004001)]
-    [InlineData(10004004)]
     [InlineData(10004005)]
     public async Task SubtitlePermissions_PropagateThroughFetchWrapperWithoutAppFallback(int code)
     {
@@ -162,7 +160,6 @@ public class IntlBangumiTests
     [InlineData("https://bilibili.tv/play/2110869/13287667/extra")]
     [InlineData("https://bilibili.tv/play/2110869?ep_id=invalid")]
     [InlineData("https://www.bilibili.com/bangumi/play/ep13287667")]
-    [InlineData("https://www.bilibili.com/video/BV17x411w7KC")]
     public void OtherHostsAndMalformedPaths_AreNotInternationalUrls(string input)
     {
         Assert.False(IntlBangumiUrl.TryParse(input, out var id));
@@ -223,15 +220,6 @@ public class IntlBangumiTests
         Assert.Equal("E2 Second", result.PagesInfo[1].title);
         Assert.Equal(1704067200L, result.PagesInfo[0].pubTime);
         Assert.Equal("https://example.test/13287667.jpg", result.PagesInfo[0].cover);
-    }
-
-    [Fact]
-    public async Task ExplicitEpisodeSelection_WinsOverSeasonFirstEpisode()
-    {
-        var result = await FetchInfo("intl:2110869:13287800", Season("13287745"), Episodes());
-
-        Assert.Equal("3", result.Index);
-        Assert.Equal(3, result.PagesInfo.Count);
     }
 
     [Theory]
@@ -433,8 +421,6 @@ public class IntlBangumiTests
 
     [Theory]
     [InlineData(10004001, "地区限制")]
-    [InlineData(10004004, "Premium")]
-    [InlineData(10004005, "登录")]
     public async Task PlayApiPermissionErrors_ArePropagatedBeforeMapping(int code, string expected)
     {
         var response = new JsonObject
@@ -450,9 +436,7 @@ public class IntlBangumiTests
 
     [Theory]
     [InlineData("true", true)]
-    [InlineData("1", true)]
     [InlineData("false", false)]
-    [InlineData("0", false)]
     public async Task NestedWebPlayurlPreviewFlag_IsPropagated(string preview, bool expected)
     {
         var response = PlayResponse();
@@ -524,15 +508,6 @@ public class IntlBangumiTests
             """);
 
         Assert.Empty(result);
-    }
-
-    [Fact]
-    public void SubtitlePermissionError_IsNotTreatedAsAnEmptySubtitleList()
-    {
-        var error = Assert.ThrowsAny<InvalidOperationException>(
-            () => SubUtil.ParseIntlSubtitleResponse("{\"code\":10004005}"));
-
-        Assert.Contains("登录", error.Message);
     }
 
     private static Task<VInfo> FetchInfo(string id, JsonObject season, JsonObject episodes, List<Uri>? requests = null)

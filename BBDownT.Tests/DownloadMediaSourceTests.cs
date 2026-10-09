@@ -122,7 +122,6 @@ public class DownloadMediaSourceTests
         => Assert.NotNull(DownloadMediaSource.CreateObjectHash(Url.Replace("upos-sz-mirrorcoso1.bilivideo.com", host)));
 
     [Theory]
-    [InlineData(".m4s")]
     [InlineData(".mp4")]
     [InlineData(".flv")]
     public void KnownMediaExtension_IsRecognized(string extension)

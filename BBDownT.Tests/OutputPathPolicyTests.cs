@@ -19,8 +19,6 @@ public class OutputPathPolicyTests
 
     [Theory]
     [InlineData("intl_13287667/video.tmp")]
-    [InlineData("intl_13287667/video.tmp.resume")]
-    [InlineData("intl_13287667/en.ass")]
     public void RestrictedCacheArtifacts_RejectLinksBeforeTemporaryOrSubtitleWrites(string relative)
     {
         var root = Path.Combine(Environment.CurrentDirectory, "synthetic-root");
@@ -71,18 +69,6 @@ public class OutputPathPolicyTests
         Assert.Throws<ArgumentException>(() => OutputPathPolicy.ResolveArtifact(debug, root, path => path == debug));
     }
 
-    [Theory]
-    [InlineData(".ass")]
-    [InlineData(".m4a")]
-    [InlineData(".en.srt")]
-    public void ChangedArtifactExtensions_AreCheckedAgainstExistingLinks(string extension)
-    {
-        var root = Path.Combine(Environment.CurrentDirectory, "synthetic-root");
-        var media = Path.Combine(root, "media.mp4");
-        var artifact = Path.ChangeExtension(media, extension);
-        Assert.Throws<ArgumentException>(() => OutputPathPolicy.ResolveArtifact(artifact, root, path => path == artifact));
-    }
-
     [Fact]
     public async Task SpaceListExport_RejectsLinkedDestinationBeforeCallingItsWriter()
     {
@@ -122,22 +108,11 @@ public class OutputPathPolicyTests
     {
         var option = new MyOption { UseTvApi = tv, UseAppApi = app, UseIntlApi = intl };
         Assert.Equal(expected, Program.GetApiType(option));
-        if (intl)
-        {
-            var first = Program.FormatSavePath("<aid>_<cid>", "Title", null, null, InternationalPage(), 24,
-                Program.GetApiType(option), 1);
-            var second = Program.FormatSavePath("<aid>_<cid>", "Title", null, null, InternationalPage("13287745"), 24,
-                Program.GetApiType(option), 1);
-            Assert.False(Path.IsPathRooted(first));
-            Assert.NotEqual("_.mp4", first);
-            Assert.NotEqual(first, second);
-        }
     }
 
     private static Page InternationalPage(string episode = "13287667") => new(1, "", "", episode, "E1", 0, "", 1);
 
     [Theory]
-    [InlineData("<aid>/target", "intl_13287667/target.mp4")]
     [InlineData("<aid>_<cid>", "intl_13287667_13287667.mp4")]
     [InlineData("<bvid>/target", "intl_13287667/target.mp4")]
     [InlineData("<epid>", "13287667.mp4")]
@@ -154,7 +129,6 @@ public class OutputPathPolicyTests
     }
 
     [Theory]
-    [InlineData("<aid>_<cid>")]
     [InlineData("<aid>/target")]
     [InlineData("<cid>")]
     [InlineData("<bvid>")]

@@ -54,7 +54,7 @@ public class IntlProtocolLiveTests
             var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksAsync(
                 "intl:2309571:26223058", "", "", "26223058", false, true, false, ""));
             Assert.Equal(10015002, error.ApiCode);
-            Assert.Contains("权限不足", NetworkRetry.Describe(error));
+            Assert.Contains("权限不足", ErrorText.Describe(error));
         }
         finally
         {

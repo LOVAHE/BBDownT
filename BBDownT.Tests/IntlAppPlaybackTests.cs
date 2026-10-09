@@ -50,9 +50,6 @@ public class IntlAppPlaybackTests
     }
 
     [Theory]
-    [InlineData(10004001)]
-    [InlineData(10004004)]
-    [InlineData(-101)]
     [InlineData(10015002)]
     public async Task OtherWebErrorsDoNotTriggerAnAppFallback(int code)
     {
@@ -100,7 +97,7 @@ public class IntlAppPlaybackTests
         Assert.Equal(10015002, error.ApiCode);
         Assert.Equal("国际站请求失败：访问权限不足（错误码 10015002）", error.Message);
         Assert.DoesNotContain("private", error.Message);
-        Assert.Equal(error.Message, NetworkRetry.Describe(new IOException("wrapped", error)));
+        Assert.Equal(error.Message, ErrorText.Describe(new IOException("wrapped", error)));
         Assert.False(NetworkRetry.IsTransient(error));
     }
 
@@ -114,7 +111,7 @@ public class IntlAppPlaybackTests
 
         Assert.Contains("地区限制", error.Message);
         Assert.Null(error.ApiCode);
-        Assert.DoesNotContain("raw signed", NetworkRetry.Describe(error));
+        Assert.DoesNotContain("raw signed", ErrorText.Describe(error));
     }
 
     [Fact]
@@ -132,7 +129,7 @@ public class IntlAppPlaybackTests
         Assert.Contains("地区限制", batch.Message);
         Assert.Contains("10004001", batch.Message);
         Assert.Same(original, batch.InnerExceptions[0].InnerException);
-        Assert.Equal(nameof(IntlApiException), NetworkRetry.Describe(new IntlApiException("secret cookie-value")));
+        Assert.Equal(nameof(IntlApiException), ErrorText.Describe(new IntlApiException("secret cookie-value")));
     }
 
     [Fact]

@@ -506,6 +506,16 @@ internal partial class Program
         }
     }
 
+    internal static bool TryRestoreTrackChoice(ParsedResult result, Video? video, Audio? audio, ref int vIndex, ref int aIndex)
+    {
+        var videoIndex = video is null ? 0 : result.VideoTracks.FindIndex(track => track.id == video.id && track.codecs == video.codecs);
+        var audioIndex = audio is null ? 0 : result.AudioTracks.FindIndex(track => track.id == audio.id && track.codecs == audio.codecs);
+        if (videoIndex < 0 || audioIndex < 0) return false;
+        vIndex = videoIndex;
+        aIndex = audioIndex;
+        return true;
+    }
+
     internal static int ParseSelectionIndex(string? input, int itemCount)
     {
         return int.TryParse(input, out var index) && index >= 0 && index < itemCount

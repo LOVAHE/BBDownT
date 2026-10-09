@@ -133,7 +133,6 @@ public class AudioLanguageSelectionTests
     [Theory]
     [InlineData(null, "video.mp4")]
     [InlineData(" ", "video.mp4")]
-    [InlineData("en-US", "video.audio-en-us.mp4")]
     [InlineData(" EN-us ", "video.audio-en-us.mp4")]
     [InlineData("zh-CN", "video.audio-zh-cn.mp4")]
     public void LanguageSuffix_SeparatesVariantsAndPreservesDefault(string? language, string expected)
@@ -154,7 +153,7 @@ public class AudioLanguageSelectionTests
     }
 
     [Theory]
-    [InlineData(null, true, "video.mp4")]
+    [InlineData(null, true, "video.m4a")]
     [InlineData("en-US", false, "video.audio-en-us.mp4")]
     [InlineData("en-US", true, "video.audio-en-us.m4a")]
     public void OutputPath_UsesActualVariantExtensionBeforeCacheCheck(string? language, bool audioOnly, string expected)

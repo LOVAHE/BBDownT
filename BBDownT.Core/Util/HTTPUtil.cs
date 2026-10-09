@@ -15,15 +15,19 @@ public static class HTTPUtil
     private static HttpClient CreateClient(bool useCookies, bool allowRedirects)
         => new(CreateWebHandler(useCookies, allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
 
-    internal static HttpClientHandler CreateWebHandler(bool useCookies, bool allowRedirects) => new()
+    internal static HttpMessageHandler CreateWebHandler(bool useCookies, bool allowRedirects)
     {
-        AllowAutoRedirect = allowRedirects,
-        UseCookies = useCookies,
-        AutomaticDecompression = DecompressionMethods.All,
-        MaxConnectionsPerServer = 2048,
-        ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
-            Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
-    };
+        var transport = new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = useCookies,
+            AutomaticDecompression = DecompressionMethods.All,
+            MaxConnectionsPerServer = 2048,
+            ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
+                Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
+        };
+        return allowRedirects ? new CookieScopedRedirectHandler(transport) : transport;
+    }
 
     internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
     internal static HttpClient GetMediaHttpClient(bool international) => international ? IntlMediaHttpClient : AppHttpClient;
@@ -132,6 +136,7 @@ public static class HTTPUtil
             return false;
         }
 
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0) return false;
         var host = uri.Host;
         if (Config.COOKIE_IS_INTL && !IsIntlCookieDestination(uri))
             return false;
@@ -165,7 +170,23 @@ public static class HTTPUtil
 
     public static string GetCookieHeaderValue(string url)
     {
-        return !Config.COOKIE_IS_INTL && (url.Contains("/ep") || url.Contains("/ss")) ? Config.COOKIE + ";CURRENT_FNVAL=4048;" : Config.COOKIE;
+        var cookie = WithoutRefreshToken(Config.COOKIE);
+        return !Config.COOKIE_IS_INTL && (url.Contains("/ep") || url.Contains("/ss")) ? cookie + ";CURRENT_FNVAL=4048;" : cookie;
+    }
+
+    internal static string WithoutRefreshToken(string cookieHeader)
+    {
+        var pairs = cookieHeader.Split(';');
+        if (!pairs.Any(IsRefreshTokenPair)) return cookieHeader;
+        return string.Join("; ", pairs.Select(pair => pair.Trim())
+            .Where(pair => pair.Length > 0 && !IsRefreshTokenPair(pair)));
+    }
+
+    private static bool IsRefreshTokenPair(string pair)
+    {
+        var name = pair.Split('=', 2)[0].Trim();
+        return name.Equals("ac_time_value", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("refresh_token", StringComparison.OrdinalIgnoreCase);
     }
 
     public static void TryAddCookieHeader(HttpRequestMessage request, string url)
@@ -182,6 +203,21 @@ public static class HTTPUtil
         LogDebug("Response: {0}", htmlCode);
         return htmlCode;
     }
+
+    internal static Task<string> GetWebTextAsync(HttpClient httpClient, string url, string accept,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
+            (response, token) => response.Content.ReadAsStringAsync(token), default, delay, null,
+            configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
+
+    internal static Task<byte[]> GetWebBytesAsync(HttpClient httpClient, string url, string accept,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
+            (response, token) => response.Content.ReadAsByteArrayAsync(token), default, delay, null,
+            configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
+
+    internal static void RotateRequestIdentity(string url)
+        => RotateAutomaticIdentity(ResolveRequestIdentity(url, null, true, false));
 
     internal static async Task<string> GetAuthenticatedWebSourceAsync(string url)
     {
@@ -281,7 +317,7 @@ public static class HTTPUtil
                     {
                         // HttpContent wraps a plain transport IOException as Unknown. Only this
                         // remote body-read boundary can identify it without retrying local IO.
-                        throw new DownloadInterruptedException("HTTP response body was interrupted.", error);
+                        throw new DownloadInterruptedException("网页响应读取中断", error);
                     }
                 }
             }
@@ -429,7 +465,7 @@ public static class HTTPUtil
             }
             catch (Exception ex)
             {
-                LogWarn($"保存浏览器请求配置失败，将仅在本次运行中使用新配置。原因：{ex.Message}");
+                LogWarn($"保存浏览器请求配置失败，将仅在本次运行中使用新配置。原因：{ErrorText.Describe(ex)}");
             }
         }
         return retryIdentity;
@@ -503,8 +539,23 @@ public static class HTTPUtil
         }
 
         using HttpResponseMessage response = await AppHttpClient.SendAsync(request);
+        NetworkRetry.EnsureSuccessStatusCode(response);
         byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+        ThrowIfGrpcError(response);
 
         return bytes;
     }
+
+    internal static void ThrowIfGrpcError(HttpResponseMessage response)
+    {
+        var status = GrpcHeader(response, "grpc-status");
+        if (status is null or "0") return;
+        var message = Uri.UnescapeDataString(GrpcHeader(response, "grpc-message") ?? "").Trim();
+        var code = int.TryParse(status, out var value) ? value : -1;
+        throw new BilibiliApiException($"APP接口请求失败：{(message.Length > 0 ? message : "接口拒绝了请求")}（错误码 {code}）", code);
+    }
+
+    private static string? GrpcHeader(HttpResponseMessage response, string name)
+        => response.Headers.TryGetValues(name, out var values) || response.TrailingHeaders.TryGetValues(name, out values)
+            ? values.FirstOrDefault() : null;
 }

@@ -102,7 +102,7 @@ internal static class IntlBangumiWebApi
         if (knownMessage is not null) throw IntlApiException.FromCode(code);
         var error = "国际站请求失败" + (ReadText(root, "message") is { Length: > 0 } detail && detail != code.ToString()
             ? $"：{detail}" : "") + $"（错误码 {code}）";
-        throw new InvalidOperationException(error);
+        throw new BilibiliApiException(error, code);
     }
 
     internal static void EnsurePlaybackSuccess(JsonElement root)

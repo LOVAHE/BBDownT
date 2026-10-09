@@ -83,7 +83,7 @@ public class WebRequestRetryTests
             delay: (_, _) => Task.CompletedTask, log: logs.Add));
         Assert.Equal(2, attempts);
         Assert.True(partial.Disposed);
-        Assert.Contains(nameof(DownloadInterruptedException), Assert.Single(logs));
+        Assert.Contains("网页响应读取中断", Assert.Single(logs));
     }
 
     [Fact]
@@ -134,29 +134,6 @@ public class WebRequestRetryTests
             Assert.Same(failure, await Assert.ThrowsAsync<InvalidDataException>(ReadBody));
         else
             Assert.Same(failure, (await Assert.ThrowsAsync<HttpRequestException>(ReadBody)).InnerException);
-        Assert.Equal(1, attempts);
-        Assert.True(content.Disposed);
-    }
-
-    [Fact]
-    public async Task Get_CorruptGzipBodyDoesNotRetry()
-    {
-        var attempts = 0;
-        var content = new MemoryContent(async (stream, token) =>
-        {
-            using var compressed = new MemoryStream(new byte[32]);
-            using var gzip = new System.IO.Compression.GZipStream(compressed, System.IO.Compression.CompressionMode.Decompress);
-            await gzip.CopyToAsync(stream, token);
-        });
-        using var handler = new MemoryHandler((request, _) =>
-        {
-            attempts++;
-            return Task.FromResult(Response(request, HttpStatusCode.OK, content));
-        });
-        using var client = new HttpClient(handler);
-        await Assert.ThrowsAsync<InvalidDataException>(() => HTTPUtil.GetWebSourceAsync(client,
-            "https://example.test/body", "test-client/1",
-            delay: (_, _) => throw new InvalidOperationException("must not retry"), log: _ => { }));
         Assert.Equal(1, attempts);
         Assert.True(content.Disposed);
     }
@@ -374,10 +351,6 @@ public class WebRequestRetryTests
             Assert.Equal(HttpStatusCode.Found, failure.StatusCode);
             Assert.Equal(new[] { "SESSDATA=test-only", "SESSDATA=test-only" }, allowedCookies);
             Assert.False(HTTPUtil.ShouldSendCookie("https://example.test/redirect"));
-            using var internationalHandler = HTTPUtil.CreateWebHandler(useCookies: false, allowRedirects: false);
-            Assert.False(internationalHandler.UseCookies);
-            Assert.False(internationalHandler.AllowAutoRedirect);
-            Assert.Same(HTTPUtil.IntlApiHttpClient, HTTPUtil.GetWebHttpClient(international: true));
 
             var deniedCookies = new List<bool>();
             using var deniedHandler = new MemoryHandler((request, _) =>

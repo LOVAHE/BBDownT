@@ -15,27 +15,16 @@ public class SubtitleUrlResolverTests
     internal const string AiProductionCdnUrl = "https://aisubtitle.hdslb.com/bfs/ai_subtitle/prod/11376249327448425740843046a48c1f2bff3d0685f17e23ad3b27954d";
 
     [Theory]
-    [InlineData(EncodedPath)]
-    [InlineData(OtherEncoding)]
-    public void Normalize_DecodesBothKnownFormatsAndPreservesSignedQuery(string path)
+    [InlineData(EncodedPath, CdnUrl)]
+    [InlineData(OtherEncoding, CdnUrl)]
+    [InlineData(AiProductionEncodedPath, AiProductionCdnUrl)]
+    [InlineData(AiProductionOtherEncoding, AiProductionCdnUrl)]
+    public void Normalize_DecodesKnownFormatsAndPreservesSignedQuery(string path, string expected)
     {
         const string query = "?auth_key=test-123&signature=a%2Bb%2Fc%3D&empty=";
         var result = SubtitleUrlResolver.Normalize("//subtitle.bilibili.com/" + path + query);
 
-        Assert.Equal(CdnUrl + query, result);
-        Assert.Equal(result, SubtitleUrlResolver.Normalize(result));
-    }
-
-    [Theory]
-    [InlineData(AiProductionEncodedPath)]
-    [InlineData(AiProductionOtherEncoding)]
-    public void Normalize_DecodesAiProductionObjectsAndPreservesSignedQuery(string path)
-    {
-        const string query = "?auth_key=test-123&signature=a%2Bb%2Fc%3D&empty=";
-
-        var result = SubtitleUrlResolver.Normalize("//subtitle.bilibili.com/" + path + query);
-
-        Assert.Equal(AiProductionCdnUrl + query, result);
+        Assert.Equal(expected + query, result);
         Assert.Equal(result, SubtitleUrlResolver.Normalize(result));
     }
 
@@ -71,7 +60,6 @@ public class SubtitleUrlResolverTests
     [InlineData("/bfs/subtitle/")]
     [InlineData("/bfs/ai_subtitle/prod/")]
     [InlineData("/bfs/ai_subtitle/prod-other/object")]
-    [InlineData("/bfs/ai_subtitle/other/object")]
     [InlineData("/bfs/other/object")]
     [InlineData("/bfs/subtitle/../object.json")]
     [InlineData("/bfs/ai_subtitle/prod/../object")]

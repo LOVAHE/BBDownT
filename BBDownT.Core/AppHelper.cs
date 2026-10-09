@@ -54,7 +54,7 @@ static class AppHelper
     {
 
         var headers = GetHeader(appkey);
-        LogDebug("App-Req-Headers: {0}", JsonSerializer.Serialize(headers, JsonContext.Default.DictionaryStringString));
+        LogDebug("App-Req-Headers: {0}", string.Join(", ", headers.Keys));
         byte[] data;
         // 只有pgc接口才有配音和片头尾信息
         if (bangumi)
@@ -70,8 +70,9 @@ static class AppHelper
             data = await GetPostResponseAsync(BilibiliAppProtocol.UgcPlayViewEndpoint, body, headers);
         }
         var resp = new MessageParser<PlayViewReply>(() => new PlayViewReply()).ParseFrom(ReadMessage(data));
+        if (resp.VideoInfo is null) throw new InvalidDataException("APP接口没有返回播放信息");
 
-        LogDebug("PlayViewReplyPlain: {0}", JsonSerializer.Serialize(resp, JsonContext.Default.PlayViewReply));
+        if (Config.DEBUG_LOG) LogDebug("PlayViewReplyPlain: {0}", JsonSerializer.Serialize(resp, JsonContext.Default.PlayViewReply));
         return ConvertToDashJson(resp);
     }
 
@@ -91,13 +92,15 @@ static class AppHelper
         {
             foreach (var item in resp.VideoInfo.StreamList)
             {
-                if (item.DashVideo != null)
+                if (item.DashVideo != null && item.StreamInfo != null)
                 {
+                    var seconds = resp.VideoInfo.Timelength / 1000;
                     videos.Add(new AudioInfoWitCodecId(
                         item.StreamInfo.Quality,
                         item.DashVideo.BaseUrl,
                         item.DashVideo.BackupUrl.ToList(),
-                        (uint)(item.DashVideo.Size * 8 / (resp.VideoInfo.Timelength / 1000)),
+                        item.DashVideo.Bandwidth > 0 ? item.DashVideo.Bandwidth
+                            : seconds > 0 ? (uint)(item.DashVideo.Size * 8 / seconds) : 0,
                         item.DashVideo.Codecid
                     ));
                 }
@@ -219,7 +222,7 @@ static class AppHelper
             Download = 0, //0:播放 1:flv下载 2:dash下载
             ForceHost = 2 //0:允许使用ip 1:使用http 2:使用https
         };
-        LogDebug("PayLoadPlain: {0}", JsonSerializer.Serialize(obj, JsonContext.Default.PlayViewReq));
+        if (Config.DEBUG_LOG) LogDebug("PayLoadPlain: {0}", JsonSerializer.Serialize(obj, JsonContext.Default.PlayViewReq));
         return PackMessage(obj.ToByteArray());
     }
 

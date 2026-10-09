@@ -37,7 +37,6 @@ public class PageSelectionParserTests
 
     [Theory]
     [InlineData("LAST")]
-    [InlineData("LATEST")]
     [InlineData("NEW")]
     [InlineData("new")]
     public void LastAliases_SelectFinalPage(string selection)

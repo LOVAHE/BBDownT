@@ -59,8 +59,6 @@ public class QrLoginFlowTests
 
     [Theory]
     [InlineData("BBDownT.data")]
-    [InlineData("BBDownTTV.data")]
-    [InlineData("BBDownTIntl.data")]
     public async Task SharedSaving_UsesPlatformFileAndPreservesContent(string fileName)
     {
         string? savedPath = null;

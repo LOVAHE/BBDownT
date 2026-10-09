@@ -189,31 +189,25 @@ public class PageDownloadRunnerTests
         Assert.Contains("P3", actual.Message);
     }
 
-    [Fact]
-    public async Task CancellationStopsBatchImmediately()
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("wrapped-cancellation")]
+    [InlineData("wrapped-fatal")]
+    [InlineData("subtitles")]
+    public async Task StoppingFailures_EndTheBatchImmediately(string kind)
     {
-        var cancellation = new OperationCanceledException("user cancelled");
-        var attempts = 0;
-        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
-
-        var actual = await Assert.ThrowsAsync<OperationCanceledException>(() => runner.RunAsync(Pages(3), false, 0, _ =>
+        Exception failure = kind switch
         {
-            attempts++;
-            return Task.FromException<DownloadPageOutcome>(cancellation);
-        }));
-
-        Assert.Same(cancellation, actual);
-        Assert.Equal(1, attempts);
-    }
-
-    [Fact]
-    public async Task WrappedCancellationAlsoStopsBatchImmediately()
-    {
-        var failure = new IOException("cancelled download", new OperationCanceledException());
+            "cancelled" => new OperationCanceledException("user cancelled"),
+            "wrapped-cancellation" => new IOException("cancelled download", new OperationCanceledException()),
+            "wrapped-fatal" => new IOException("clip failed", new OutOfMemoryException()),
+            _ => new SubtitleUnavailableException("获取字幕失败", new IOException("offline"))
+        };
         var attempts = 0;
-        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
+        var archived = new List<string>();
+        var runner = new PageDownloadRunner(_ => false, archived.Add, (_, _) => Task.CompletedTask, _ => { });
 
-        var actual = await Assert.ThrowsAsync<IOException>(() => runner.RunAsync(Pages(3), false, 0, _ =>
+        var actual = await Assert.ThrowsAnyAsync<Exception>(() => runner.RunAsync(Pages(3), true, 0, _ =>
         {
             attempts++;
             return Task.FromException<DownloadPageOutcome>(failure);
@@ -221,27 +215,10 @@ public class PageDownloadRunnerTests
 
         Assert.Same(failure, actual);
         Assert.Equal(1, attempts);
-    }
-
-    [Fact]
-    public async Task FatalRuntimeFailureAlsoStopsBatchWhenWrappedByDownloader()
-    {
-        var failure = new IOException("clip failed", new OutOfMemoryException());
-        var attempts = 0;
-        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
-
-        var actual = await Assert.ThrowsAsync<IOException>(() => runner.RunAsync(Pages(3), false, 0, _ =>
-        {
-            attempts++;
-            return Task.FromException<DownloadPageOutcome>(failure);
-        }));
-
-        Assert.Same(failure, actual);
-        Assert.Equal(1, attempts);
+        Assert.Empty(archived);
     }
 
     [Theory]
-    [InlineData(false)]
     [InlineData(true)]
     public async Task ExhaustedHttpTimeoutDoesNotPreventNextPage(bool wrappedByDownloader)
     {
@@ -341,6 +318,81 @@ public class PageDownloadRunnerTests
         }
         finally { release.TrySetResult(DownloadPageOutcome.Completed); await running; }
         Assert.Equal(new[] { "1", "2" }, started);
+    }
+
+    [Fact]
+    public async Task ConsecutiveNetworkFailuresStopTheRemainingPages()
+    {
+        var attempted = new List<int>();
+        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
+
+        var error = await Assert.ThrowsAsync<PageDownloadBatchException>(() => runner.RunAsync(Pages(5), false, 0, page =>
+        {
+            attempted.Add(page.index);
+            return Task.FromException<DownloadPageOutcome>(new TaskCanceledException("HTTP timeout", new TimeoutException()));
+        }));
+
+        Assert.Equal(new[] { 1, 2, 3 }, attempted);
+        Assert.Equal(new[] { 1, 2, 3 }, error.FailedPages);
+        Assert.Equal(2, error.SkippedPages);
+        Assert.Contains("剩余 2 个分P未处理", error.Message);
+    }
+
+    [Fact]
+    public async Task RateLimitedApiAnswersCountAsNetworkFailures()
+    {
+        var attempted = new List<int>();
+        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
+
+        var error = await Assert.ThrowsAsync<PageDownloadBatchException>(() => runner.RunAsync(Pages(4), false, 0, page =>
+        {
+            attempted.Add(page.index);
+            return Task.FromException<DownloadPageOutcome>(new BilibiliApiException("获取播放地址失败：请求过于频繁（错误码 -412）", -412));
+        }));
+
+        Assert.Equal(new[] { 1, 2, 3 }, attempted);
+        Assert.Equal(1, error.SkippedPages);
+    }
+
+    [Fact]
+    public async Task OtherFailuresOrASuccessInBetweenDoNotStopTheBatch()
+    {
+        var attempted = new List<int>();
+        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
+
+        var error = await Assert.ThrowsAsync<PageDownloadBatchException>(() => runner.RunAsync(Pages(7), false, 0, page =>
+        {
+            attempted.Add(page.index);
+            return page.index switch
+            {
+                3 => Task.FromResult(DownloadPageOutcome.Completed),
+                <= 5 => Task.FromException<DownloadPageOutcome>(new TaskCanceledException("HTTP timeout", new TimeoutException())),
+                _ => Task.FromException<DownloadPageOutcome>(new BilibiliApiException("获取播放地址失败：啥都木有（错误码 -404）", -404))
+            };
+        }));
+
+        Assert.Equal(Enumerable.Range(1, 7), attempted);
+        Assert.Equal(new[] { 1, 2, 4, 5, 6, 7 }, error.FailedPages);
+        Assert.Equal(0, error.SkippedPages);
+    }
+
+    [Fact]
+    public async Task PartialVariantsAreArchivedSeparatelyFromTheFullVideo()
+    {
+        var pages = Pages(1);
+        var archive = new HashSet<string> { "10", "10:1" };
+        var downloads = 0;
+        var runner = new PageDownloadRunner(archive.Contains, key => archive.Add(key), (_, _) => Task.CompletedTask, _ => { });
+
+        await runner.RunAsync(pages, true, 0, _ =>
+        {
+            downloads++;
+            return Task.FromResult(DownloadPageOutcome.Completed);
+        }, pages, archiveVariant: ":audio");
+        await runner.RunAsync(pages, true, 0, _ => throw new Exception("The audio variant is archived"), pages, archiveVariant: ":audio");
+
+        Assert.Equal(1, downloads);
+        Assert.Contains("10:1:audio", archive);
     }
 
     [Fact]

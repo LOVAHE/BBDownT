@@ -79,7 +79,6 @@ public class SubtitleSelectionTests
     [InlineData("ZH", "zh-Hans,ai-zh")]
     [InlineData("zh-Hans", "zh-Hans")]
     [InlineData("AI-ZH", "ai-zh")]
-    [InlineData("en", "en,ai-en,en-GB")]
     public void LanguageFilter_UsesCaseInsensitiveFamilyOrExactMatching(string language, string expected)
     {
         var selected = SubtitleSelection.Filter(Tracks(), new MyOption

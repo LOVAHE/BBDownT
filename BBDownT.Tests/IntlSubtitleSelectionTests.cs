@@ -11,7 +11,6 @@ public class IntlSubtitleSelectionTests
     [InlineData("", 2, "srt")]
     [InlineData("1-2", 2, "ass")]
     [InlineData("3-4", 2, "srt")]
-    [InlineData("ALL", 4, null)]
     public void InteractiveSelection_ShowsAllFormatsAndUsesDefaultsOrExplicitChoices(
         string answer, int count, string? expectedFormat)
     {

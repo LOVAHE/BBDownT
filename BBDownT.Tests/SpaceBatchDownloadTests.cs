@@ -50,6 +50,16 @@ public class SpaceBatchDownloadTests
     }
 
     [Theory]
+    [InlineData("abc", false)]
+    [InlineData("3000000", false)]
+    [InlineData(" -3 ", true)]
+    [InlineData(null, true)]
+    public void PageDelay_MustBeAnIntegerNumberOfSeconds(string? seconds, bool valid)
+    {
+        Assert.Equal(valid, SpaceBatchDownload.ValidateOptions(new MyOption { Url = "BV1xx411c7mD", DelayPerPage = seconds! }) is null);
+    }
+
+    [Theory]
     [InlineData("https://space.bilibili.com/42", true)]
     [InlineData(SpaceUrl, true)]
     [InlineData("https://space.bilibili.com/42/video?tid=0", true)]

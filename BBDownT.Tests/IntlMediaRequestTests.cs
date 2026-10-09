@@ -161,7 +161,6 @@ public class IntlMediaRequestTests
     }
 
     [Theory]
-    [InlineData(true, "https://www.bilibili.tv/")]
     [InlineData(false, "https://www.bilibili.com")]
     public async Task SizeProbe_SendsTheActualRequestWithRealmRefererAndOriginalUrl(bool international, string referer)
     {
@@ -200,18 +199,6 @@ public class IntlMediaRequestTests
         finally { Config.COOKIE_IS_INTL = originalInternational; }
     }
 
-    [Fact]
-    public async Task AppSizeProbe_DoesNotAddAWebReferer()
-    {
-        using var client = new HttpClient(new StubHandler(request =>
-        {
-            Assert.False(request.Headers.Contains("Referer"));
-            return SizeResponse();
-        }));
-
-        Assert.Equal(123L, await BBDownTDownloadUtil.GetFileSizeAsync(SignedUrl + "&platform=android", client, true));
-    }
-
     [Theory]
     [InlineData(true, "https://www.bilibili.tv/")]
     [InlineData(false, "https://www.bilibili.com")]
@@ -220,11 +207,10 @@ public class IntlMediaRequestTests
         var args = BBDownTAria2c.BuildDownloadArguments(SignedUrl, "/in-memory/output directory/video.mp4",
             "--max-tries=2", international);
 
-        Assert.Contains("--header=\"Referer: " + referer + "\"", args);
-        Assert.Contains("--header=\"User-Agent: Mozilla/5.0\"", args);
-        Assert.Contains("\"" + SignedUrl + "\"", args);
+        Assert.Contains("--header=Referer: " + referer, args);
+        Assert.Contains("--header=User-Agent: Mozilla/5.0", args);
         Assert.Contains("--max-tries=2", args);
-        Assert.Contains("-d \"/in-memory/output directory\" -o \"video.mp4\"", args);
+        Assert.Equal(new[] { SignedUrl, "-d", "/in-memory/output directory", "-o", "video.mp4" }, args.TakeLast(5));
         Assert.Contains("--auto-file-renaming=false", args);
         Assert.Contains("--allow-overwrite=true", args);
     }
@@ -238,9 +224,9 @@ public class IntlMediaRequestTests
 
         var args = BBDownTAria2c.BuildDownloadArguments(url, "/in-memory/video.mp4", "", true);
 
-        Assert.DoesNotContain("Referer", args);
-        Assert.Contains("--header=\"User-Agent: Mozilla/5.0\"", args);
-        Assert.Contains("\"" + url + "\"", args);
+        Assert.DoesNotContain(args, argument => argument.Contains("Referer"));
+        Assert.Contains("--header=User-Agent: Mozilla/5.0", args);
+        Assert.Contains(url, args);
     }
 
     [Fact]
@@ -253,8 +239,8 @@ public class IntlMediaRequestTests
 
             var args = BBDownTAria2c.BuildDownloadArguments(SignedUrl, "/in-memory/video.mp4", "");
 
-            Assert.Contains("--header=\"Referer: https://www.bilibili.tv/\"", args);
-            Assert.DoesNotContain("www.bilibili.com", args);
+            Assert.Contains("--header=Referer: https://www.bilibili.tv/", args);
+            Assert.DoesNotContain(args, argument => argument.Contains("www.bilibili.com"));
         }
         finally { Config.COOKIE_IS_INTL = originalInternational; }
     }

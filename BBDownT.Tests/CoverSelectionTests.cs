@@ -5,17 +5,13 @@ namespace BBDownT.Tests;
 
 public class CoverSelectionTests
 {
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task SkipCover_PreventsTheDownloadCallbackInNormalAndCoverOnlyModes(bool international, bool coverOnly)
+    [Fact]
+    public async Task SkipCover_PreventsTheDownloadCallback()
     {
         var calls = 0;
         var result = await Program.DownloadCoverAsync(new MyOption
         {
-            UseIntlApi = international, CoverOnly = coverOnly, SkipCover = true
+            SkipCover = true
         }, "https://example.test/cover.jpg", "/in-memory/cover.jpg", new DownloadConfig(),
             (_, _, _) => { calls++; return Task.CompletedTask; });
 

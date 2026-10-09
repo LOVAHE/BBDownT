@@ -1,4 +1,5 @@
 ﻿using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using System.Text.Json;
 using static BBDownT.Core.Util.HTTPUtil;
 
@@ -19,7 +20,7 @@ public class SpaceVideoFetcher : IFetcher
         // using the live API can bypass w_rid
         string userInfoApi = $"https://api.live.bilibili.com/live_user/v1/Master/info?uid={id}";
         using var userInfo = JsonDocument.Parse(await fetch(userInfoApi));
-        string userName = GetValidFileName(userInfo.RootElement.GetProperty("data").GetProperty("info").GetProperty("uname").ToString(), ".", true);
+        string userName = GetValidFileName(BilibiliApi.ReadPayload(userInfo.RootElement, "获取UP主信息").GetProperty("info").GetProperty("uname").ToString(), ".", true);
         List<string> urls = new();
         int pageSize = 50;
         int pageNumber = 1;
@@ -27,12 +28,13 @@ public class SpaceVideoFetcher : IFetcher
         api = $"https://api.bilibili.com/x/space/wbi/arc/search?{api}";
         string json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
-        var pages = infoJson.RootElement.GetProperty("data").GetProperty("list").GetProperty("vlist").EnumerateArray();
+        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取UP主投稿列表");
+        var pages = data.GetProperty("list").GetProperty("vlist").EnumerateArray();
         foreach (var page in pages)
         {
             urls.Add($"https://www.bilibili.com/video/av{page.GetProperty("aid")}");
         }
-        int totalCount = infoJson.RootElement.GetProperty("data").GetProperty("page").GetProperty("count").GetInt32();
+        int totalCount = data.GetProperty("page").GetProperty("count").GetInt32();
         int totalPage = (int)Math.Ceiling((double)totalCount / pageSize);
         while (pageNumber < totalPage)
         {
@@ -61,7 +63,8 @@ public class SpaceVideoFetcher : IFetcher
         api = $"https://api.bilibili.com/x/space/wbi/arc/search?{api}";
         string json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
-        var pages = infoJson.RootElement.GetProperty("data").GetProperty("list").GetProperty("vlist").EnumerateArray();
+        var pages = BilibiliApi.ReadPayload(infoJson.RootElement, "获取UP主投稿列表")
+            .GetProperty("list").GetProperty("vlist").EnumerateArray();
         foreach (var page in pages)
         {
             urls.Add($"https://www.bilibili.com/video/av{page.GetProperty("aid")}");

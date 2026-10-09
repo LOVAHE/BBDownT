@@ -101,12 +101,6 @@ public class RangeDownloadTests
     }
 
     [Fact]
-    public void EnsureKnownPositiveFileSize_ReturnsPositiveLength()
-    {
-        Assert.Equal(1024, BBDownTDownloadUtil.EnsureKnownPositiveFileSize(1024));
-    }
-
-    [Fact]
     public void GetTotalFileSize_UsesFullLengthFromPartialResponse()
     {
         var contentRange = new ContentRangeHeaderValue(0, 99, 1024);

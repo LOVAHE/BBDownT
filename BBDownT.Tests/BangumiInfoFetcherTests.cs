@@ -89,15 +89,12 @@ public class BangumiInfoFetcherTests
     [InlineData("{\"width\":1920}")]
     public async Task MalformedDimensions_PreserveEmptyResolutionFallback(string dimension)
     {
-        foreach (var international in new[] { false, true })
-        {
-            var episode = Episode("30", "1", "Title", "missing");
-            episode["dimension"] = JsonNode.Parse(dimension);
+        var episode = Episode("30", "1", "Title", "missing");
+        episode["dimension"] = JsonNode.Parse(dimension);
 
-            var result = await Fetch(international, "ep:30", Season(episode));
+        var result = await Fetch(false, "ep:30", Season(episode));
 
-            Assert.Equal("", Assert.Single(result.PagesInfo).res);
-        }
+        Assert.Equal("", Assert.Single(result.PagesInfo).res);
     }
 
     [Fact]

@@ -85,6 +85,18 @@ public class CommandLineEntryTests
     }
 
     [Fact]
+    public async Task DownloadInvocation_IgnoresServeOnlyOptionsInSharedConfig()
+    {
+        var result = await Invoke(["fixture"], config: "--hide-streams\n--server-max-queue\n5\n--listen\nhttp://127.0.0.1:1\n--server-allow-custom-output\n");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(1, result.DownloadCalls);
+        Assert.NotNull(result.Option);
+        Assert.Equal("fixture", result.Option.Url);
+        Assert.True(result.Option.HideStreams);
+    }
+
+    [Fact]
     public async Task CombinedOptions_ReachTheWorkHandlerAndOverrideConfig()
     {
         var result = await Invoke([
@@ -116,55 +128,38 @@ public class CommandLineEntryTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task Migration_IsExplicitAndReturnsItsResult(int exitCode)
+    [InlineData("--migrate", 0)]
+    [InlineData("--migrate", 1)]
+    [InlineData("--update", 0)]
+    [InlineData("--update", 1)]
+    public async Task MigrationAndUpdate_AreExplicitAndReturnTheirResult(string flag, int exitCode)
     {
-        var result = await Invoke(["--migrate"], migrationExitCode: exitCode);
+        var result = await Invoke([flag], migrationExitCode: exitCode, updateExitCode: exitCode);
 
         Assert.Equal(exitCode, result.ExitCode);
-        Assert.Equal(1, result.MigrationCalls);
+        Assert.Equal(flag == "--migrate" ? 1 : 0, result.MigrationCalls);
+        Assert.Equal(flag == "--update" ? 1 : 0, result.UpdateCalls);
         Assert.Equal(0, result.DownloadCalls);
     }
 
     [Theory]
-    [InlineData("--help")]
-    [InlineData("fixture")]
-    [InlineData("--version")]
-    public async Task MigrationWithOtherArguments_IsRejectedWithoutMigration(string other)
+    [InlineData("--migrate\n")]
+    [InlineData("--update\n")]
+    public async Task StandaloneCommandsInConfig_AreRejectedWithoutRunning(string config)
     {
-        var result = await Invoke(["--migrate", other]);
+        var result = await Invoke(["fixture"], config: config);
 
         Assert.Equal(1, result.ExitCode);
+        Assert.Equal(0, result.UpdateCalls);
         Assert.Equal(0, result.MigrationCalls);
         Assert.Equal(0, result.DownloadCalls);
     }
 
-    [Fact]
-    public async Task MigrationInConfig_IsRejectedWithoutMigrationOrDownload()
+    public static TheoryData<string[]> InvalidStandaloneArguments => new()
     {
-        var result = await Invoke(["fixture"], config: "--migrate\n");
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Equal(0, result.MigrationCalls);
-        Assert.Equal(0, result.DownloadCalls);
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task Update_IsExplicitAndReturnsItsResult(int exitCode)
-    {
-        var result = await Invoke(["--update"], updateExitCode: exitCode);
-
-        Assert.Equal(exitCode, result.ExitCode);
-        Assert.Equal(1, result.UpdateCalls);
-        Assert.Equal(0, result.MigrationCalls);
-        Assert.Equal(0, result.DownloadCalls);
-    }
-
-    public static TheoryData<string[]> InvalidUpdateArguments => new()
-    {
+        new[] { "--migrate", "--help" },
+        new[] { "--migrate", "fixture" },
+        new[] { "--migrate", "--version" },
         new[] { "--update", "--help" },
         new[] { "--update", "--migrate" },
         new[] { "--update", "fixture" },
@@ -176,8 +171,8 @@ public class CommandLineEntryTests
     };
 
     [Theory]
-    [MemberData(nameof(InvalidUpdateArguments))]
-    public async Task UpdateWithOtherArgumentsOrUnsupportedSpelling_IsRejected(string[] args)
+    [MemberData(nameof(InvalidStandaloneArguments))]
+    public async Task StandaloneCommandsWithOtherArgumentsOrUnsupportedSpelling_AreRejected(string[] args)
     {
         var result = await Invoke(args);
 
@@ -196,17 +191,6 @@ public class CommandLineEntryTests
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("--update", result.Error);
         Assert.DoesNotContain("--definitely-unknown", result.Error);
-        Assert.Equal(0, result.UpdateCalls);
-        Assert.Equal(0, result.MigrationCalls);
-        Assert.Equal(0, result.DownloadCalls);
-    }
-
-    [Fact]
-    public async Task UpdateInConfig_IsRejectedWithoutUpdateOrDownload()
-    {
-        var result = await Invoke(["fixture"], config: "--update\n");
-
-        Assert.Equal(1, result.ExitCode);
         Assert.Equal(0, result.UpdateCalls);
         Assert.Equal(0, result.MigrationCalls);
         Assert.Equal(0, result.DownloadCalls);

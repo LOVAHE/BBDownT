@@ -88,6 +88,14 @@ public class SubtitleSourceTests
         Assert.Equal(("chi", "中文"), SubUtil.GetSubtitleCode(subtitle.lan));
     }
 
+    [Theory]
+    [InlineData("ar", "ara", "العربية")]
+    [InlineData("xx-new", "und", "xx-new")]
+    public void LanguageCodes_NameArabicAndKeepUnknownCodesReadable(string code, string tag, string name)
+    {
+        Assert.Equal((tag, name), SubUtil.GetSubtitleCode(code));
+    }
+
     [Fact]
     public async Task DomesticSource_KeepsAiChineseTrackWithProductionObjectUrl()
     {
@@ -147,31 +155,53 @@ public class SubtitleSourceTests
         handler.AssertOnlyNewEndpoint();
     }
 
+    [Fact]
+    public async Task DomesticSource_ApiRefusalMeansNoSubtitlesWithoutRetrying()
+    {
+        var handler = new SubtitleHandler("{\"code\":-101,\"message\":\"not logged in\"}"u8.ToArray());
+        using var client = new HttpClient(handler);
+
+        Assert.Empty(await SubUtil.GetDomesticSubtitlesAsync("123", "456", client,
+            _ => throw new Exception("A refusal is an answer, not a failure")));
+        handler.AssertOnlyNewEndpoint();
+    }
+
     [Theory]
-    [InlineData(200, "{\"code\":-101,\"message\":\"not logged in\"}")]
     [InlineData(200, "invalid protobuf")]
     [InlineData(412, "request was banned")]
-    public async Task DomesticSource_FailedResponseDoesNotCallLegacyApis(int status, string body)
+    [InlineData(200, "{\"code\":-412,\"message\":\"request was banned\"}")]
+    public async Task DomesticSource_FailuresRotateTheIdentityForThreeRoundsThenEndTheTask(int status, string body)
     {
         var handler = new SubtitleHandler(System.Text.Encoding.UTF8.GetBytes(body), status);
         using var client = new HttpClient(handler);
+        var waits = new List<TimeSpan>();
 
-        Assert.Empty(await SubUtil.GetDomesticSubtitlesAsync("123", "456", client));
-        handler.AssertOnlyNewEndpoint();
+        await Assert.ThrowsAsync<SubtitleUnavailableException>(() => SubUtil.GetDomesticSubtitlesAsync("123", "456", client,
+            wait =>
+            {
+                waits.Add(wait);
+                return Task.CompletedTask;
+            }));
+
+        Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)], waits);
+        handler.AssertOnlyNewEndpoint(minimumRequests: 3, maximumRequests: 6);
     }
 
     private sealed class SubtitleHandler(byte[] payload, int status = 200) : HttpMessageHandler
     {
         private readonly List<(HttpMethod Method, Uri Uri, string Accept)> requests = [];
 
-        public void AssertOnlyNewEndpoint()
+        public void AssertOnlyNewEndpoint(int minimumRequests = 1, int maximumRequests = 1)
         {
-            var request = Assert.Single(requests);
-            Assert.Equal(HttpMethod.Get, request.Method);
-            Assert.Equal("api.bilibili.com", request.Uri.Host);
-            Assert.Equal("/x/v2/subtitle/web/view", request.Uri.AbsolutePath);
-            Assert.Contains("oid=456&pid=123", request.Uri.Query);
-            Assert.Contains("application/octet-stream", request.Accept);
+            Assert.InRange(requests.Count, minimumRequests, maximumRequests);
+            Assert.All(requests, request =>
+            {
+                Assert.Equal(HttpMethod.Get, request.Method);
+                Assert.Equal("api.bilibili.com", request.Uri.Host);
+                Assert.Equal("/x/v2/subtitle/web/view", request.Uri.AbsolutePath);
+                Assert.Contains("oid=456&pid=123", request.Uri.Query);
+                Assert.Contains("application/octet-stream", request.Accept);
+            });
         }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

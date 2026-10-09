@@ -109,9 +109,9 @@ public class ResumeStateCodecTests
     [InlineData("W/\"opaque\"", false)]
     [InlineData("*", false)]
     [InlineData("invalid-unquoted-tag", false)]
-    [InlineData("", false)]
-    [InlineData(null, false)]
-    public void CrossUriMatching_RequiresTheObjectHashAndAStrongEntityTag(string? entityTag, bool matches)
+    [InlineData("", true)]
+    [InlineData(null, true)]
+    public void CrossUriMatching_RequiresTheObjectHashAndAUsableValidator(string? entityTag, bool matches)
     {
         const string oldUrl = "https://cdn.test/media?signature=original";
         const string newUrl = "https://cdn.test/media?signature=refreshed";
@@ -127,19 +127,6 @@ public class ResumeStateCodecTests
         Assert.False(state.MatchesSource(newUrl, null));
         Assert.False(state.MatchesSource(newUrl, ""));
         Assert.False(state.MatchesSource(newUrl, new string('C', 64)));
-    }
-
-    [Fact]
-    public void GenericUris_DoNotBecomeEquivalentBecauseTheyShareAnOpaqueEntityTag()
-    {
-        const string oldUrl = "https://cdn.test/media?signature=original";
-        const string newUrl = "https://cdn.test/media?signature=refreshed";
-        var state = new DownloadResumeState("selected-track", DownloadResumeState.SourceHash(oldUrl), 0, 3, 4, true, 4,
-            new string('A', 64), new("\"shared-opaque\"", null));
-
-        Assert.Null(DownloadMediaSource.CreateObjectHash(oldUrl));
-        Assert.Null(DownloadMediaSource.CreateObjectHash(newUrl));
-        Assert.False(state.MatchesSource(newUrl, DownloadMediaSource.CreateObjectHash(newUrl)));
     }
 
     [Theory]

@@ -28,8 +28,27 @@ internal static class BBDownTConfigParser
                 Log($"加载配置文件: {configPath}");
                 var configLines = File.ReadAllLines(configPath);
                 var normalizedConfigLines = configLines.Select(line => line.Trim()).ToArray();
-                var configArgs = normalizedConfigLines
-                    .Where(s => s.Length > 0 && !s.StartsWith('#'))
+                var knownAliases = rootCommand.Options
+                    .Concat(rootCommand.Children.OfType<Command>().SelectMany(command => command.Options))
+                    .SelectMany(option => option.Aliases)
+                    .ToHashSet(StringComparer.Ordinal);
+                var unknownOptions = normalizedConfigLines
+                    .Where(IsOptionDeclaration)
+                    .Select(OptionAlias)
+                    .Where(option => !knownAliases.Contains(option))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (unknownOptions.Length > 0)
+                {
+                    foreach (var option in unknownOptions)
+                    {
+                        LogError($"配置文件错误 ({configPath}): 无法识别的配置项 {CommandLineLogSanitizer.SanitizeText(option)}");
+                    }
+                    return false;
+                }
+                var validationCommand = string.IsNullOrEmpty(commandName) ? "config-validation-placeholder" : commandName;
+                var configArgs = LinesForCommand(normalizedConfigLines,
+                        alias => !rootCommand.Parse([validationCommand, alias]).UnmatchedTokens.Contains(alias))
                     .SelectMany(s =>
                         {
                             var trimLine = s.Trim();
@@ -43,28 +62,7 @@ internal static class BBDownTConfigParser
                         }
                     );
                 var configArgsArray = configArgs.ToArray();
-                var knownAliases = rootCommand.Options
-                    .Concat(rootCommand.Children.OfType<Command>().SelectMany(command => command.Options))
-                    .SelectMany(option => option.Aliases)
-                    .ToHashSet(StringComparer.Ordinal);
-                var unknownOptions = normalizedConfigLines
-                    .Where(IsOptionDeclaration)
-                    .Select(line => line.Split([' ', '='], 2)[0])
-                    .Where(option => !knownAliases.Contains(option))
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                if (unknownOptions.Length > 0)
-                {
-                    foreach (var option in unknownOptions)
-                    {
-                        LogError($"配置文件错误 ({configPath}): 无法识别的配置项 {CommandLineLogSanitizer.SanitizeText(option)}");
-                    }
-                    return false;
-                }
-                string[] configValidationArgs = string.IsNullOrEmpty(commandName)
-                    ? ["config-validation-placeholder", .. configArgsArray]
-                    : [commandName, .. configArgsArray];
-                var configArgsResult = rootCommand.Parse(configValidationArgs);
+                var configArgsResult = rootCommand.Parse([validationCommand, .. configArgsArray]);
                 if (configArgsResult.Errors.Any())
                 {
                     foreach (var error in configArgsResult.Errors)
@@ -105,6 +103,23 @@ internal static class BBDownTConfigParser
             return false;
         }
     }
+
+    private static IEnumerable<string> LinesForCommand(IEnumerable<string> lines, Func<string, bool> appliesToCommand)
+    {
+        var keep = true;
+        foreach (var line in lines.Where(s => s.Length > 0 && !s.StartsWith('#')))
+        {
+            if (IsOptionDeclaration(line))
+            {
+                var alias = OptionAlias(line);
+                keep = appliesToCommand(alias);
+                if (!keep) LogDebug($"配置项 {CommandLineLogSanitizer.SanitizeText(alias)} 不适用于当前命令，已忽略");
+            }
+            if (keep) yield return line;
+        }
+    }
+
+    private static string OptionAlias(string line) => line.Split([' ', '='], 2)[0];
 
     private static bool IsOptionDeclaration(string line)
     {

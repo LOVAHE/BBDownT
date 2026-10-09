@@ -29,9 +29,6 @@ public static class Config
         "bilibili.com",
         "bilibili.tv",
         "biliintl.com",
-        "bilivideo.com",
-        "bilivideo.cn",
-        "hdslb.com",
         "biliapi.net"
     ];
 

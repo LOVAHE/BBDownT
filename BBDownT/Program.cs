@@ -435,7 +435,8 @@ partial class Program
 
     private static void TrustConfiguredCookieHosts(MyOption myOption)
     {
-        var configuredHosts = new[] { myOption.Host, myOption.EpHost, myOption.TvHost, myOption.UposHost }
+        if (myOption is ServeRequestOptions) return;
+        var configuredHosts = new[] { myOption.Host, myOption.EpHost }
             .Select(NormalizeCookieAllowedDomain)
             .Where(host => !string.IsNullOrWhiteSpace(host))
             .Select(host => host!);
@@ -503,24 +504,25 @@ partial class Program
                     (path, content) => WriteSpaceExportAsync(path, content, myOption.RestrictedOutputRoot))
                 : await fetcher.FetchAsync(aidOri);
         }
-        catch (KeyNotFoundException e)
+        catch (BilibiliApiException e) when (!myOption.UseIntlApi && aidOri.StartsWith("ep:", StringComparison.Ordinal)
+            && !BilibiliApi.IsRateLimited(e.Code))
         {
-            if (e.Message != "Arg_KeyNotFound") throw; // 错误消息不符合预期，抛出异常
-            if (aidOri.StartsWith("cheese:")) throw; // 已经按课程查找过，不再重复尝试
+            LogWarn($"未找到此 EP 对应的番剧（{ErrorText.Describe(e)}），正在尝试按课程查找。");
 
-            LogWarn("未找到此 EP/SS 对应番剧信息, 正在尝试按课程查找。");
-
-            aidOri = aidOri.Replace("ep", "cheese");
+            aidOri = "cheese:" + aidOri["ep:".Length..];
             Log("新的 aid: " + aidOri);
-
-            if (string.IsNullOrEmpty(aidOri))
-            {
-                throw new Exception("输入有误");
-            }
 
             Log("获取视频信息...");
             fetcher = FetcherFactory.CreateFetcher(aidOri, myOption.UseIntlApi);
-            vInfo = await fetcher.FetchAsync(aidOri);
+            try
+            {
+                vInfo = await fetcher.FetchAsync(aidOri);
+            }
+            catch (BilibiliApiException course) when (!BilibiliApi.IsRateLimited(course.Code))
+            {
+                LogWarn($"按课程查找也失败了（{ErrorText.Describe(course)}）。");
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(e);
+            }
         }
 
         string title = vInfo.Title;
@@ -598,10 +600,11 @@ partial class Program
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
         if (myOption.SaveArchivesToFile && !useAidArchive)
             Log("已选择配音版本，不读写默认配音的下载归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
+        var archiveVariant = myOption.SkipMux ? ":streams" : myOption.AudioOnly ? ":audio" : myOption.VideoOnly ? ":video" : "";
         await runner.RunAsync(plan.Pages, useAidArchive, delay,
             page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
                 downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, playbackId, apiType, relatedTask, subtitleSession),
-            vInfo.PagesInfo);
+            vInfo.PagesInfo, archiveVariant: archiveVariant);
     }
 
     private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
@@ -615,6 +618,8 @@ partial class Program
         string pic = vInfo.Pic;
         long pubTime = vInfo.PubTime;
         bool selected = false; //用户是否已经手动选择过了轨道
+        Video? chosenVideo = null;
+        Audio? chosenAudio = null;
         var pageRetry = new PageDownloadRetry();
         TimeSpan retryDelay;
         var progressiveSelection = new ProgressiveStreamSelection();
@@ -811,9 +816,12 @@ partial class Program
                 int aIndex = 0; //用户手动选择的音频序号
 
                 //选择轨道
-                if (myOption.Interactive && !selected)
+                if (myOption.Interactive
+                    && (!selected || !TryRestoreTrackChoice(parsedResult, chosenVideo, chosenAudio, ref vIndex, ref aIndex)))
                 {
                     SelectTrackManually(parsedResult, ref vIndex, ref aIndex);
+                    chosenVideo = parsedResult.VideoTracks.ElementAtOrDefault(vIndex);
+                    chosenAudio = parsedResult.AudioTracks.ElementAtOrDefault(aIndex);
                     selected = true;
                 }
 
@@ -827,6 +835,7 @@ partial class Program
                 savePath = FormatSavePath(savePathFormat, title, selectedVideo, selectedAudio, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
                 savePath = AudioLanguageSelection.OutputPath(savePath, requestedAudioLanguage, myOption.AudioOnly && !myOption.VideoOnly);
                 savePath = OutputPathPolicy.ResolveArtifact(savePath, myOption.RestrictedOutputRoot);
+                savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
                 LogDebug("Format After: " + savePath);
 
                 if (downloadDanmaku)
@@ -839,8 +848,7 @@ partial class Program
                     var danmakus = DanmakuUtil.ParseXml(danmakuXmlPath);
                     if (danmakus == null)
                     {
-                        Log("弹幕Xml解析失败, 删除Xml...");
-                        File.Delete(danmakuXmlPath);
+                        LogWarn(downloadDanmakuFormats.Contains(BBDownTDanmakuFormat.Xml) ? "弹幕Xml解析失败, 已保留原始Xml" : "弹幕Xml解析失败, 未生成Ass");
                     }
                     else if (danmakus.Length == 0)
                     {
@@ -895,6 +903,7 @@ partial class Program
 
                 if (ShouldUseMuxedOutputCache(myOption, savePath))
                 {
+                    OutputOwnership.Default.Record(savePath, p);
                     Log($"{savePath}已存在, 跳过下载...");
                     relatedTask?.AddSavePath(savePath);
                     if (!myOption.SkipCover) File.Delete(coverPath);
@@ -936,9 +945,11 @@ partial class Program
                 {
                     foreach (var role in parsedResult.RoleAudioList)
                     {
+                        var roleAudio = role.audio.ElementAtOrDefault(aIndex) ?? role.audio.FirstOrDefault();
+                        if (roleAudio is null) continue;
                         Log($"开始下载P{p.index}配音[{role.title}]...");
-                        await DownloadTrackAsync(role.audio[aIndex].baseUrl, role.path, downloadConfig, video: false,
-                            resourceIdentity: GetTrackResumeIdentity(p, apiType, "role-audio", audio: role.audio[aIndex],
+                        await DownloadTrackAsync(roleAudio.baseUrl, role.path, downloadConfig, video: false,
+                            resourceIdentity: GetTrackResumeIdentity(p, apiType, "role-audio", audio: roleAudio,
                                 variant: (actualAudioLanguage ?? "") + ":" + role.title + ":" + role.personName));
                         audioMaterial.Add(new AudioMaterial(role));
                     }
@@ -955,8 +966,6 @@ partial class Program
                     return DownloadPageOutcome.Partial;
                 }
                 Log($"开始合并音视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
-                if (myOption.AudioOnly)
-                    savePath = savePath[..^4] + ".m4a";
 
                 var isHevc = selectedVideo?.codecs == "HEVC";
                 var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(myOption.UseMP4box, p.bvid, videoPath, audioPath, audioMaterial, staged,
@@ -971,6 +980,7 @@ partial class Program
                 {
                     LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
+                OutputOwnership.Default.Record(savePath, p);
                 Log("清理临时文件...");
                 Thread.Sleep(200);
                 if (parsedResult.VideoTracks.Any()) MediaOutput.DeleteInput(videoPath, savePath);
@@ -1019,8 +1029,11 @@ partial class Program
                 }
                 if (myOption.OnlyShowInfo) return DownloadPageOutcome.InfoOnly;
                 savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.FirstOrDefault(), null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
+                if (myOption.AudioOnly) savePath = Path.ChangeExtension(savePath, ".m4a");
+                savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
                 if (File.Exists(savePath) && new FileInfo(savePath).Length != 0)
                 {
+                    OutputOwnership.Default.Record(savePath, p);
                     Log($"{savePath}已存在, 跳过下载...");
                     relatedTask?.AddSavePath(savePath);
                     DeleteEmptyDownloadDirectory(p.DownloadId);
@@ -1048,8 +1061,6 @@ partial class Program
                     return DownloadPageOutcome.Partial;
                 }
                 Log($"开始混流视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
-                if (myOption.AudioOnly)
-                    savePath = savePath[..^4] + ".m4a";
                 var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(false, p.bvid, videoPath, "", audioMaterial, staged,
                     desc,
                     title,
@@ -1062,6 +1073,7 @@ partial class Program
                 {
                     LogError("合并失败"); return DownloadPageOutcome.Failed;
                 }
+                OutputOwnership.Default.Record(savePath, p);
                 Log("清理临时文件...");
                 Thread.Sleep(200);
                 if (parsedResult.VideoTracks.Count != 0) MediaOutput.DeleteInput(videoPath, savePath);
@@ -1074,6 +1086,7 @@ partial class Program
             }
             else
             {
+                if (BilibiliApi.GetError(parsedResult.WebJsonString, "获取播放地址") is { } playError) throw playError;
                 LogError("解析此分P失败(建议--debug查看详细信息)");
                 if (parsedResult.WebJsonString.Length < 100)
                 {
@@ -1090,7 +1103,7 @@ partial class Program
         }
         catch (Exception ex) when (pageRetry.TryGetDelay(ex, out retryDelay))
         {
-            LogError(NetworkRetry.Describe(ex));
+            LogError(ErrorText.Describe(ex));
             LogWarn($"下载出现异常，{retryDelay.TotalSeconds:0}秒后重新解析此分P并续传...");
             await Task.Delay(retryDelay);
             goto downloadPage;
@@ -1167,9 +1180,9 @@ partial class Program
         {
             Console.BackgroundColor = ConsoleColor.Red;
             Console.ForegroundColor = ConsoleColor.White;
-            var msg = RedactSensitiveText(Config.DEBUG_LOG ? e.ToString() : e.Message);
+            var msg = Config.DEBUG_LOG ? RedactSensitiveText(e.ToString()) : ErrorText.Describe(e);
             Console.Write($"{msg}{Environment.NewLine}");
-            if (e is not IntlApiException) Console.Write("请尝试升级到最新版本后重试!");
+            if (ErrorText.SuggestsUpdate(e)) Console.Write("请尝试升级到最新版本后重试!");
             Console.ResetColor();
             Console.WriteLine();
             Thread.Sleep(1);
@@ -1205,6 +1218,21 @@ partial class Program
 
     internal static string FormatSavePath(string savePathFormat, string title, Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? restrictedRoot = null)
     {
+        var videoTitle = CleanNamePart(title);
+        var pageTitle = CleanNamePart(p.title);
+        var ownerName = p.ownerName == null ? "" : CleanNamePart(p.ownerName);
+        var result = OutputNameLimit.Fit(cap => ExpandSavePath(savePathFormat,
+                OutputNameLimit.Shorten(videoTitle, cap), OutputNameLimit.Shorten(pageTitle, cap),
+                OutputNameLimit.Shorten(ownerName, cap), videoTrack, audioTrack, p, pagesCount, apiType, pubTime),
+            videoTitle, pageTitle, ownerName);
+        return OutputPathPolicy.Resolve(result, restrictedRoot);
+    }
+
+    private static string CleanNamePart(string value) => GetValidFileName(value, filterSlash: true).Trim().TrimEnd('.').Trim();
+
+    private static string ExpandSavePath(string savePathFormat, string videoTitle, string pageTitle, string ownerName,
+        Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime)
+    {
         var result = savePathFormat.Replace('\\', '/');
         // File-template aliases use a stable episode key when international
         // metadata has no domestic IDs. The metadata itself remains unchanged.
@@ -1229,15 +1257,15 @@ partial class Program
 
             var v = key switch
             {
-                "videoTitle" => GetValidFileName(title, filterSlash: true).Trim().TrimEnd('.').Trim(),
+                "videoTitle" => videoTitle,
                 "pageNumber" => p.index.ToString(),
                 "pageNumberWithZero" => p.index.ToString().PadLeft(pagesCount.ToString().Length, '0'),
-                "pageTitle" => GetValidFileName(p.title, filterSlash: true).Trim().TrimEnd('.').Trim(),
+                "pageTitle" => pageTitle,
                 "bvid" => nativeInternational ? p.DownloadId : p.bvid,
                 "aid" => nativeInternational ? p.DownloadId : p.aid,
                 "cid" => nativeInternational ? p.epid : p.cid,
                 "epid" or "episodeId" => p.epid,
-                "ownerName" => p.ownerName == null ? "" : GetValidFileName(p.ownerName, filterSlash: true).Trim().TrimEnd('.').Trim(),
+                "ownerName" => ownerName,
                 "ownerMid" => p.ownerMid ?? "",
                 "dfn" => videoTrack == null ? "" : videoTrack.dfn,
                 "res" => videoTrack == null ? "" : videoTrack.res,
@@ -1254,7 +1282,7 @@ partial class Program
             result = result.Replace(m.Value, v);
         }
         if (!result.EndsWith(".mp4")) { result += ".mp4"; }
-        return OutputPathPolicy.Resolve(result, restrictedRoot);
+        return result;
     }
 
     [GeneratedRegex("<([\\w:\\-.]+?)>")]

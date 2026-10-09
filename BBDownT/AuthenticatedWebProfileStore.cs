@@ -35,14 +35,25 @@ internal static partial class AuthenticatedWebProfileStore
                 if (profile is not null && profile.IsValid()) return profile;
                 LogWarn($"{FileName}内容无效，已生成新的浏览器请求配置。");
             }
+            catch (JsonException)
+            {
+                LogWarn($"{FileName}内容无效，已生成新的浏览器请求配置。");
+            }
             catch (Exception ex)
             {
-                LogWarn($"读取{FileName}失败，已生成新的浏览器请求配置。原因：{ex.Message}");
+                LogWarn($"读取{FileName}失败，已生成新的浏览器请求配置。原因：{ErrorText.Describe(ex)}");
             }
         }
 
         var generated = BrowserRequestProfile.Create(Random.Shared);
-        Save(directory, generated);
+        try
+        {
+            Save(directory, generated);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LogWarn($"保存{FileName}失败，将仅在本次运行中使用新的浏览器请求配置。原因：{ErrorText.Describe(ex)}");
+        }
         return generated;
     }
 

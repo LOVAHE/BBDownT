@@ -1,5 +1,4 @@
 using System.Net.Http;
-using BBDownT.Core.Util;
 
 namespace BBDownT;
 
@@ -19,7 +18,6 @@ internal static class MediaRequestPolicy
         var referer = GetReferer(url, international);
         if (referer is not null) request.Headers.TryAddWithoutValidation("Referer", referer);
         request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        if (!international) HTTPUtil.TryAddCookieHeader(request, url);
         if (fromPosition is not null) request.Headers.Range = new(fromPosition, toPosition);
         return request;
     }

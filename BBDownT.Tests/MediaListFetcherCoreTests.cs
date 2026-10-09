@@ -1,5 +1,6 @@
 using BBDownT.Core.Entity;
 using BBDownT.Core.Fetcher;
+using BBDownT.Core.Util;
 
 namespace BBDownT.Tests;
 
@@ -85,7 +86,7 @@ public class MediaListFetcherCoreTests
             "{\"code\":-403,\"message\":\"forbidden\",\"data\":null}"
         ]);
 
-        var exception = await Assert.ThrowsAsync<Exception>(() =>
+        var exception = await Assert.ThrowsAsync<BilibiliApiException>(() =>
             MediaListFetcherCore.FetchAsync(
                 "42",
                 5,
@@ -94,7 +95,8 @@ public class MediaListFetcherCoreTests
                 "系列",
                 _ => Task.FromResult(responses.Dequeue())));
 
-        Assert.Contains("获取系列视频列表失败(code=-403): forbidden", exception.Message);
+        Assert.Equal("获取系列视频列表失败：forbidden（错误码 -403）", exception.Message);
+        Assert.Equal(-403, exception.Code);
     }
 
     [Fact]

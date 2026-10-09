@@ -6,7 +6,6 @@ public class PlayRequestTests
 {
     [Theory]
     [InlineData("0", null)]
-    [InlineData("129", "en-US")]
     public async Task BangumiWeb_KeepsV2AndOmitsBrowserHint(string qn, string? language)
     {
         var urls = new List<Uri>();

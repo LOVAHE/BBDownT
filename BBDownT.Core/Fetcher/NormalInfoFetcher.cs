@@ -1,4 +1,5 @@
 ﻿using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -14,7 +15,7 @@ public partial class NormalInfoFetcher : IFetcher
         string api = $"https://api.bilibili.com/x/web-interface/view?aid={id}";
         string json = await GetWebSourceAsync(api);
         using var infoJson = JsonDocument.Parse(json);
-        var data = infoJson.RootElement.GetProperty("data");
+        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取视频信息");
         string title = data.GetProperty("title").ToString();
         string desc = data.GetProperty("desc").ToString();
         string pic = data.GetProperty("pic").ToString();
@@ -67,7 +68,7 @@ public partial class NormalInfoFetcher : IFetcher
                 var edgeInfoApi = $"https://api.bilibili.com/x/stein/edgeinfo_v2?graph_version={graphVersion}&bvid={bvid}";
                 var edgeInfoJson = await GetWebSourceAsync(edgeInfoApi);
                 using var edgeDocument = JsonDocument.Parse(edgeInfoJson);
-                var edgeInfoData = edgeDocument.RootElement.GetProperty("data");
+                var edgeInfoData = BilibiliApi.ReadPayload(edgeDocument.RootElement, "获取互动视频分支");
                 var questions = edgeInfoData.GetProperty("edges").GetProperty("questions").EnumerateArray()
                     .ToList();
                 var index = 2; // 互动视频分P索引从2开始

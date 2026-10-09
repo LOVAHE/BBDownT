@@ -108,9 +108,11 @@ public class SelfUpdaterTests
     }
 
     [Fact]
-    public async Task UpdateAsync_DownloadsVerifiesAndInstallsWhileKeepingTheBackupAndMode()
+    public async Task UpdateAsync_DownloadsVerifiesAndInstallsKeepingOnlyTheNewBackupAndMode()
     {
         using var fixture = new UpdateFixture();
+        var olderBackup = fixture.CreateFile("bbd.backup-1.0.0-" + new string('a', 32));
+        var unrelated = fixture.CreateFile("bbd.backup-manual");
         var originalMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
             | UnixFileMode.GroupRead;
         if (!OperatingSystem.IsWindows())
@@ -148,6 +150,8 @@ public class SelfUpdaterTests
             new[] { BBDownTSelfUpdater.LatestReleaseUrl, ExpectedAssetUrl },
             handler.RequestedUrls);
         Assert.False(File.Exists(fixture.LockPath));
+        Assert.False(File.Exists(olderBackup));
+        Assert.True(File.Exists(unrelated));
         if (!OperatingSystem.IsWindows())
         {
             Assert.Equal(originalMode, File.GetUnixFileMode(fixture.TargetPath));
@@ -356,6 +360,7 @@ public class SelfUpdaterTests
     private sealed class UpdateFixture : IDisposable
     {
         private readonly bool _createdFixtureRoot;
+        private readonly List<string> _extraFiles = [];
 
         internal UpdateFixture()
         {
@@ -379,8 +384,18 @@ public class SelfUpdaterTests
         internal string BackupPath { get; }
         internal string? SuccessBackupPath { get; set; }
 
+        internal string CreateFile(string name)
+        {
+            string path = Path.Combine(WorkingDirectory, name);
+            File.WriteAllBytes(path, OriginalBytes);
+            _extraFiles.Add(path);
+            return path;
+        }
+
         public void Dispose()
         {
+            foreach (var path in _extraFiles)
+                DeleteFile(path);
             DeleteFile(TargetPath);
             DeleteFile(LockPath);
             DeleteFile(StagedPath);
