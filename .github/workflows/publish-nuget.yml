@@ -36,7 +36,7 @@ jobs:
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --json tagName,isDraft,isPrerelease \
             | jq -e --arg tag "$GITHUB_REF_NAME" \
-              '.tagName == $tag and .isDraft == false and .isPrerelease == false'
+              '.tagName == $tag and .isDraft == false and .isPrerelease == ($tag | contains("-"))'
 
       - name: Checkout
         uses: actions/checkout@v7
