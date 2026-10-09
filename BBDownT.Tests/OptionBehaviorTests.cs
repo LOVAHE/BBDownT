@@ -15,8 +15,8 @@ public class OptionBehaviorTests
         try
         {
             Config.COOKIE_ALLOWED_DOMAINS = ["bilibili.com"];
-            Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", Host = "proxy.example.test", TvHost = "tv.example.test" });
-            Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", EpHost = "task.example.test" });
+            Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", OnlyShowInfo = true, Host = "proxy.example.test", TvHost = "tv.example.test" });
+            Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true, EpHost = "task.example.test" });
 
             Assert.Contains("proxy.example.test", Config.COOKIE_ALLOWED_DOMAINS);
             Assert.DoesNotContain("tv.example.test", Config.COOKIE_ALLOWED_DOMAINS);

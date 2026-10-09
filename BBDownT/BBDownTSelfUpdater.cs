@@ -17,10 +17,39 @@ namespace BBDownT;
 
 internal static partial class BBDownTSelfUpdater
 {
-    internal const string LatestReleaseUrl = "https://api.github.com/repos/LOVAHE/BBDownT/releases/latest";
+    internal const string ReleasesUrl = "https://api.github.com/repos/LOVAHE/BBDownT/releases?per_page=20";
     private const long MaxBinaryBytes = 256 * 1024 * 1024;
 
-    internal sealed record ReleaseAsset(Version Version, string Name, Uri Url, long Size, string Sha256);
+    internal sealed record ReleaseAsset(ReleaseVersion Version, string Name, Uri Url, long Size, string Sha256);
+
+    internal sealed partial record ReleaseVersion(Version Core, int Stage, int Number) : IComparable<ReleaseVersion>
+    {
+        private const int Beta = 0, Candidate = 1, Stable = 2;
+
+        public bool IsPrerelease => Stage != Stable;
+
+        public static bool TryParse(string? text, [NotNullWhen(true)] out ReleaseVersion? version)
+        {
+            version = null;
+            var match = Pattern().Match(text?.Split('+')[0].Trim() ?? "");
+            if (!match.Success || !Version.TryParse(match.Groups["core"].Value, out var core)) return false;
+            var stage = match.Groups["stage"].Value.ToLowerInvariant() switch { "beta" => Beta, "rc" => Candidate, _ => Stable };
+            version = new(core, stage, match.Groups["number"].Length == 0 ? 0 : int.Parse(match.Groups["number"].Value));
+            return true;
+        }
+
+        public int CompareTo(ReleaseVersion? other)
+            => other is null ? 1 : Core != other.Core ? Core.CompareTo(other.Core)
+                : Stage != other.Stage ? Stage.CompareTo(other.Stage) : Number.CompareTo(other.Number);
+
+        public static bool operator >(ReleaseVersion left, ReleaseVersion right) => left.CompareTo(right) > 0;
+        public static bool operator <(ReleaseVersion left, ReleaseVersion right) => left.CompareTo(right) < 0;
+
+        public override string ToString() => Core + Stage switch { Beta => "-beta", Candidate => "-rc", _ => "" } + (IsPrerelease && Number > 0 ? Number.ToString() : "");
+
+        [GeneratedRegex(@"^[vV]?(?<core>[0-9]+\.[0-9]+\.[0-9]+)(?:-(?<stage>beta|rc)(?<number>[0-9]{0,6}))?\z", RegexOptions.IgnoreCase)]
+        private static partial Regex Pattern();
+    }
     internal enum InstallationKind { Standalone, DotnetTool, Managed }
 
     [UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "An empty assembly location identifies the standalone builds supported by self-update.")]
@@ -48,15 +77,16 @@ internal static partial class BBDownTSelfUpdater
             if (file.LinkTarget is not null)
                 executable = file.ResolveLinkTarget(true)?.FullName ?? throw new IOException("无法解析程序符号链接");
 
-            var version = Assembly.GetExecutingAssembly().GetName().Version!;
-            var current = new Version(version.Major, version.Minor, version.Build);
+            var informational = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!ReleaseVersion.TryParse(informational, out var current))
+                throw new InvalidOperationException("无法识别当前程序版本");
             // Update traffic never shares Bilibili cookies or permissive TLS settings.
             using var client = new HttpClient(new HttpClientHandler { UseCookies = false })
             {
                 Timeout = Timeout.InfiniteTimeSpan,
                 MaxResponseContentBufferSize = 2 * 1024 * 1024
             };
-            Console.WriteLine($"检查最新正式版本（当前 {current}）...");
+            Console.WriteLine($"检查最新版本（当前 {current}）...");
             var result = await UpdateAsync(client, executable, current, assetName,
                 OperatingSystem.IsWindows(), VerifyExecutableAsync, cancellation.Token);
             if (result is null)
@@ -105,16 +135,21 @@ internal static partial class BBDownTSelfUpdater
         return $"BBDownT_{platform}-{arch}" + (platform == "win" ? ".exe" : "");
     }
 
-    internal static ReleaseAsset? SelectAsset(string json, Version current, string assetName)
+    internal static ReleaseAsset? SelectAsset(string json, ReleaseVersion current, string assetName)
     {
         using var document = JsonDocument.Parse(json);
-        var release = document.RootElement;
-        if (release.GetProperty("draft").GetBoolean() || release.GetProperty("prerelease").GetBoolean())
-            throw new InvalidDataException("更新接口未返回正式发布版本");
-        string tag = release.GetProperty("tag_name").GetString() ?? "";
-        if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest) || latest.Build < 0)
-            throw new InvalidDataException("发布版本号无效");
-        if (latest <= current) return null;
+        JsonElement? newest = null;
+        ReleaseVersion? latest = null;
+        foreach (var candidate in document.RootElement.EnumerateArray())
+        {
+            if (candidate.GetProperty("draft").GetBoolean()
+                || !ReleaseVersion.TryParse(candidate.GetProperty("tag_name").GetString(), out var version)) continue;
+            var prerelease = version.IsPrerelease || candidate.GetProperty("prerelease").GetBoolean();
+            if ((prerelease && !(current.IsPrerelease && version.Core == current.Core)) || !(version > current) || (latest is not null && !(version > latest))) continue;
+            (newest, latest) = (candidate, version);
+        }
+        if (newest is not { } release || latest is null) return null;
+        string tag = release.GetProperty("tag_name").GetString()!;
 
         var matches = release.GetProperty("assets").EnumerateArray()
             .Where(asset => asset.GetProperty("name").GetString() == assetName).ToArray();
@@ -134,16 +169,14 @@ internal static partial class BBDownTSelfUpdater
 
     // The injected client and version probe allow offline verification without
     // replacing the test host or contacting GitHub. A backup is retained on success.
-    internal static async Task<(Version Version, string BackupPath)?> UpdateAsync(
-        HttpClient client, string executable, Version current, string assetName, bool windows,
-        Func<string, Version, CancellationToken, Task> verifyExecutable, CancellationToken cancellationToken = default)
+    internal static async Task<(ReleaseVersion Version, string BackupPath)?> UpdateAsync(
+        HttpClient client, string executable, ReleaseVersion current, string assetName, bool windows,
+        Func<string, ReleaseVersion, CancellationToken, Task> verifyExecutable, CancellationToken cancellationToken = default)
     {
-        using var request = CreateRequest(LatestReleaseUrl);
+        using var request = CreateRequest(ReleasesUrl);
         request.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         using var response = await client.SendAsync(request, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new InvalidOperationException("尚无可用的正式 Release；草稿版本不参与更新");
         response.EnsureSuccessStatusCode();
         var asset = SelectAsset(await response.Content.ReadAsStringAsync(cancellationToken), current, assetName);
         if (asset is null) return null;
@@ -276,7 +309,7 @@ internal static partial class BBDownTSelfUpdater
         }
     }
 
-    [GeneratedRegex(@"^\.backup-[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{32}\z")]
+    [GeneratedRegex(@"^\.backup-[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|rc)[0-9]*)?-[0-9a-f]{32}\z")]
     private static partial Regex BackupSuffix();
 
     private static HttpRequestMessage CreateRequest(string url)
@@ -286,7 +319,7 @@ internal static partial class BBDownTSelfUpdater
         return request;
     }
 
-    private static async Task VerifyExecutableAsync(string staged, Version expected, CancellationToken cancellationToken)
+    private static async Task VerifyExecutableAsync(string staged, ReleaseVersion expected, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo(staged)
         {
@@ -304,7 +337,7 @@ internal static partial class BBDownTSelfUpdater
             await process.WaitForExitAsync(timeout.Token);
             string text = (await output).Trim().Split('+')[0];
             await error;
-            if (process.ExitCode != 0 || !Version.TryParse(text, out var version) || version != expected)
+            if (process.ExitCode != 0 || !ReleaseVersion.TryParse(text, out var version) || version != expected)
                 throw new InvalidDataException("更新包无法运行或版本号与发布信息不一致");
         }
         catch

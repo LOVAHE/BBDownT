@@ -9,8 +9,8 @@ namespace BBDownT.Tests;
 public class SelfUpdaterTests
 {
     private const string AssetName = "BBDownT_linux-x64";
-    private static readonly Version CurrentVersion = new(1, 0, 0);
-    private static readonly Version LatestVersion = new(2, 0, 0);
+    private static readonly BBDownTSelfUpdater.ReleaseVersion CurrentVersion = Parse("1.0.0");
+    private static readonly BBDownTSelfUpdater.ReleaseVersion LatestVersion = Parse("2.0.0");
     private static readonly byte[] OriginalBytes = Encoding.UTF8.GetBytes("original executable");
     private static readonly byte[] UpdatedBytes = Encoding.UTF8.GetBytes("updated executable");
 
@@ -32,7 +32,9 @@ public class SelfUpdaterTests
     [Theory]
     [InlineData("v1.0.0")]
     [InlineData("v0.9.0")]
-    public void SelectAsset_ReturnsNullWhenTheReleaseIsNotNewer(string tag)
+    [InlineData("v2.0.0-rc1")]
+    [InlineData("latest")]
+    public void SelectAsset_ReturnsNullWhenNoEligibleReleaseIsNewer(string tag)
     {
         var json = CreateReleaseJson(tag: tag);
 
@@ -40,9 +42,42 @@ public class SelfUpdaterTests
     }
 
     [Theory]
-    [InlineData("draft")]
-    [InlineData("prerelease")]
-    [InlineData("invalid-tag")]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void SelectAsset_SkipsDraftsAndLeavesPrereleasesToPrereleaseUsers(bool draft, bool prerelease)
+    {
+        Assert.Null(BBDownTSelfUpdater.SelectAsset(CreateReleaseJson(draft: draft, prerelease: prerelease), CurrentVersion, AssetName));
+    }
+
+    [Fact]
+    public void ReleaseVersions_OrderBetasBeforeReleaseCandidatesBeforeTheRelease()
+    {
+        string[] ordered = ["2.1.7", "2.2.0-beta", "2.2.0-beta1", "2.2.0-beta2", "2.2.0-beta10", "2.2.0-rc", "2.2.0-rc1", "2.2.0-RC2", "v2.2.0", "2.2.1-beta1"];
+
+        for (var i = 1; i < ordered.Length; i++) Assert.True(Parse(ordered[i]) > Parse(ordered[i - 1]), ordered[i]);
+        Assert.Equal("2.2.0-rc2", Parse("2.2.0-RC2+abc").ToString());
+        Assert.Equal("2.2.0-rc", Parse("v2.2.0-rc").ToString());
+        Assert.False(BBDownTSelfUpdater.ReleaseVersion.TryParse("2.2.0-alpha1", out _));
+        Assert.False(BBDownTSelfUpdater.ReleaseVersion.TryParse("2.2-beta1", out _));
+    }
+
+    [Theory]
+    [InlineData("2.2.0-beta1", "v2.2.0-beta2,v2.2.0-rc1", "v2.2.0-rc1")]
+    [InlineData("2.2.0-rc3", "v2.2.0-rc2,v2.2.0", "v2.2.0")]
+    [InlineData("2.1.7", "v2.2.0,v2.3.0-beta1", "v2.2.0")]
+    [InlineData("2.2.0-rc1", "v2.2.0,v2.3.0-beta1", "v2.2.0")]
+    [InlineData("2.2.0-beta1", "v2.2.0-rc1,v2.3.0-beta1", "v2.2.0-rc1")]
+    public void SelectAsset_PicksTheNewestEligibleRelease(string current, string tags, string expectedTag)
+    {
+        var json = "[" + string.Join(",", tags.Split(',').Select(tag => CreateRelease(tag, prerelease: tag.Contains('-')))) + "]";
+
+        var asset = Assert.IsType<BBDownTSelfUpdater.ReleaseAsset>(BBDownTSelfUpdater.SelectAsset(json, Parse(current), AssetName));
+
+        Assert.Equal(Parse(expectedTag), asset.Version);
+        Assert.EndsWith($"/{expectedTag}/{AssetName}", asset.Url.AbsoluteUri);
+    }
+
+    [Theory]
     [InlineData("asset-missing")]
     [InlineData("digest-invalid")]
     [InlineData("foreign-url")]
@@ -51,9 +86,6 @@ public class SelfUpdaterTests
     {
         var json = scenario switch
         {
-            "draft" => CreateReleaseJson(draft: true),
-            "prerelease" => CreateReleaseJson(prerelease: true),
-            "invalid-tag" => CreateReleaseJson(tag: "latest"),
             "asset-missing" => CreateReleaseJson(assetCount: 0),
             "digest-invalid" => CreateReleaseJson(digest: "sha256:not-a-digest"),
             "foreign-url" => CreateReleaseJson(downloadUrl: "https://example.com/BBDownT_linux-x64"),
@@ -119,7 +151,7 @@ public class SelfUpdaterTests
             File.SetUnixFileMode(fixture.TargetPath, originalMode);
         using var handler = new RouteHandler(request => request.RequestUri!.AbsoluteUri switch
         {
-            BBDownTSelfUpdater.LatestReleaseUrl => JsonResponse(CreateReleaseJson()),
+            BBDownTSelfUpdater.ReleasesUrl => JsonResponse(CreateReleaseJson()),
             var url when url == ExpectedAssetUrl => BinaryResponse(UpdatedBytes),
             var url => throw new InvalidOperationException($"Unexpected URL: {url}")
         });
@@ -140,14 +172,14 @@ public class SelfUpdaterTests
                 Assert.Equal(UpdatedBytes, await File.ReadAllBytesAsync(staged, cancellationToken));
             });
 
-        var completed = Assert.IsType<(Version Version, string BackupPath)>(result);
+        var completed = Assert.IsType<(BBDownTSelfUpdater.ReleaseVersion Version, string BackupPath)>(result);
         fixture.SuccessBackupPath = completed.BackupPath;
         Assert.Equal(LatestVersion, completed.Version);
         Assert.Equal(1, verifyCalls);
         Assert.Equal(UpdatedBytes, await File.ReadAllBytesAsync(fixture.TargetPath));
         Assert.Equal(OriginalBytes, await File.ReadAllBytesAsync(completed.BackupPath));
         Assert.Equal(
-            new[] { BBDownTSelfUpdater.LatestReleaseUrl, ExpectedAssetUrl },
+            new[] { BBDownTSelfUpdater.ReleasesUrl, ExpectedAssetUrl },
             handler.RequestedUrls);
         Assert.False(File.Exists(fixture.LockPath));
         Assert.False(File.Exists(olderBackup));
@@ -175,7 +207,7 @@ public class SelfUpdaterTests
         using var handler = new RouteHandler(request =>
         {
             string url = request.RequestUri!.AbsoluteUri;
-            if (url == BBDownTSelfUpdater.LatestReleaseUrl)
+            if (url == BBDownTSelfUpdater.ReleasesUrl)
                 return JsonResponse(releaseJson);
             if (url != ExpectedAssetUrl)
                 throw new InvalidOperationException($"Unexpected URL: {url}");
@@ -201,7 +233,7 @@ public class SelfUpdaterTests
         Assert.Equal(OriginalBytes, await File.ReadAllBytesAsync(fixture.TargetPath));
         Assert.Equal(new[] { fixture.TargetPath }, Directory.GetFiles(fixture.WorkingDirectory));
         Assert.Equal(
-            new[] { BBDownTSelfUpdater.LatestReleaseUrl, ExpectedAssetUrl },
+            new[] { BBDownTSelfUpdater.ReleasesUrl, ExpectedAssetUrl },
             handler.RequestedUrls);
     }
 
@@ -213,7 +245,7 @@ public class SelfUpdaterTests
             fixture.LockPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             using var handler = new RouteHandler(request =>
-                request.RequestUri!.AbsoluteUri == BBDownTSelfUpdater.LatestReleaseUrl
+                request.RequestUri!.AbsoluteUri == BBDownTSelfUpdater.ReleasesUrl
                     ? JsonResponse(CreateReleaseJson())
                     : throw new InvalidOperationException("Asset download must not start while locked"));
             using var client = new HttpClient(handler);
@@ -228,7 +260,7 @@ public class SelfUpdaterTests
 
             Assert.True(File.Exists(fixture.LockPath));
             Assert.Equal(OriginalBytes, await File.ReadAllBytesAsync(fixture.TargetPath));
-            Assert.Equal(new[] { BBDownTSelfUpdater.LatestReleaseUrl }, handler.RequestedUrls);
+            Assert.Equal(new[] { BBDownTSelfUpdater.ReleasesUrl }, handler.RequestedUrls);
             Assert.Equal(2, Directory.GetFiles(fixture.WorkingDirectory).Length);
         }
     }
@@ -289,8 +321,21 @@ public class SelfUpdaterTests
     private static string ExpectedAssetUrl =>
         $"https://github.com/LOVAHE/BBDownT/releases/download/v2.0.0/{AssetName}";
 
+    private static BBDownTSelfUpdater.ReleaseVersion Parse(string text)
+        => BBDownTSelfUpdater.ReleaseVersion.TryParse(text, out var version) ? version : throw new FormatException(text);
+
     private static string CreateReleaseJson(
         string tag = "v2.0.0",
+        bool draft = false,
+        bool prerelease = false,
+        int assetCount = 1,
+        long? size = null,
+        string? digest = null,
+        string? downloadUrl = null)
+        => "[" + CreateRelease(tag, draft, prerelease, assetCount, size, digest, downloadUrl) + "]";
+
+    private static string CreateRelease(
+        string tag,
         bool draft = false,
         bool prerelease = false,
         int assetCount = 1,
@@ -304,7 +349,7 @@ public class SelfUpdaterTests
             state = "uploaded",
             size = size ?? UpdatedBytes.Length,
             digest = digest ?? "sha256:" + Sha256(UpdatedBytes),
-            browser_download_url = downloadUrl ?? ExpectedAssetUrl
+            browser_download_url = downloadUrl ?? $"https://github.com/LOVAHE/BBDownT/releases/download/{tag}/{AssetName}"
         });
         return JsonSerializer.Serialize(new
         {
