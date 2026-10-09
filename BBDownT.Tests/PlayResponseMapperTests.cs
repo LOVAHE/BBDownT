@@ -52,6 +52,25 @@ public class PlayResponseMapperTests
     }
 
     [Fact]
+    public void UnknownQualityCodes_AreShownByTheirCode()
+    {
+        using var dash = JsonDocument.Parse("""
+            {"dash":{"video":[{"id":999,"base_url":"https://cdn.test/v.m4s","backup_url":[],"bandwidth":1000,
+              "codecid":7,"width":1920,"height":1080,"frame_rate":"30"}]}}
+            """);
+        using var durl = JsonDocument.Parse("""
+            {"quality":998,"format":"flv","video_codecid":7,"timelength":1000,"accept_quality":[998],
+              "durl":[{"url":"https://cdn.test/a.flv","size":10,"length":1000}]}
+            """);
+        var result = new ParsedResult();
+
+        PlayResponseMapper.MapDashVideos(dash.RootElement, result, 1, false, false, _ => false);
+        PlayResponseMapper.MapDurl(durl.RootElement, result);
+
+        Assert.Equal(["999", "998"], result.VideoTracks.Select(video => video.dfn));
+    }
+
+    [Fact]
     public void WebDashFixture_MapsVideoAndAllAudioFamilies()
     {
         using var document = JsonDocument.Parse("""

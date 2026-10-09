@@ -25,6 +25,25 @@ public class MediaOutputTests
         Assert.False(File.Exists(staged));
     }
 
+    [Fact]
+    public void AnInterruptedRunsStagedOutputIsReplacedByTheNextRun()
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.FilePath("result.mp4");
+        var leftover = MediaOutput.StagedPath(destination);
+        File.WriteAllText(leftover, "interrupted media");
+
+        Assert.True(MediaOutput.Write(destination, path =>
+        {
+            Assert.Equal(leftover, path);
+            Assert.False(File.Exists(path));
+            File.WriteAllText(path, "completed media");
+            return 0;
+        }));
+
+        Assert.Equal(new[] { destination }, Directory.GetFiles(files.Root));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

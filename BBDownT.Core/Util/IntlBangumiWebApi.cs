@@ -33,9 +33,7 @@ internal static class IntlBangumiWebApi
                 var title = ReadText(episode, "title_display");
                 if (title.Length == 0)
                     title = (ReadText(episode, "short_title_display") + " " + ReadText(episode, "long_title_display")).Trim();
-                var pubTime = DateTimeOffset.TryParse(ReadText(episode, "publish_time"),
-                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var published)
-                    ? published.ToUnixTimeSeconds() : 0;
+                var pubTime = PublishTime.Parse(ReadText(episode, "publish_time"));
 
                 // WEB episodes have no domestic AID/CID. Keep those absent;
                 // Page.DownloadId supplies a separate, namespaced cache key.

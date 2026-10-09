@@ -550,13 +550,7 @@ internal partial class Program
     private static async Task DownloadTrackAsync(string url, string destPath, DownloadConfig downloadConfig,
         bool video, string resourceIdentity)
     {
-        downloadConfig = new DownloadConfig
-        {
-            UseAria2c = downloadConfig.UseAria2c, Aria2cArgs = downloadConfig.Aria2cArgs,
-            ForceHttp = downloadConfig.ForceHttp, MultiThread = downloadConfig.MultiThread,
-            RelatedTask = downloadConfig.RelatedTask, RestrictedOutputRoot = downloadConfig.RestrictedOutputRoot,
-            ResourceIdentity = resourceIdentity, IsBilibiliMedia = true
-        };
+        downloadConfig = downloadConfig with { ResourceIdentity = resourceIdentity, IsBilibiliMedia = true };
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
             var downloadedClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
@@ -575,6 +569,7 @@ internal partial class Program
             }
             await DownloadFileAsync(url, destPath, downloadConfig);
         }
+        DeleteStaleTrackFiles(OutputPathPolicy.ResolveArtifact(destPath, downloadConfig.RestrictedOutputRoot));
     }
 
     internal static void DeleteEmptyDownloadDirectory(string path)

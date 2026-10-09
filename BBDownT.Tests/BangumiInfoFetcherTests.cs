@@ -133,29 +133,56 @@ public class BangumiInfoFetcherTests
     }
 
     [Fact]
-    public async Task MissingInternationalCover_FetchesFallbackAfterSeason()
+    public async Task MissingInternationalCover_KeepsTheSeasonMetadataWithoutExtraRequests()
     {
         var response = Season(Episode("30", "1", "Title", "missing"));
         response["result"]!["cover"] = "";
         var requests = new List<string>();
-        var responses = new Queue<string>([
-            response.ToJsonString(),
-            """
-            window.__INITIAL_STATE__={"mediaInfo":{"cover":"fallback.jpg","title":"Fallback title","evaluate":"Fallback description"}};(function()
-            """
-        ]);
 
-        var result = await IntlBangumiInfoFetcher.FetchAsync("ep:30", url =>
+        var result = await Fetch(true, "ep:30", response, requests);
+
+        Assert.Single(requests);
+        Assert.Equal("Season", result.Title);
+        Assert.Equal("", result.Pic);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EpisodeLookup_DoesNotMatchALongerEpisodeId(bool international)
+    {
+        var response = Season(Episode("301", "1", "Main", "missing"));
+        var section = new JsonObject { ["title"] = "Extras" };
+        var episodes = new JsonArray(Episode("30", "SP", "Bonus", "missing"));
+        if (international)
         {
-            requests.Add(url);
-            return Task.FromResult(responses.Dequeue());
-        });
+            var other = new JsonObject { ["data"] = new JsonObject { ["episodes"] = new JsonArray(Episode("301", "1", "Main", "missing")) } };
+            section["data"] = new JsonObject { ["episodes"] = episodes };
+            response["result"]!["modules"] = new JsonArray(other, section);
+        }
+        else
+        {
+            section["episodes"] = episodes;
+            response["result"]!["section"] = new JsonArray(section);
+        }
 
-        Assert.Equal(2, requests.Count);
-        Assert.Equal("https://bangumi.bilibili.com/anime/7", requests[1]);
-        Assert.Equal("Fallback title", result.Title);
-        Assert.Equal("Fallback description", result.Desc);
-        Assert.Equal("fallback.jpg", result.Pic);
+        var result = await Fetch(international, "ep:30", response);
+
+        Assert.Equal("30", Assert.Single(result.PagesInfo).epid);
+        Assert.Equal("1", result.Index);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeasonPublicationTime_IsReadAsBeijingTime(bool international)
+    {
+        var response = Season(Episode("30", "1", "Title", "missing"));
+        response["result"]!["publish"]!["pub_time"] = "2024-01-01 08:00:00";
+
+        var result = await Fetch(international, "ep:30", response);
+
+        Assert.Equal(DateTimeOffset.Parse("2024-01-01T00:00:00Z").ToUnixTimeSeconds(), result.PubTime);
     }
 
     private static Task<VInfo> Fetch(bool international, string id, JsonObject response, List<string>? requests = null)

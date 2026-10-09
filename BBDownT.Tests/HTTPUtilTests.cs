@@ -30,4 +30,37 @@ public class HTTPUtilTests
         Assert.Contains(values, value => value.StartsWith("Dalvik/", StringComparison.Ordinal));
         Assert.Contains(values, value => value.Contains("Android", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData("libavutil      57. 28.100 / 57. 28.100", true)]
+    [InlineData("libavutil      57. 17.100 / 57. 17.100", true)]
+    [InlineData("libavutil      57. 16.100 / 57. 16.100", false)]
+    [InlineData("libavutil      56. 70.100 / 56. 70.100", false)]
+    [InlineData("libavutil      60.  8.100 / 60.  8.100", true)]
+    [InlineData("ffmpeg version unknown", false)]
+    public void DolbyVisionSupport_ComparesTheLibavutilMinorVersion(string versionInfo, bool expected)
+    {
+        Assert.Equal(expected, BBDownT.BBDownTUtil.SupportsDolbyVision(versionInfo));
+    }
+
+    [Fact]
+    public void CustomUserAgent_AppliesOnlyUntilTheNextTaskClearsIt()
+    {
+        var automatic = HTTPUtil.UserAgent;
+        try
+        {
+            HTTPUtil.UserAgent = "Custom/1.0";
+            Assert.False(HTTPUtil.IsAutomaticUserAgent);
+            Assert.Equal("Custom/1.0", HTTPUtil.UserAgent);
+
+            HTTPUtil.UserAgent = "";
+
+            Assert.True(HTTPUtil.IsAutomaticUserAgent);
+            Assert.Equal(automatic, HTTPUtil.UserAgent);
+        }
+        finally
+        {
+            HTTPUtil.UserAgent = "";
+        }
+    }
 }

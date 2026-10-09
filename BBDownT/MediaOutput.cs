@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace BBDownT;
 
@@ -10,9 +12,10 @@ internal static class MediaOutput
         destination = Path.GetFullPath(destination);
         var directory = Path.GetDirectoryName(destination)!;
         Directory.CreateDirectory(directory);
-        var staged = Path.Combine(directory, $".bbdownt-{Guid.NewGuid():N}.partial{Path.GetExtension(destination)}");
+        var staged = StagedPath(destination);
         try
         {
+            File.Delete(staged);
             if (write(staged) != 0 || !File.Exists(staged) || new FileInfo(staged).Length == 0)
                 return false;
             File.Move(staged, destination, overwrite: true);
@@ -22,6 +25,13 @@ internal static class MediaOutput
         {
             if (File.Exists(staged)) File.Delete(staged);
         }
+    }
+
+    internal static string StagedPath(string destination)
+    {
+        destination = Path.GetFullPath(destination);
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(destination)))[..32].ToLowerInvariant();
+        return Path.Combine(Path.GetDirectoryName(destination)!, $".bbdownt-{key}.partial{Path.GetExtension(destination)}");
     }
 
     internal static void DeleteInput(string input, string destination, Action<string>? delete = null)

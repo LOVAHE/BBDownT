@@ -178,7 +178,7 @@ internal static class PlayResponseMapper
             {
                 dur = duration,
                 id = videoId,
-                dfn = Config.qualitys[videoId],
+                dfn = Config.qualitys.GetValueOrDefault(videoId, videoId),
                 bandwith = Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000,
                 baseUrl = SelectPreferredUrl(node, isExcludedUrl),
                 codecs = GetVideoCodec(node.GetProperty("codecid").ToString()),
@@ -306,7 +306,7 @@ internal static class PlayResponseMapper
         var video = new Video
         {
             id = quality,
-            dfn = Config.qualitys[quality],
+            dfn = Config.qualitys.GetValueOrDefault(quality, quality),
             baseUrl = string.Empty,
             codecs = GetVideoCodec(videoCodecid),
             dur = (int)length / 1000,

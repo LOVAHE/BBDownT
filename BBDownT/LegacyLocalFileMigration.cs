@@ -23,6 +23,7 @@ internal static class LegacyLocalFileMigration
         void Copy(string sourceFileName, string destFileName);
         void Move(string sourceFileName, string destFileName);
         void Delete(string path);
+        void RestrictToOwner(string path) { }
     }
 
     private sealed class RealFileOperations : IFileOperations
@@ -32,6 +33,19 @@ internal static class LegacyLocalFileMigration
         public void Copy(string sourceFileName, string destFileName) => File.Copy(sourceFileName, destFileName);
         public void Move(string sourceFileName, string destFileName) => File.Move(sourceFileName, destFileName);
         public void Delete(string path) => File.Delete(path);
+
+        public void RestrictToOwner(string path)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            try
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                LogWarn($"无法将{Path.GetFileName(path)}设为仅本人可读写：{ErrorText.Describe(error)}");
+            }
+        }
     }
 
     // Called only by the explicit migrate command, never during normal startup.
@@ -64,8 +78,10 @@ internal static class LegacyLocalFileMigration
                 try
                 {
                     operations.Copy(oldPath, tempPath);
+                    operations.RestrictToOwner(tempPath);
                     operations.Move(oldPath, backupPath);
                     backupCreated = true;
+                    operations.RestrictToOwner(backupPath);
                     operations.Move(tempPath, newPath);
                 }
                 catch

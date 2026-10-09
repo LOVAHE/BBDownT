@@ -46,7 +46,7 @@ JNrRuoEUXpabUzGB8QIDAQAB
 
     public static async Task TryRefreshCookieAsync(string? cookieFilePath)
     {
-        using var client = new HttpClient(HTTPUtil.CreateWebHandler(useCookies: false, allowRedirects: true))
+        using var client = new HttpClient(HTTPUtil.CreateWebHandler(allowRedirects: true))
         {
             Timeout = HTTPUtil.AppHttpClient.Timeout
         };

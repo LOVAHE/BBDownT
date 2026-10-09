@@ -136,7 +136,8 @@ public static class Logger
         new("(?i)(refresh_token=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(access_token=)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(access_key=)[^;\\s&]+", RegexOptions.Compiled),
-        new("(?i)(\"(?:Cookie|AccessToken|authorization)\"\\s*:\\s*\")[^\"]+", RegexOptions.Compiled),
+        new("(?i)(\"(?:Cookie|AccessToken|authorization|refresh_token|access_token|access_key|ac_time_value|SESSDATA|bili_jct)\"\\s*:\\s*\")[^\"]+", RegexOptions.Compiled),
+        new("(?i)(://[^/\\s:@\"]+:)[^@\\s/\"]+(?=@)", RegexOptions.Compiled),
         new("(?i)((?:AccessToken|Authorization)\\s*=\\s*)[^;\\s&]+", RegexOptions.Compiled),
         new("(?i)(identify_v1\\s+)[^\\s,\";]+", RegexOptions.Compiled)
     ];

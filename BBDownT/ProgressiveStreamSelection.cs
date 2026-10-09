@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using BBDownT.Core;
@@ -14,7 +15,7 @@ internal sealed class ProgressiveStreamSelection
         Func<string, Task<ParsedResult>> fetch, TextReader input, TextWriter output)
     {
         for (var i = 0; i < initial.Dfns.Count; i++)
-            output.WriteLine($"{i}.{Config.qualitys[initial.Dfns[i]]}");
+            output.WriteLine($"{i}.{Config.qualitys.GetValueOrDefault(initial.Dfns[i], initial.Dfns[i])}");
         output.Write("请选择最想要的清晰度(输入序号): ");
         var index = Program.ParseSelectionIndex(input.ReadLine(), initial.Dfns.Count);
         RequestedQuality = initial.Dfns[index];

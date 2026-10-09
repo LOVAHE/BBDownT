@@ -71,26 +71,6 @@ public class RangeDownloadTests
 
 
     [Theory]
-    [InlineData(0, 256, 256)]
-    [InlineData(128, 256, 384)]
-    [InlineData(128, 0, 128)]
-    public void GetExpectedTempLength_IncludesExistingPartialBytes(
-        long existingLength,
-        long responseLength,
-        long expected)
-    {
-        Assert.Equal(
-            expected,
-            BBDownTDownloadUtil.GetExpectedTempLength(existingLength, responseLength));
-    }
-
-    [Fact]
-    public void GetExpectedTempLength_AllowsUnknownResponseLength()
-    {
-        Assert.Null(BBDownTDownloadUtil.GetExpectedTempLength(128, null));
-    }
-
-    [Theory]
     [InlineData(null)]
     [InlineData(0L)]
     [InlineData(-1L)]

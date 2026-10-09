@@ -60,7 +60,7 @@ partial class Program
                 System.Diagnostics.Process.Start("stty", "echo");
         }
         catch { }
-        Environment.Exit(0);
+        Environment.Exit(130);
     }
 
     public static Task<int> Main(params string[] args)
@@ -251,7 +251,7 @@ partial class Program
         if (commandLineResult.Errors.Any())
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.Error.WriteLine(commandLineResult.Errors.First().Message);
+            Console.Error.WriteLine(RedactSensitiveText(CommandLineLogSanitizer.SanitizeText(commandLineResult.Errors.First().Message)));
             Console.ResetColor();
             Console.Error.WriteLine($"请使用 BBDownT --help 查看帮助");
             return 1;
@@ -408,7 +408,7 @@ partial class Program
         var dfnPriority = ParseDfnPriority(myOption);
 
         //优先使用用户设置的UA
-        if (!string.IsNullOrEmpty(myOption.UserAgent)) HTTPUtil.UserAgent = myOption.UserAgent;
+        HTTPUtil.UserAgent = myOption.UserAgent;
 
         bool downloadDanmaku = myOption.DownloadDanmaku || myOption.DanmakuOnly;
         BBDownTDanmakuFormat[] downloadDanmakuFormats = ParseDownloadDanmakuFormats(myOption);
@@ -657,7 +657,7 @@ partial class Program
 
             if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
             {
-                var availableSubtitles = await SubUtil.GetSubtitlesAsync(p.DownloadId, p.cid, p.epid, p.index, myOption.UseIntlApi);
+                var availableSubtitles = await SubUtil.GetSubtitlesAsync(p.DownloadId, p.cid, p.epid, myOption.UseIntlApi);
                 subtitleInfo = SubtitleSelection.Choose(availableSubtitles, myOption, Console.In, Console.Out, subtitleSession);
                 if (!myOption.OnlyShowInfo)
                     foreach (var subtitle in subtitleInfo)
@@ -768,7 +768,37 @@ partial class Program
                 RestrictedOutputRoot = myOption.RestrictedOutputRoot,
             };
 
-            //此处代码简直灾难, 后续优化吧
+            bool MuxAndCleanUp(string savePath, string videoPath, string audioPath, List<AudioMaterial> audioMaterial,
+                bool useMp4box, bool isHevc)
+            {
+                Log($"开始合并音视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
+                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(useMp4box, p.bvid, videoPath, audioPath, audioMaterial, staged,
+                    desc,
+                    title,
+                    p.ownerName ?? "",
+                    (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
+                    GetCoverForMux(myOption, coverPath),
+                    lang,
+                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc, myOption.RestrictedOutputRoot));
+                if (!muxed)
+                {
+                    LogError("合并失败");
+                    return false;
+                }
+                OutputOwnership.Default.Record(savePath, p);
+                Log("清理临时文件...");
+                Thread.Sleep(200);
+                MediaOutput.DeleteInput(videoPath, savePath);
+                MediaOutput.DeleteInput(audioPath, savePath);
+                if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
+                foreach (var s in subtitleInfo) File.Delete(s.path);
+                foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
+                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
+                    File.Delete(coverPath);
+                DeleteEmptyDownloadDirectory(p.DownloadId);
+                return true;
+            }
+
             if ((parsedResult.VideoTracks.Any() || parsedResult.AudioTracks.Any()) && !parsedResult.Clips.Any())   //dash
             {
                 if (parsedResult.VideoTracks.Count == 0)
@@ -838,62 +868,9 @@ partial class Program
                 savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
                 LogDebug("Format After: " + savePath);
 
-                if (downloadDanmaku)
-                {
-                    var danmakuXmlPath = Path.ChangeExtension(savePath, ".xml");
-                    var danmakuAssPath = OutputPathPolicy.ResolveArtifact(Path.ChangeExtension(savePath, ".ass"), myOption.RestrictedOutputRoot);
-                    Log("正在下载弹幕Xml文件");
-                    var danmakuUrl = $"https://comment.bilibili.com/{p.cid}.xml";
-                    await DownloadFileAsync(danmakuUrl, danmakuXmlPath, downloadConfig);
-                    var danmakus = DanmakuUtil.ParseXml(danmakuXmlPath);
-                    if (danmakus == null)
-                    {
-                        LogWarn(downloadDanmakuFormats.Contains(BBDownTDanmakuFormat.Xml) ? "弹幕Xml解析失败, 已保留原始Xml" : "弹幕Xml解析失败, 未生成Ass");
-                    }
-                    else if (danmakus.Length == 0)
-                    {
-                        Log("当前视频没有弹幕, 删除Xml...");
-                        File.Delete(danmakuXmlPath);
-                    }
-                    else if (downloadDanmakuFormats.Contains(BBDownTDanmakuFormat.Ass))
-                    {
-                        Log("正在保存弹幕Ass文件...");
-                        await DanmakuUtil.SaveAsAssAsync(danmakus, danmakuAssPath);
-                    }
-
-                    // delete xml if possible
-                    if (!downloadDanmakuFormats.Contains(BBDownTDanmakuFormat.Xml) && File.Exists(danmakuXmlPath))
-                    {
-                        File.Delete(danmakuXmlPath);
-                    }
-
-                    if (myOption.DanmakuOnly)
-                    {
-                        DeleteEmptyDownloadDirectory(p.DownloadId);
-                        return DownloadPageOutcome.ExclusiveArtifact;
-                    }
-                }
-
-                if (myOption.CoverOnly)
-                {
-                    var coverUrl = pic == "" ? p.cover! : pic;
-                    if (string.IsNullOrWhiteSpace(coverUrl))
-                    {
-                        LogWarn("当前视频没有可下载的封面");
-                        return DownloadPageOutcome.Failed;
-                    }
-                    var newCoverPath = Path.ChangeExtension(savePath, Path.GetExtension(coverUrl));
-                    if (!await DownloadCoverAsync(myOption, coverUrl, newCoverPath, downloadConfig))
-                        return DownloadPageOutcome.Failed;
-                    if (!IsUsableArtifact(newCoverPath))
-                    {
-                        LogWarn("封面下载未生成有效文件");
-                        return DownloadPageOutcome.Failed;
-                    }
-                    DeleteEmptyDownloadDirectory(p.DownloadId);
-                    relatedTask?.AddSavePath(newCoverPath);
-                    return DownloadPageOutcome.ExclusiveArtifact;
-                }
+                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, savePath, downloadDanmaku,
+                        downloadDanmakuFormats, downloadConfig, relatedTask) is { } exclusiveOutcome)
+                    return exclusiveOutcome;
 
                 Log($"已选择的流:");
                 PrintSelectedTrackInfo(selectedVideo, selectedAudio, p.dur);
@@ -914,7 +891,7 @@ partial class Program
                 if (selectedVideo != null)
                 {
                     //杜比视界, 若ffmpeg版本小于5.0, 使用mp4box封装
-                    if (selectedVideo.dfn == Config.qualitys["126"] && !myOption.UseMP4box && !CheckFFmpegDOVI())
+                    if (selectedVideo.id == "126" && !myOption.UseMP4box && !CheckFFmpegDOVI())
                     {
                         LogWarn($"检测到杜比视界清晰度且您的ffmpeg版本小于5.0,将使用mp4box混流...");
                         myOption.UseMP4box = true;
@@ -965,32 +942,9 @@ partial class Program
                         [videoPath, audioPath, .. audioMaterial.Select(material => material.path)]);
                     return DownloadPageOutcome.Partial;
                 }
-                Log($"开始合并音视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
-
-                var isHevc = selectedVideo?.codecs == "HEVC";
-                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(myOption.UseMP4box, p.bvid, videoPath, audioPath, audioMaterial, staged,
-                    desc,
-                    title,
-                    p.ownerName ?? "",
-                    (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
-                    GetCoverForMux(myOption, coverPath),
-                    lang,
-                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc, myOption.RestrictedOutputRoot));
-                if (!muxed)
-                {
-                    LogError("合并失败"); return DownloadPageOutcome.Failed;
-                }
-                OutputOwnership.Default.Record(savePath, p);
-                Log("清理临时文件...");
-                Thread.Sleep(200);
-                if (parsedResult.VideoTracks.Any()) MediaOutput.DeleteInput(videoPath, savePath);
-                if (parsedResult.AudioTracks.Any()) MediaOutput.DeleteInput(audioPath, savePath);
-                if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
-                foreach (var s in subtitleInfo) File.Delete(s.path);
-                foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
-                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
-                    File.Delete(coverPath);
-                DeleteEmptyDownloadDirectory(p.DownloadId);
+                if (!MuxAndCleanUp(savePath, videoPath, audioPath, audioMaterial, myOption.UseMP4box,
+                        selectedVideo?.codecs == "HEVC"))
+                    return DownloadPageOutcome.Failed;
             }
             else if (parsedResult.Clips.Any() && parsedResult.Dfns.Any())   //flv
             {
@@ -1031,6 +985,9 @@ partial class Program
                 savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.FirstOrDefault(), null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
                 if (myOption.AudioOnly) savePath = Path.ChangeExtension(savePath, ".m4a");
                 savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
+                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, savePath, downloadDanmaku,
+                        downloadDanmakuFormats, downloadConfig, relatedTask) is { } exclusiveOutcome)
+                    return exclusiveOutcome;
                 if (File.Exists(savePath) && new FileInfo(savePath).Length != 0)
                 {
                     OutputOwnership.Default.Record(savePath, p);
@@ -1060,29 +1017,8 @@ partial class Program
                     RecordDownloadedStreams(relatedTask, videoPath);
                     return DownloadPageOutcome.Partial;
                 }
-                Log($"开始混流视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
-                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(false, p.bvid, videoPath, "", audioMaterial, staged,
-                    desc,
-                    title,
-                    p.ownerName ?? "",
-                    (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
-                    GetCoverForMux(myOption, coverPath),
-                    lang,
-                    subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, restrictedOutputRoot: myOption.RestrictedOutputRoot));
-                if (!muxed)
-                {
-                    LogError("合并失败"); return DownloadPageOutcome.Failed;
-                }
-                OutputOwnership.Default.Record(savePath, p);
-                Log("清理临时文件...");
-                Thread.Sleep(200);
-                if (parsedResult.VideoTracks.Count != 0) MediaOutput.DeleteInput(videoPath, savePath);
-                foreach (var s in subtitleInfo) File.Delete(s.path);
-                foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
-                if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
-                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
-                    File.Delete(coverPath);
-                DeleteEmptyDownloadDirectory(p.DownloadId);
+                if (!MuxAndCleanUp(savePath, videoPath, "", audioMaterial, false, false))
+                    return DownloadPageOutcome.Failed;
             }
             else
             {
@@ -1112,12 +1048,74 @@ partial class Program
 
     internal static bool StopPreviewDownload(MyOption option, ParsedResult result)
     {
-        if (!result.IsPreviewOnly || option.OnlyShowInfo || option.SubOnly) return false;
-        // DASH handles attachment-only modes before downloading media. DURL
-        // currently takes the media path even with those options enabled.
-        if ((option.CoverOnly || option.DanmakuOnly) && result.Clips.Count == 0) return false;
+        if (!result.IsPreviewOnly || option.OnlyShowInfo || option.SubOnly || option.CoverOnly || option.DanmakuOnly)
+            return false;
         LogError("当前接口仅返回试看片段，已停止下载；请检查登录状态和会员权限。");
         return true;
+    }
+
+    private static async Task<DownloadPageOutcome?> DownloadExclusiveArtifactsAsync(Page p, MyOption myOption, string pic,
+        string savePath, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, DownloadConfig downloadConfig,
+        DownloadTask? relatedTask)
+    {
+        if (downloadDanmaku)
+        {
+            var saved = await DownloadDanmakuAsync(p.cid, savePath, downloadDanmakuFormats, downloadConfig, myOption.RestrictedOutputRoot);
+            if (myOption.DanmakuOnly)
+            {
+                DeleteEmptyDownloadDirectory(p.DownloadId);
+                return saved ? DownloadPageOutcome.ExclusiveArtifact : DownloadPageOutcome.Failed;
+            }
+        }
+
+        if (!myOption.CoverOnly) return null;
+        var coverUrl = pic == "" ? p.cover! : pic;
+        if (string.IsNullOrWhiteSpace(coverUrl))
+        {
+            LogWarn("当前视频没有可下载的封面");
+            return DownloadPageOutcome.Failed;
+        }
+        var coverPath = Path.ChangeExtension(savePath, Path.GetExtension(coverUrl));
+        if (!await DownloadCoverAsync(myOption, coverUrl, coverPath, downloadConfig))
+            return DownloadPageOutcome.Failed;
+        if (!IsUsableArtifact(coverPath))
+        {
+            LogWarn("封面下载未生成有效文件");
+            return DownloadPageOutcome.Failed;
+        }
+        DeleteEmptyDownloadDirectory(p.DownloadId);
+        relatedTask?.AddSavePath(coverPath);
+        return DownloadPageOutcome.ExclusiveArtifact;
+    }
+
+    private static async Task<bool> DownloadDanmakuAsync(string cid, string savePath, BBDownTDanmakuFormat[] formats,
+        DownloadConfig downloadConfig, string? restrictedOutputRoot)
+    {
+        var xmlPath = Path.ChangeExtension(savePath, ".xml");
+        var assPath = OutputPathPolicy.ResolveArtifact(Path.ChangeExtension(savePath, ".ass"), restrictedOutputRoot);
+        var keepXml = formats.Contains(BBDownTDanmakuFormat.Xml);
+        Log("正在下载弹幕Xml文件");
+        await DownloadFileAsync($"https://comment.bilibili.com/{cid}.xml", xmlPath, downloadConfig with { UseAria2c = false });
+        var danmakus = DanmakuUtil.ParseXml(xmlPath);
+        var saved = true;
+        if (danmakus == null)
+        {
+            LogWarn(keepXml ? "弹幕Xml解析失败, 已保留原始Xml" : "弹幕Xml解析失败, 未生成Ass");
+            saved = keepXml && IsUsableArtifact(xmlPath);
+        }
+        else if (danmakus.Length == 0)
+        {
+            Log("当前视频没有弹幕, 删除Xml...");
+            File.Delete(xmlPath);
+        }
+        else if (formats.Contains(BBDownTDanmakuFormat.Ass))
+        {
+            Log("正在保存弹幕Ass文件...");
+            await DanmakuUtil.SaveAsAssAsync(danmakus, assPath);
+        }
+
+        if (!keepXml && File.Exists(xmlPath)) File.Delete(xmlPath);
+        return saved;
     }
 
     internal static bool IsUsableArtifact(string path)

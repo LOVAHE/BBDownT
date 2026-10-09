@@ -453,7 +453,7 @@ static partial class BBDownTUtil
     {
         try
         {
-            var process = new Process
+            using var process = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
@@ -468,13 +468,7 @@ static partial class BBDownTUtil
             process.Start();
             string info = process.StandardOutput.ReadToEnd() + Environment.NewLine + process.StandardError.ReadToEnd();
             process.WaitForExit();
-            var match = LibavutilRegex().Match(info);
-            if (!match.Success) return false;
-            if((Convert.ToInt32(match.Groups[1].Value)==57 && Convert.ToInt32(match.Groups[1].Value) >= 17)
-               || Convert.ToInt32(match.Groups[1].Value) > 57)
-            {
-                return true;
-            }
+            return SupportsDolbyVision(info);
         }
         catch (Exception)
         {
@@ -632,6 +626,13 @@ static partial class BBDownTUtil
     private static partial Regex MdRegex();
     [GeneratedRegex("(^|&)?(\\w+)=([^&]+)(&|$)?", RegexOptions.Compiled)]
     private static partial Regex QueryRegex();
+    internal static bool SupportsDolbyVision(string versionInfo)
+    {
+        var match = LibavutilRegex().Match(versionInfo);
+        return match.Success
+            && new Version(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value)) >= new Version(57, 17);
+    }
+
     [GeneratedRegex("libavutil\\s+(\\d+)\\. +(\\d+)\\.")]
     private static partial Regex LibavutilRegex();
 }

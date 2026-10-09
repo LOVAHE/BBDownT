@@ -186,21 +186,22 @@ public class IntlCredentialTransportTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public void TransportHandlers_PreserveApiMediaAndDomesticCookieRedirectPolicies(bool useCookies, bool allowRedirects)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TransportHandlers_NeverKeepACookieJar(bool allowRedirects)
     {
-        using var handler = HTTPUtil.CreateWebHandler(useCookies, allowRedirects);
-        var transport = Assert.IsType<HttpClientHandler>(handler is DelegatingHandler redirects ? redirects.InnerHandler : handler);
+        using var handler = HTTPUtil.CreateWebHandler(allowRedirects);
+        HttpMessageHandler? inner = handler;
+        while (inner is DelegatingHandler delegating) inner = delegating.InnerHandler;
+        var transport = Assert.IsType<HttpClientHandler>(inner);
 
-        Assert.Equal(useCookies, transport.UseCookies);
+        Assert.False(transport.UseCookies);
         Assert.False(transport.AllowAutoRedirect);
         Assert.Equal(allowRedirects, handler is CookieScopedRedirectHandler);
     }
 
     [Fact]
-    public void ClientSelectors_IsolateInternationalApiAndMediaFromSharedDomesticCookieJar()
+    public void ClientSelectors_KeepInternationalApiAndMediaClientsSeparate()
     {
         Assert.Same(HTTPUtil.IntlApiHttpClient, HTTPUtil.GetWebHttpClient(true));
         Assert.Same(HTTPUtil.IntlMediaHttpClient, HTTPUtil.GetMediaHttpClient(true));

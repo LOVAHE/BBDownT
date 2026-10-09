@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -36,6 +36,8 @@ jobs:
 
   draft-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - validate-tag
       - build

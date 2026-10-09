@@ -8,25 +8,26 @@ namespace BBDownT.Core.Util;
 
 public static class HTTPUtil
 {
-    public static readonly HttpClient AppHttpClient = CreateClient(useCookies: true, allowRedirects: true);
-    internal static readonly HttpClient IntlApiHttpClient = CreateClient(useCookies: false, allowRedirects: false);
-    internal static readonly HttpClient IntlMediaHttpClient = CreateClient(useCookies: false, allowRedirects: true);
+    public static readonly HttpClient AppHttpClient = CreateClient(allowRedirects: true);
+    internal static readonly HttpClient IntlApiHttpClient = CreateClient(allowRedirects: false);
+    internal static readonly HttpClient IntlMediaHttpClient = CreateClient(allowRedirects: true);
 
-    private static HttpClient CreateClient(bool useCookies, bool allowRedirects)
-        => new(CreateWebHandler(useCookies, allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
+    private static HttpClient CreateClient(bool allowRedirects)
+        => new(CreateWebHandler(allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
 
-    internal static HttpMessageHandler CreateWebHandler(bool useCookies, bool allowRedirects)
+    internal static HttpMessageHandler CreateWebHandler(bool allowRedirects)
     {
         var transport = new HttpClientHandler
         {
             AllowAutoRedirect = false,
-            UseCookies = useCookies,
+            UseCookies = false,
             AutomaticDecompression = DecompressionMethods.All,
             MaxConnectionsPerServer = 2048,
             ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
                 Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
         };
-        return allowRedirects ? new CookieScopedRedirectHandler(transport) : transport;
+        var handler = new DeviceCookieHandler(transport);
+        return allowRedirects ? new CookieScopedRedirectHandler(handler) : handler;
     }
 
     internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
@@ -39,7 +40,7 @@ public static class HTTPUtil
     private static readonly string[] CurlUserAgents =
         ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
     private static string userAgent = GenerateDefaultUserAgent(Random.Shared);
-    private static bool automaticUserAgent = true;
+    private static string? customUserAgent;
     private static BrowserRequestProfile authenticatedBrowserProfile = BrowserRequestProfile.Create(Random.Shared);
     private static Action<BrowserRequestProfile>? persistAuthenticatedBrowserProfile;
 
@@ -47,15 +48,11 @@ public static class HTTPUtil
     {
         get
         {
-            lock (UserAgentLock) return userAgent;
+            lock (UserAgentLock) return customUserAgent ?? userAgent;
         }
         set
         {
-            lock (UserAgentLock)
-            {
-                userAgent = value;
-                automaticUserAgent = false;
-            }
+            lock (UserAgentLock) customUserAgent = string.IsNullOrEmpty(value) ? null : value;
         }
     }
 
@@ -63,7 +60,7 @@ public static class HTTPUtil
     {
         get
         {
-            lock (UserAgentLock) return automaticUserAgent;
+            lock (UserAgentLock) return customUserAgent is null;
         }
     }
 
@@ -113,7 +110,7 @@ public static class HTTPUtil
     {
         lock (UserAgentLock)
         {
-            if (!automaticUserAgent || !string.IsNullOrEmpty(Config.COOKIE)) return false;
+            if (customUserAgent is not null || !string.IsNullOrEmpty(Config.COOKIE)) return false;
             userAgent = GenerateDifferentTransportUserAgent(userAgent);
             return true;
         }
@@ -385,11 +382,11 @@ public static class HTTPUtil
             if (requestedUserAgent is not null)
                 return new RequestIdentity(requestedUserAgent, null);
 
-            bool useBrowserProfile = automaticUserAgent
+            bool useBrowserProfile = customUserAgent is null
                 && (forceAuthenticatedProfile || (sendCookie && ShouldSendCookie(url)));
             return useBrowserProfile
                 ? new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile)
-                : new RequestIdentity(userAgent, null);
+                : new RequestIdentity(customUserAgent ?? userAgent, null);
         }
     }
 
@@ -434,7 +431,7 @@ public static class HTTPUtil
 
         lock (UserAgentLock)
         {
-            if (!automaticUserAgent) return null;
+            if (customUserAgent is not null) return null;
             if (failedIdentity.BrowserProfile is not null)
             {
                 if (authenticatedBrowserProfile != failedIdentity.BrowserProfile)

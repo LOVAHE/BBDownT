@@ -28,6 +28,18 @@ dotnet tool update --global BBDownT
 
 独立二进制可运行 `BBDownT --update`（改名后如 `bbd --update`）更新到最新正式版。
 
+# 迁移
+
+如果你使用的是BBDown，并且想更新至BBDownT，不需要繁琐的重新配置，可以直接使用迁移命令完成一键迁移。
+
+首先将BBDownT放到老的BBDown目录内，使用一键命令
+
+```bash
+BBDownT --migrate
+```
+
+（迁移时会跳过已存在的目标文件）迁移成功后，旧文件会改名为带 `.migrated-时间戳` 后缀的备份。
+
 # 下载
 Release版本：https://github.com/LOVAHE/BBDownT/releases
 

@@ -1,12 +1,11 @@
 ﻿using BBDownT.Core.Entity;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using BBDownT.Core.Util;
 using static BBDownT.Core.Util.HTTPUtil;
 
 namespace BBDownT.Core.Fetcher;
 
-public partial class IntlBangumiInfoFetcher : IFetcher
+public class IntlBangumiInfoFetcher : IFetcher
 {
     public Task<VInfo> FetchAsync(string id) => FetchAsync(id, url => GetWebSourceAsync(url));
 
@@ -28,25 +27,7 @@ public partial class IntlBangumiInfoFetcher : IFetcher
         string cover = result.GetProperty("cover").ToString();
         string title = result.GetProperty("title").ToString();
         string desc = result.GetProperty("evaluate").ToString();
-
-
-        if (cover == "")
-        {
-            string animeUrl = $"https://bangumi.bilibili.com/anime/{seasonId}";
-            var web = await fetch(animeUrl);
-            if (web != "")
-            {
-                Regex regex = StateRegex();
-                string _json = regex.Match(web).Groups[1].Value;
-                using var _tempJson = JsonDocument.Parse(_json);
-                cover = _tempJson.RootElement.GetProperty("mediaInfo").GetProperty("cover").ToString();
-                title = _tempJson.RootElement.GetProperty("mediaInfo").GetProperty("title").ToString();
-                desc = _tempJson.RootElement.GetProperty("mediaInfo").GetProperty("evaluate").ToString();
-            }
-        }
-
-        string pubTimeStr = result.GetProperty("publish").GetProperty("pub_time").ToString();
-        long pubTime = string.IsNullOrEmpty(pubTimeStr) ? 0 : DateTimeOffset.ParseExact(pubTimeStr, "yyyy-MM-dd HH:mm:ss", null).ToUnixTimeSeconds();
+        long pubTime = PublishTime.Parse(result.GetProperty("publish").GetProperty("pub_time").ToString());
         var pages = new List<JsonElement>();
         if (result.TryGetProperty("episodes", out JsonElement episodes))
         {
@@ -57,7 +38,8 @@ public partial class IntlBangumiInfoFetcher : IFetcher
         {
             foreach (var section in modules.EnumerateArray())
             {
-                if (section.ToString().Contains($"/{id}"))
+                if (section.TryGetProperty("data", out var data) && data.TryGetProperty("episodes", out var sectionEpisodes)
+                    && BangumiPageMapper.ContainsEpisode(sectionEpisodes, id))
                 {
                     pages = section.GetProperty("data").GetProperty("episodes").EnumerateArray().ToList();
                     break;
@@ -86,7 +68,4 @@ public partial class IntlBangumiInfoFetcher : IFetcher
 
         return info;
     }
-
-    [GeneratedRegex("window.__INITIAL_STATE__=([\\s\\S].*?);\\(function\\(\\)")]
-    private static partial Regex StateRegex();
 }

@@ -377,3 +377,10 @@ BBDownT.web.json
 /BBDownT/*.ass
 
 /devdocs/
+
+# local credentials and downloads
+*.data
+BBDownT.config
+BBDownT.archives
+*.migrated-*
+/downloads/

@@ -498,6 +498,7 @@ public class BBDownTApiServer
         var succeeded = false;
         try
         {
+            HTTPUtil.UserAgent = option.UserAgent;
             var aid = await BBDownTUtil.GetAvIdAsync(option.Url);
             task.SetAid(aid);
             await Program.ExecuteWorkAsync(option, task);

@@ -97,8 +97,10 @@ public static class Entity
             this.res = page.res;
             this.pubTime = page.pubTime;
             this.cover = page.cover;
+            this.desc = page.desc;
             this.ownerName = page.ownerName;
             this.ownerMid = page.ownerMid;
+            this.points = new(page.points);
         }
 
         public override bool Equals(object? obj)

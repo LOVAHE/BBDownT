@@ -23,6 +23,11 @@ public class LegacyLocalFileMigrationTests
             Assert.False(File.Exists(old));
             Assert.Equal("synthetic legacy contents\n", File.ReadAllText(current));
             Assert.Equal(File.ReadAllText(current), File.ReadAllText(backup));
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(current));
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(backup));
+            }
             Assert.Equal(0, LegacyLocalFileMigration.Run(directory, "fixture"));
         }
         finally

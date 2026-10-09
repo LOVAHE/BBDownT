@@ -177,8 +177,8 @@ static class AppHelper
 
                     roles.Add(new AudioMaterial(
                         role.AudioId,
-                        role.Title ?? role.AudioId,
-                        role.PersonName ?? role.Edition ?? "",
+                        string.IsNullOrEmpty(role.Title) ? role.AudioId : role.Title,
+                        string.IsNullOrEmpty(role.PersonName) ? role.Edition : role.PersonName,
                         roleAudios
                     ));
                 }
@@ -450,9 +450,6 @@ internal class AudioMaterial
         PersonName = person_name;
         Audio = audio;
     }
-
-    public override bool Equals(object? obj) => obj is AudioMaterial other && AudioId == other.AudioId && Title == other.Title && PersonName == other.PersonName && Audio == other.Audio;
-    public override int GetHashCode() => HashCode.Combine(Title, Audio);
 }
 
 internal class DubbingInfo
@@ -467,9 +464,6 @@ internal class DubbingInfo
         BackgroundAudio = background_audio;
         RoleAudioList = role_audio_list;
     }
-
-    public override bool Equals(object? obj) => obj is DubbingInfo other && BackgroundAudio == other.BackgroundAudio && RoleAudioList == other.RoleAudioList;
-    public override int GetHashCode() => HashCode.Combine(BackgroundAudio, RoleAudioList);
 }
 
 internal class DashClip
@@ -487,9 +481,6 @@ internal class DashClip
         End = end;
         ToastText = toastText;
     }
-
-    public override bool Equals(object? obj) => obj is DashClip other && Start == other.Start && End == other.End && ToastText == other.ToastText;
-    public override int GetHashCode() => HashCode.Combine(Start, End, ToastText);
 }
 
 internal class AudioInfoWithCodecName
@@ -513,9 +504,6 @@ internal class AudioInfoWithCodecName
         Bandwidth = bandwidth;
         Codecs = codecs;
     }
-
-    public override bool Equals(object? obj) => obj is AudioInfoWithCodecName other && Id == other.Id && BaseUrl == other.BaseUrl && BackupUrl.SequenceEqual(other.BackupUrl) && Bandwidth == other.Bandwidth && Codecs == other.Codecs;
-    public override int GetHashCode() => HashCode.Combine(Id, BaseUrl, BackupUrl, Bandwidth, Codecs);
 }
 
 internal class AudioInfoWitCodecId
@@ -539,9 +527,6 @@ internal class AudioInfoWitCodecId
         Bandwidth = bandwidth;
         Codecid = codecid;
     }
-
-    public override bool Equals(object? obj) => obj is AudioInfoWitCodecId other && Id == other.Id && BaseUrl == other.BaseUrl && Bandwidth == other.Bandwidth && Codecid == other.Codecid;
-    public override int GetHashCode() => HashCode.Combine(Id, BaseUrl, Bandwidth, Codecid);
 }
 
 internal class DashInfo
@@ -556,9 +541,6 @@ internal class DashInfo
         Video = video;
         Audio = audio;
     }
-
-    public override bool Equals(object? obj) => obj is DashInfo other && EqualityComparer<List<object>>.Default.Equals(Video, other.Video) && EqualityComparer<List<object>>.Default.Equals(Audio, other.Audio);
-    public override int GetHashCode() => HashCode.Combine(Video, Audio);
 }
 
 internal class DashData
@@ -576,9 +558,6 @@ internal class DashData
         Dash = dash;
         ClipList = clipList;
     }
-
-    public override bool Equals(object? obj) => obj is DashData other && TimeLength == other.TimeLength && EqualityComparer<DashInfo>.Default.Equals(Dash, other.Dash) && EqualityComparer<List<object>>.Default.Equals(ClipList, other.ClipList);
-    public override int GetHashCode() => HashCode.Combine(TimeLength, Dash, ClipList);
 }
 
 internal class DashJson
@@ -602,7 +581,4 @@ internal class DashJson
         Data = data;
         DubbingInfo = dubbingInfo;
     }
-
-    public override bool Equals(object? obj) => obj is DashJson other && Code == other.Code && Message == other.Message && Ttl == other.Ttl && EqualityComparer<DashData>.Default.Equals(Data, other.Data);
-    public override int GetHashCode() => HashCode.Combine(Code, Message, Ttl, Data, DubbingInfo);
 }

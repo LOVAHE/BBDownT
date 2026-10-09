@@ -18,7 +18,7 @@ namespace BBDownT;
 
 internal static class BBDownTDownloadUtil
 {
-    public class DownloadConfig
+    public sealed record DownloadConfig
     {
         public bool UseAria2c { get; set; } = false;
         public string Aria2cArgs { get; set; } = string.Empty;
@@ -309,13 +309,6 @@ internal static class BBDownTDownloadUtil
         }
     }
 
-    internal static long? GetExpectedTempLength(long existingLength, long? responseContentLength)
-    {
-        return responseContentLength is null
-            ? null
-            : checked(existingLength + responseContentLength.Value);
-    }
-
     internal static long ValidatePartialContentRange(
         ContentRangeHeaderValue? contentRange,
         long? contentLength,
@@ -435,17 +428,7 @@ internal static class BBDownTDownloadUtil
         catch (InvalidDataException ex)
         {
             LogWarn($"{ex.Message}，自动切换为单线程下载");
-            await DownloadFileAsync(url, path, new DownloadConfig
-            {
-                ForceHttp = false,
-                RelatedTask = config.RelatedTask,
-                RestrictedOutputRoot = config.RestrictedOutputRoot,
-                ResourceIdentity = config.ResourceIdentity,
-                IsBilibiliMedia = config.IsBilibiliMedia,
-                RetryDelay = config.RetryDelay,
-                CancellationToken = config.CancellationToken,
-                MaxParallelDownloads = config.MaxParallelDownloads
-            }, httpClient);
+            await DownloadFileAsync(url, path, config with { ForceHttp = false }, httpClient);
             DeleteStaleClipFiles(path);
             return [];
         }
@@ -687,6 +670,13 @@ internal static class BBDownTDownloadUtil
         {
             throw new InvalidOperationException($"aria2下载失败，退出码: {exitCode}");
         }
+    }
+
+    internal static void DeleteStaleTrackFiles(string destinationPath)
+    {
+        DeleteStaleClipFiles(destinationPath);
+        File.Delete(destinationPath + ".tmp");
+        File.Delete(destinationPath + ".tmp.resume");
     }
 
     internal static int DeleteStaleClipFiles(string destinationPath)

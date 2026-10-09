@@ -374,3 +374,12 @@ debug_*.json
 /BBDownT/*.mp4
 /BBDownT/*.xml
 /BBDownT/*.ass
+
+# local credentials and downloads
+.git/
+**/*.data
+**/BBDownT.config
+**/BBDownT.archives
+**/BBDownT.web.json
+**/*.migrated-*
+downloads/

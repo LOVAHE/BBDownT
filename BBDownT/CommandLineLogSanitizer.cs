@@ -31,17 +31,17 @@ internal static class CommandLineLogSanitizer
                 continue;
             }
 
-            var equalsIndex = argument.IndexOf('=');
-            var optionName = equalsIndex >= 0 ? argument[..equalsIndex] : argument;
+            var separatorIndex = argument.IndexOfAny(['=', ':']);
+            var optionName = separatorIndex >= 0 ? argument[..separatorIndex] : argument;
             if (!SensitiveOptions.Contains(optionName))
             {
                 sanitized.Add(argument);
                 continue;
             }
 
-            if (equalsIndex >= 0)
+            if (separatorIndex >= 0)
             {
-                sanitized.Add($"{optionName}={RedactedValue}");
+                sanitized.Add($"{optionName}{argument[separatorIndex]}{RedactedValue}");
             }
             else
             {
@@ -57,7 +57,7 @@ internal static class CommandLineLogSanitizer
     {
         return Regex.Replace(
             text,
-            "(?i)(--cookie|-c|--access-token|-token|--api-token)(\\s+|=)(?:\\\"[^\\\"]*\\\"|'[^']*'|\\S+)",
+            "(?i)(--cookie|-c|--access-token|-token|--api-token)(\\s+|[=:])(?:\\\"[^\\\"]*\\\"|'[^']*'|\\S+)",
             "$1$2<redacted>");
     }
 }

@@ -25,13 +25,13 @@ public class PreviewDownloadTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void AttachmentModesAllowDashArtifactsButDoNotEnterTheDurlMediaPath(bool cover)
+    public void AttachmentModesAllowPreviewResponsesForDashAndDurl(bool cover)
     {
         var option = new MyOption { CoverOnly = cover, DanmakuOnly = !cover };
         var preview = new ParsedResult { IsPreviewOnly = true };
         Assert.False(Program.StopPreviewDownload(option, preview));
 
         preview.Clips.Add("https://cdn.test/preview.mp4");
-        Assert.True(Program.StopPreviewDownload(option, preview));
+        Assert.False(Program.StopPreviewDownload(option, preview));
     }
 }

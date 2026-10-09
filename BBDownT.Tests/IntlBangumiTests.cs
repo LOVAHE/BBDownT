@@ -41,7 +41,7 @@ public class IntlBangumiTests
         var calls = 0;
         var response = new JsonObject { ["code"] = code }.ToJsonString();
         await Assert.ThrowsAsync<IntlApiException>(() => SubUtil.GetIntlSubtitlesAsync(
-            "intl_13287667", "", "13287667", 1, _ =>
+            "intl_13287667", "", "13287667", _ =>
             {
                 calls++;
                 return Task.FromResult(response);

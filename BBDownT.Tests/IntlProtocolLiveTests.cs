@@ -98,7 +98,7 @@ public class IntlProtocolLiveTests
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         client.DefaultRequestHeaders.Referrer = new Uri("https://www.bilibili.tv/");
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Dart/3.8 (dart:io)");
-        var resources = await SubUtil.GetIntlSubtitlesAsync("intl_13287667", "", "13287667", 1,
+        var resources = await SubUtil.GetIntlSubtitlesAsync("intl_13287667", "", "13287667",
             url => client.GetStringAsync(url));
         var selected = SubtitleSelection.Filter(resources, new MyOption { UseIntlApi = true });
 

@@ -228,7 +228,7 @@ public static partial class SubUtil
 
     #region 字幕接口
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string aid, string cid, string epId, Func<string, Task<string>> fetch)
     {
         try
         {
@@ -294,7 +294,7 @@ public static partial class SubUtil
         catch (FormatException) { return url; } // The existing merge path rejects unusable URLs.
     }
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, Func<string, Task<string>> fetch)
     {
         try
         {
@@ -304,8 +304,13 @@ public static partial class SubUtil
             string json = await fetch(api);
             using var infoJson = JsonDocument.Parse(json);
             IntlBangumiWebApi.EnsureSuccess(infoJson.RootElement);
-            var subs = infoJson.RootElement.GetProperty("result").GetProperty("modules")[0].GetProperty("data")
-                .GetProperty("episodes")[index - 1].GetProperty("subtitles").EnumerateArray();
+            var episode = infoJson.RootElement.GetProperty("result").GetProperty("modules").EnumerateArray()
+                .SelectMany(module => module.TryGetProperty("data", out var data)
+                    && data.TryGetProperty("episodes", out var episodes) && episodes.ValueKind == JsonValueKind.Array
+                        ? episodes.EnumerateArray() : [])
+                .FirstOrDefault(item => item.TryGetProperty("id", out var id) && id.ToString() == epId);
+            if (episode.ValueKind == JsonValueKind.Undefined) return null;
+            var subs = episode.GetProperty("subtitles").EnumerateArray();
             foreach (var sub in subs)
             {
                 var lan = sub.GetProperty("key").ToString();
@@ -480,21 +485,21 @@ public static partial class SubUtil
 
     #endregion
 
-    public static async Task<List<Subtitle>> GetSubtitlesAsync(string aid, string cid, string epId, int index, bool intl)
+    public static async Task<List<Subtitle>> GetSubtitlesAsync(string aid, string cid, string epId, bool intl)
     {
         if (intl)
         {
-            return await GetIntlSubtitlesAsync(aid, cid, epId, index, url => GetSubtitleWebTextAsync(url));
+            return await GetIntlSubtitlesAsync(aid, cid, epId, url => GetSubtitleWebTextAsync(url));
         }
 
         return await GetDomesticSubtitlesAsync(aid, cid, AppHttpClient);
     }
 
-    internal static async Task<List<Subtitle>> GetIntlSubtitlesAsync(string aid, string cid, string epId, int index, Func<string, Task<string>> fetch)
+    internal static async Task<List<Subtitle>> GetIntlSubtitlesAsync(string aid, string cid, string epId, Func<string, Task<string>> fetch)
     {
-        var first = await GetIntlSubtitlesFromApi1Async(aid, cid, epId, index, fetch);
+        var first = await GetIntlSubtitlesFromApi1Async(aid, cid, epId, fetch);
         List<List<Subtitle>?> sources = [first];
-        if (!HasUsableSubtitle(first)) sources.Add(await GetIntlSubtitlesFromApi2Async(aid, cid, epId, index, fetch));
+        if (!HasUsableSubtitle(first)) sources.Add(await GetIntlSubtitlesFromApi2Async(aid, cid, epId, fetch));
         return MergeSubtitleSources(sources, aid, cid);
     }
 

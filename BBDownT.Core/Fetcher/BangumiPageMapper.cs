@@ -40,6 +40,10 @@ internal static class BangumiPageMapper
         return (pages, selectedIndex);
     }
 
+    internal static bool ContainsEpisode(JsonElement episodes, string episodeId)
+        => episodes.ValueKind == JsonValueKind.Array && episodes.EnumerateArray().Any(episode =>
+            episode.TryGetProperty("id", out var id) && id.ToString() == episodeId);
+
     private static string ReadResolution(JsonElement episode)
     {
         if (episode.TryGetProperty("dimension", out var dimension)

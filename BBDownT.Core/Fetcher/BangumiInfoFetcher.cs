@@ -19,18 +19,18 @@ public class BangumiInfoFetcher : IFetcher
         string cover = result.GetProperty("cover").ToString();
         string title = result.GetProperty("title").ToString();
         string desc = result.GetProperty("evaluate").ToString();
-        string pubTimeStr = result.GetProperty("publish").GetProperty("pub_time").ToString();
-        long pubTime = string.IsNullOrEmpty(pubTimeStr) ? 0 : DateTimeOffset.ParseExact(pubTimeStr, "yyyy-MM-dd HH:mm:ss", null).ToUnixTimeSeconds();
+        long pubTime = PublishTime.Parse(result.GetProperty("publish").GetProperty("pub_time").ToString());
         var pages = result.GetProperty("episodes").EnumerateArray();
 
         //episodes为空; 或者未包含对应epid，番外/花絮什么的
-        if (!(pages.Any() && result.GetProperty("episodes").ToString().Contains($"/ep{id}")))
+        if (!BangumiPageMapper.ContainsEpisode(result.GetProperty("episodes"), id))
         {
             if (result.TryGetProperty("section", out JsonElement sections))
             {
                 foreach (var section in sections.EnumerateArray())
                 {
-                    if (section.ToString().Contains($"/ep{id}"))
+                    if (section.TryGetProperty("episodes", out var sectionEpisodes)
+                        && BangumiPageMapper.ContainsEpisode(sectionEpisodes, id))
                     {
                         title += "[" + section.GetProperty("title").ToString() + "]";
                         pages = section.GetProperty("episodes").EnumerateArray();

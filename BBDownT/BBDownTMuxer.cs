@@ -20,36 +20,39 @@ static partial class BBDownTMuxer
     public static string MP4BOX = "mp4box";
 
     internal static string GetChapterPath(string videoPath, string audioPath, string? restrictedOutputRoot, Func<string, bool>? isLink = null)
+        => GetScratchPath(videoPath, audioPath, "chapters", restrictedOutputRoot, isLink);
+
+    private static string GetScratchPath(string videoPath, string audioPath, string name, string? restrictedOutputRoot,
+        Func<string, bool>? isLink = null)
     {
         var mediaPath = string.IsNullOrEmpty(videoPath) ? audioPath : videoPath;
-        var path = Path.Combine(Path.GetDirectoryName(mediaPath)!, "chapters");
+        var path = Path.Combine(Path.GetDirectoryName(mediaPath)!, name);
         return OutputPathPolicy.ResolveArtifact(path, restrictedOutputRoot, isLink);
     }
 
-    private static int RunExe(string app, IEnumerable<string> args, bool customBin = false)
+    private static int RunExe(string app, IEnumerable<string> args)
     {
-        int code = 0;
-        Process p = new();
+        using Process p = new();
         p.StartInfo.FileName = app;
         foreach (var arg in args)
         {
             p.StartInfo.ArgumentList.Add(arg);
         }
         p.StartInfo.UseShellExecute = false;
+        p.StartInfo.RedirectStandardInput = true;
         p.StartInfo.RedirectStandardError = true;
         p.StartInfo.CreateNoWindow = false;
-        p.ErrorDataReceived += delegate (object sendProcess, DataReceivedEventArgs output) {
+        p.ErrorDataReceived += (_, output) =>
+        {
             if (!string.IsNullOrWhiteSpace(output.Data))
                 Log(output.Data);
         };
         p.StartInfo.StandardErrorEncoding = Encoding.UTF8;
         p.Start();
+        p.StandardInput.Close();
         p.BeginErrorReadLine();
         p.WaitForExit();
-        code = p.ExitCode;
-        p.Close();
-        p.Dispose();
-        return code;
+        return p.ExitCode;
     }
 
     private static string FormatCommandForLog(IEnumerable<string> args)
@@ -121,14 +124,19 @@ static partial class BBDownTMuxer
             }
         }
 
-        //----分析完毕
-        if (metaTags.Any())
-        {
-            args.AddRange(["-itags", "tool=:" + string.Join(':', metaTags)]);
-        }
+        var tagsFile = GetScratchPath(videoPath, audioPath, "itags", restrictedOutputRoot);
+        File.WriteAllText(tagsFile, string.Join("\n", metaTags.Prepend("tool=")), new UTF8Encoding(false));
+        args.AddRange(["-itags", tagsFile]);
         args.AddRange(["-new", "--", outPath]);
         LogDebug("mp4box命令: {0}", FormatCommandForLog(args));
-        return RunExe(MP4BOX, args, MP4BOX != "mp4box");
+        try
+        {
+            return RunExe(MP4BOX, args);
+        }
+        finally
+        {
+            File.Delete(tagsFile);
+        }
     }
 
     public static int MuxAV(bool useMp4box, string bvid, string videoPath, string audioPath, List<AudioMaterial> audioMaterial, string outPath, string desc = "", string title = "", string author = "", string episodeId = "", string pic = "", string lang = "", List<Subtitle>? subs = null, bool audioOnly = false, bool videoOnly = false, List<ViewPoint>? points = null, long pubTime = 0, bool simplyMux = false, bool isHevc = false, string? restrictedOutputRoot = null)
@@ -229,7 +237,7 @@ static partial class BBDownTMuxer
         args.AddRange(["-movflags", "faststart", "-strict", "unofficial", "-strict", "-2", "-f", "mp4", "--", outPath]);
 
         LogDebug("ffmpeg命令: {0}", FormatCommandForLog(args));
-        return RunExe(FFMPEG, args, FFMPEG != "ffmpeg");
+        return RunExe(FFMPEG, args);
     }
 
     public static void MergeFLV(string[] files, string outPath, Func<string, string, int>? convert = null)
@@ -243,9 +251,7 @@ static partial class BBDownTMuxer
         else
         {
             convert ??= ConvertFlvSegment;
-            var batch = Guid.NewGuid().ToString("N");
-            var converted = files.Select(file => Path.Combine(Path.GetDirectoryName(file)!,
-                Path.GetFileNameWithoutExtension(file) + "." + batch + ".ts")).ToArray();
+            var converted = files.Select(file => Path.ChangeExtension(file, ".ts")).ToArray();
             try
             {
                 for (var i = 0; i < files.Length; i++)
@@ -269,6 +275,6 @@ static partial class BBDownTMuxer
     {
         List<string> args = ["-loglevel", "warning", "-y", "-i", input, "-map", "0", "-c", "copy", "-f", "mpegts", "-bsf:v", "h264_mp4toannexb", output];
         LogDebug("ffmpeg命令: {0}", FormatCommandForLog(args));
-        return RunExe(FFMPEG, args, FFMPEG != "ffmpeg");
+        return RunExe(FFMPEG, args);
     }
 }

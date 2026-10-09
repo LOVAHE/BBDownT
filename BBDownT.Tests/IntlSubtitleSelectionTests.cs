@@ -408,6 +408,31 @@ public class IntlSubtitleSelectionTests
         url = $"https://cdn.test/{group}.{format}", FormatVariantGroup = group
     };
 
+    [Fact]
+    public async Task AppFallback_UsesTheSubtitlesOfTheRequestedEpisode()
+    {
+        static JsonObject Episode(string id, string language) => new()
+        {
+            ["id"] = id,
+            ["subtitles"] = new JsonArray(new JsonObject { ["key"] = language, ["url"] = $"https://sub.test/{id}.json" })
+        };
+        var season = new JsonObject
+        {
+            ["code"] = 0,
+            ["result"] = new JsonObject
+            {
+                ["modules"] = new JsonArray(
+                    new JsonObject { ["data"] = new JsonObject { ["episodes"] = new JsonArray(Episode("10", "en"), Episode("20", "th")) } },
+                    new JsonObject { ["data"] = new JsonObject { ["episodes"] = new JsonArray(Episode("30", "vi")) } })
+            }
+        };
+        var responses = new Queue<string>(["{\"code\":0,\"data\":{}}", season.ToJsonString()]);
+
+        var subtitles = await SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => Task.FromResult(responses.Dequeue()));
+
+        Assert.Equal("vi", Assert.Single(subtitles).lan);
+    }
+
     private sealed class NoInputReader : TextReader
     {
         public override string? ReadLine() => throw new Xunit.Sdk.XunitException("A reused or noninteractive subtitle choice read input.");

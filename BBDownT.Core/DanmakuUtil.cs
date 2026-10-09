@@ -15,12 +15,6 @@ public static class DanmakuUtil
     private const int PROTECT_LENGTH = 50;          //滚动弹幕屏占百分比
     public static readonly DanmakuComparer comparer = new();
 
-    /*public static async Task DownloadAsync(Page p, string xmlPath, bool aria2c, string aria2cProxy)
-    {
-        string danmakuUrl = "https://comment.bilibili.com/" + p.cid + ".xml";
-        await DownloadFile(danmakuUrl, xmlPath, aria2c, aria2cProxy);
-    }*/
-
     public static DanmakuItem[]? ParseXml(string xmlPath)
     {
         // 解析xml文件
