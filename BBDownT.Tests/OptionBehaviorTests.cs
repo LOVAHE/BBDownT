@@ -30,6 +30,47 @@ public class OptionBehaviorTests
     }
 
     [Fact]
+    public void ServeDebug_StaysOnForTasksThatDoNotAskForIt()
+    {
+        using var state = new WorkStateScope();
+        Program.ServerDebug = true;
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.True(Config.DEBUG_LOG);
+
+        Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.False(Config.DEBUG_LOG);
+
+        Program.ServerDebug = false;
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true, Debug = true });
+        Assert.True(Config.DEBUG_LOG);
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.False(Config.DEBUG_LOG);
+    }
+
+    [Fact]
+    public void TokenFile_IsTrimmedAndDoesNotReplaceALoadedToken()
+    {
+        var directory = Directory.CreateTempSubdirectory("bbdownt-token-").FullName;
+        var token = Config.TOKEN;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "BBDownTTV.data"), "access_token=tv-token\r\n");
+            File.WriteAllText(Path.Combine(directory, "BBDownTApp.data"), "access_token=app-token");
+            Config.TOKEN = "";
+
+            Program.LoadTokenFile(directory, "BBDownTTV.data");
+            Program.LoadTokenFile(directory, "BBDownTApp.data");
+
+            Assert.Equal("tv-token", Config.TOKEN);
+        }
+        finally
+        {
+            Config.TOKEN = token;
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void AudioAndVideoOnly_KeepBothStreamsAndEnableSkipMux()
     {
         var option = new MyOption { AudioOnly = true, VideoOnly = true };
@@ -74,7 +115,7 @@ public class OptionBehaviorTests
     [InlineData(1000, "1000")]
     public void FixedPageNumberPadding_UsesAtLeastTwoDigitsWithoutTruncation(int index, string expected)
     {
-        var page = new Page(index, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(index, "2", "3", "", "part", 1, 0);
 
         var path = Program.FormatSavePath(
             "[P<pageNumberWithZero:2>]",
@@ -92,7 +133,7 @@ public class OptionBehaviorTests
     [Fact]
     public void PageNumberPadding_UsesOriginalTotalPageCount()
     {
-        var page = new Page(7, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
 
         var path = Program.FormatSavePath("[P<pageNumberWithZero>]", "title", null, null,
             page, 120, "WEB", 0);
@@ -107,7 +148,7 @@ public class OptionBehaviorTests
     [InlineData(10, "0000000007")]
     public void FixedPageNumberPadding_UsesTheRequestedMinimumWidth(int width, string expected)
     {
-        var page = new Page(7, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
 
         var path = Program.FormatSavePath($"[P<pageNumberWithZero:{width}>]", "title", null, null,
             page, 8, "WEB", 0);
@@ -130,7 +171,7 @@ public class OptionBehaviorTests
     [InlineData("<pageNumber>")]
     public void FixedPageNumberPadding_RejectsInvalidWidths(string width)
     {
-        var page = new Page(7, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
 
         Assert.Throws<ArgumentException>(() => Program.FormatSavePath(
             $"[P<pageNumberWithZero:{width}>]", "title", null, null, page, 8, "WEB", 0));
@@ -143,7 +184,7 @@ public class OptionBehaviorTests
     [InlineData(1200)]
     public void DefaultPageName_RemainsStableAsTheTotalPageCountGrows(int totalPages)
     {
-        var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(8, "2", "3", "", "part", 1, 0);
 
         var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
             page, totalPages, "WEB", 0);
@@ -154,7 +195,7 @@ public class OptionBehaviorTests
     [Fact]
     public void UnpaddedPageNumber_RemainsAvailableInCustomTemplates()
     {
-        var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(8, "2", "3", "", "part", 1, 0);
 
         var path = Program.FormatSavePath("[P<pageNumber>]", "title", null, null,
             page, 120, "WEB", 0);
@@ -170,7 +211,7 @@ public class OptionBehaviorTests
         {
             Program.MultiPageDefaultSavePath = "<videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>";
             Program.HandleDeprecatedOptions(new MyOption { NoPaddingPageNum = true });
-            var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+            var page = new Page(8, "2", "3", "", "part", 1, 0);
 
             var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
                 page, 120, "WEB", 0);
@@ -286,18 +327,59 @@ public class OptionBehaviorTests
             "BV1xx411c7mD", "-q", "HDR Vivid,8K 超高清", "-info"]));
         Assert.NotNull(captured);
 
-        var setup = Program.SetUpWork(captured);
+        var dfnPriority = Program.ParseDfnPriority(captured);
+        var encodingPriority = Program.ParseEncodingPriority(captured, out _);
         var videos = new List<Video>
         {
             CreateVideo("127", Config.qualitys["127"], "HEVC"),
             CreateVideo("129", Config.qualitys["129"], "HEVC")
         };
-        var sorted = Program.SortTracks(videos, setup.dfnPriority, setup.encodingPriority,
+        var sorted = Program.SortTracks(videos, dfnPriority, encodingPriority,
             captured.VideoAscending, captured.EncodingPriorityFirst);
 
         Assert.Equal("129", sorted[0].id);
-        Assert.Equal(0, setup.dfnPriority["HDR Vivid"]);
-        Assert.Equal(1, setup.dfnPriority["8K 超高清"]);
+        Assert.Equal(0, dfnPriority["HDR Vivid"]);
+        Assert.Equal(1, dfnPriority["8K 超高清"]);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(" , ")]
+    public async Task EmptyEncodingPriority_BehavesLikeNoPriority(string value)
+    {
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(0, await command.InvokeAsync(["BV1xx411c7mD", "-e", value, "-info"]));
+        Assert.NotNull(captured);
+
+        Assert.Empty(Program.ParseEncodingPriority(captured, out var firstEncoding));
+        Assert.Equal("", firstEncoding);
+    }
+
+    [Fact]
+    public void InvalidDateFormat_IsReportedByTheFormat()
+    {
+        var page = new Page(1, "2", "3", "", "part", 1, 0);
+        var originalOutput = Console.Out;
+        using var output = new StringWriter();
+        string path;
+        try
+        {
+            Console.SetOut(output);
+            path = Program.FormatSavePath("<publishDate:x>", "title", null, null, page, 1, "WEB", 1700000000);
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+
+        Assert.Equal("1700000000.mp4", path);
+        Assert.Contains("日期格式无效: x", output.ToString());
     }
 
     [Fact]

@@ -14,7 +14,7 @@ public class MultiThreadDownloadTests
         files.FilePath("00000_track.vclip.resume");
         files.FilePath("track.mp4.resume");
         var requests = new List<string>();
-        using var client = new HttpClient(new Handler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             requests.Add(request.Headers.Range?.ToString() ?? "size probe");
             var response = new HttpResponseMessage(request.Headers.Range is null
@@ -27,13 +27,14 @@ public class MultiThreadDownloadTests
             return response;
         }));
 
+        var config = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "track" };
         var manifest = await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
-            "https://cdn.test/new-quality.mp4", destination, new(), client);
+            "https://cdn.test/new-quality.mp4", destination, config, client);
 
         Assert.Equal(new[] { "size probe", "bytes=0-3" }, requests);
         Assert.Equal(new[] { expectedClip }, manifest);
         Assert.Equal("OLD!", File.ReadAllText(destination));
-        BBDownTDownloadUtil.MergeTrackClips(manifest, destination);
+        await BBDownTDownloadUtil.MergeTrackClipsAsync(manifest, destination, config);
         Assert.Equal("NEW!", File.ReadAllText(destination));
         Assert.False(File.Exists(expectedClip));
     }
@@ -44,7 +45,7 @@ public class MultiThreadDownloadTests
         using var files = new MediaTestDirectory();
         var destination = files.Write("track.mp4", "OLD!");
         files.FilePath("00000_track.vclip");
-        using var client = new HttpClient(new Handler(request => request.Headers.Range is null
+        using var client = new HttpClient(new DelegateHandler(request => request.Headers.Range is null
             ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent("NEW!"u8.ToArray()) }
             : throw new HttpRequestException("new resource unavailable")));
 
@@ -53,11 +54,5 @@ public class MultiThreadDownloadTests
             new() { RetryDelay = (_, _) => Task.CompletedTask }, client));
 
         Assert.Equal("OLD!", File.ReadAllText(destination));
-    }
-
-    private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken) => Task.FromResult(respond(request));
     }
 }

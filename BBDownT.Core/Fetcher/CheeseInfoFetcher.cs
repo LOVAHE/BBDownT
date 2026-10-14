@@ -31,7 +31,6 @@ public class CheeseInfoFetcher : IFetcher
                 page.GetProperty("id").ToString(),
                 page.GetProperty("title").ToString().Trim(),
                 page.GetProperty("duration").GetInt32(),
-                "",
                 page.GetProperty("release_date").GetInt64(),
                 "",
                 "",

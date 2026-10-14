@@ -5,7 +5,7 @@ namespace BBDownT.Tests;
 
 public class OutputNameLimitTests
 {
-    private static Page CreatePage() => new(1, "170001", "2", "", "P1", 0, "", 1);
+    private static Page CreatePage() => new(1, "170001", "2", "", "P1", 0, 1);
 
     private static int Bytes(string value) => Encoding.UTF8.GetByteCount(value);
 

@@ -5,11 +5,11 @@ namespace BBDownT.Tests;
 public class HTTPUtilTests
 {
     [Fact]
-    public void GenerateDefaultUserAgent_ProducesVariedNonProductIdentities()
+    public void GenerateTransportUserAgent_ProducesVariedNonProductIdentities()
     {
         var random = new Random(20260914);
         var values = Enumerable.Range(0, 2000)
-            .Select(_ => HTTPUtil.GenerateDefaultUserAgent(random))
+            .Select(_ => HTTPUtil.GenerateTransportUserAgent(random))
             .ToHashSet(StringComparer.Ordinal);
 
         Assert.True(values.Count >= 50);

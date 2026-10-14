@@ -6,10 +6,13 @@ namespace BBDownT.Tests;
 
 public class SubtitleSelectionTests
 {
+    private static List<Subtitle> SelectNonInteractive(IReadOnlyList<Subtitle> subtitles, MyOption option)
+        => SubtitleSelection.Choose(subtitles, option, TextReader.Null, TextWriter.Null);
+
     [Fact]
     public void DefaultPolicy_ExcludesAiIncludingUnknownAiPrefix()
     {
-        var selected = SubtitleSelection.Filter(Tracks(), new MyOption());
+        var selected = SelectNonInteractive(Tracks(), new MyOption());
 
         Assert.Equal(["zh-Hans", "en", "en-GB"], selected.Select(s => s.lan));
     }
@@ -25,7 +28,7 @@ public class SubtitleSelectionTests
         Assert.Equal(new[] { "en", "ai-en", "en-GB" }, candidates.Select(subtitle => subtitle.lan));
         Assert.Equal(candidates, defaults);
         Assert.Equal(defaults.Select(subtitle => subtitle.lan),
-            SubtitleSelection.Filter(Tracks(), option).Select(subtitle => subtitle.lan));
+            SelectNonInteractive(Tracks(), option).Select(subtitle => subtitle.lan));
     }
 
     [Theory]
@@ -35,7 +38,7 @@ public class SubtitleSelectionTests
     [InlineData("only", "ai-zh,ai-en,ai-fr")]
     public void ExplicitAiPolicy_OverridesLegacyFlagAndFiltersAllPolicies(string policy, string expected)
     {
-        var selected = SubtitleSelection.Filter(Tracks(), new MyOption
+        var selected = SelectNonInteractive(Tracks(), new MyOption
         {
             SkipAi = false,
             AiSubtitlePolicy = policy
@@ -54,7 +57,7 @@ public class SubtitleSelectionTests
             Track("ai-fr", type: 1)
         };
 
-        var selected = SubtitleSelection.Filter(tracks, new MyOption
+        var selected = SelectNonInteractive(tracks, new MyOption
         {
             SubtitleLanguage = "en,fr",
             AiSubtitlePolicy = "prefer-human"
@@ -66,7 +69,7 @@ public class SubtitleSelectionTests
     [Fact]
     public void PreferHuman_ExactAiLanguageDoesNotConsiderNonSelectedCc()
     {
-        var selected = SubtitleSelection.Filter(Tracks(), new MyOption
+        var selected = SelectNonInteractive(Tracks(), new MyOption
         {
             SubtitleLanguage = "ai-zh",
             AiSubtitlePolicy = "prefer-human"
@@ -81,7 +84,7 @@ public class SubtitleSelectionTests
     [InlineData("AI-ZH", "ai-zh")]
     public void LanguageFilter_UsesCaseInsensitiveFamilyOrExactMatching(string language, string expected)
     {
-        var selected = SubtitleSelection.Filter(Tracks(), new MyOption
+        var selected = SelectNonInteractive(Tracks(), new MyOption
         {
             SubtitleLanguage = language,
             AiSubtitlePolicy = "include"
@@ -207,15 +210,15 @@ public class SubtitleSelectionTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    public void ApiInteractive_IsOnlyAllowedForNonInteractiveInfoMode(bool infoOnly, bool accepted)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ApiInteractive_IsOnlyAllowedForNonInteractiveInfoMode(bool infoOnly)
     {
         var error = new BBDownTApiServer().ValidateAndNormalizeServerRequest(new ServeRequestOptions
         {
             Url = "BV1xx411c7mD", SubOnly = true, Interactive = true, OnlyShowInfo = infoOnly
         });
-        Assert.Equal(accepted, error is null);
+        Assert.Equal(infoOnly, error is null);
     }
 
     private static IEnumerable<string> ChooseInteractive(string answer)

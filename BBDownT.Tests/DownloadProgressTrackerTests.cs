@@ -90,10 +90,8 @@ public class DownloadProgressTrackerTests
         Assert.Single(logs, text => text == "正在校验已有数据...");
     }
 
-    [Theory]
-    [InlineData(0, "校验 33.33%")]
-    public void MismatchedPrefixCountsOnlyMatchedBytesWhileAnotherPartIsVerifying(
-        long matchedBytes, string expectedStatus)
+    [Fact]
+    public void MismatchedPrefixCountsOnlyMatchedBytesWhileAnotherPartIsVerifying()
     {
         (double Progress, long Bytes, string? Status) last = default;
         var tracker = new DownloadProgressTracker(16, [8, 8],
@@ -103,12 +101,12 @@ public class DownloadProgressTrackerTests
         tracker.ReportRestored();
         tracker.Report(1, new(3, 1, true, 1, 3));
 
-        tracker.Report(0, new(matchedBytes + 1, 1, false, matchedBytes, matchedBytes));
+        tracker.Report(0, new(1, 1, false, 0, 0));
 
-        Assert.Equal(expectedStatus, last.Status);
+        Assert.Equal("校验 33.33%", last.Status);
         Assert.Equal(2L, last.Bytes);
-        tracker.Report(0, new(matchedBytes + 2, 1)); // A suffix does not erase completed comparison.
-        Assert.Equal(expectedStatus, last.Status);
+        tracker.Report(0, new(2, 1)); // A suffix does not erase completed comparison.
+        Assert.Equal("校验 33.33%", last.Status);
     }
 
     [Fact]
@@ -152,7 +150,7 @@ public class DownloadProgressTrackerTests
         }
 
         var error = await Assert.ThrowsAsync<DownloadInterruptedException>(() =>
-            BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, broken, 0, true, 8, _ => { },
+            BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, broken, 0, true, 8,
                 Save, onTransferProgress: update => tracker.Report(0, update)));
 
         Assert.IsType<IOException>(error.InnerException);
@@ -162,7 +160,7 @@ public class DownloadProgressTrackerTests
 
         var retryStart = frames.Count;
         using var retry = new OneByteStream([1, 2, 99, 4, 5, 6, 7, 8]);
-        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, retry, 0, true, 8, _ => { },
+        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, retry, 0, true, 8,
             Save, onTransferProgress: update => tracker.Report(0, update));
 
         Assert.Equal((3.0 / 8, 3L, "校验 0.00%"), frames[retryStart]);
@@ -183,7 +181,7 @@ public class DownloadProgressTrackerTests
         var frames = new List<DownloadProgressUpdate>();
         string? digest = null;
 
-        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, remote, 0, true, 8, _ => { },
+        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, remote, 0, true, 8,
             (_, hash, _) => { digest = hash; return Task.CompletedTask; }, onTransferProgress: frames.Add);
 
         Assert.Equal(new DownloadProgressUpdate(6, 0, true, 0, 6), frames[0]);
@@ -204,7 +202,7 @@ public class DownloadProgressTrackerTests
         using var remote = new OneByteStream([5, 6]);
         var frames = new List<DownloadProgressUpdate>();
 
-        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, remote, 4, false, 2, _ => { },
+        await BBDownTDownloadUtil.CopyVerifiedRangeAsync(local, remote, 4, false, 2,
             (_, _, _) => Task.CompletedTask, onTransferProgress: frames.Add);
 
         Assert.Equal(new DownloadProgressUpdate(4, 0), frames[0]);

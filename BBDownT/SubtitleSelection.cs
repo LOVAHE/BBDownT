@@ -20,9 +20,6 @@ internal static class SubtitleSelection
     internal static string? ValidateOptions(MyOption option) =>
         ValidateLanguage(option.SubtitleLanguage) ?? ValidatePolicy(option.AiSubtitlePolicy);
 
-    internal static List<Subtitle> Filter(IReadOnlyList<Subtitle> subtitles, MyOption option) =>
-        SelectDefaults(FilterCandidates(subtitles, option), option);
-
     internal static List<Subtitle> FilterCandidates(IReadOnlyList<Subtitle> subtitles, MyOption option)
     {
         if (ValidateOptions(option) is { } error) throw new ArgumentException(error);

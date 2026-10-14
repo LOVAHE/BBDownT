@@ -16,7 +16,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using BBDownT.Core;
 using BBDownT.Core.Util;
-using System.Text.Json.Serialization;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using BBDownT.Core.Entity;
@@ -33,22 +32,22 @@ partial class Program
 
     public static readonly string APP_DIR = Path.GetDirectoryName(Environment.ProcessPath)!;
 
-    private static string FormatTimeStamp(long ts, string format)
+    private static string FormatTimeStamp(long ts, string format, bool logErrors = true)
     {
         try
         {
             return ts == 0 ? "null" : DateTimeOffset.FromUnixTimeSeconds(ts).ToLocalTime().ToString(format);
         }
-        catch (Exception ex)
+        catch (FormatException)
         {
-            LogError($"格式化日期出错: {ex.Message}");
-            return ts.ToString();
+            if (logErrors) LogError($"日期格式无效: {format}");
         }
+        catch (ArgumentException)
+        {
+            if (logErrors) LogError($"时间戳超出范围: {ts}");
+        }
+        return ts.ToString();
     }
-
-    [JsonSerializable(typeof(MyOption))]
-    [JsonSerializable(typeof(ServeRequestOptions))]
-    partial class MyOptionJsonContext : JsonSerializerContext { }
 
     private static void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
     {
@@ -83,10 +82,12 @@ partial class Program
         Func<MyOption, Task> runApp,
         Func<int> migrate,
         Func<Task<int>>? update = null,
-        Func<bool, Task<int>>? loginIntl = null)
+        Func<bool, Task<int>>? loginIntl = null,
+        Func<Task<int>>? login = null,
+        Func<Task<int>>? loginTv = null)
     {
         var rootCommand = CommandLineInvoker.GetRootCommand(runApp);
-        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新正式版本；需单独使用")
+        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用")
         {
             Arity = ArgumentArity.Zero
         };
@@ -182,23 +183,30 @@ partial class Program
             context.ParseResult.GetValueForOption(serverFinishedRetentionHoursOpt),
             context.ParseResult.GetValueForOption(allowInsecureTlsOpt),
             context.ParseResult.GetValueForOption(cookieAllowedDomainsOpt),
-            context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt)));
+            context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt),
+            context.ParseResult.GetValueForOption(CommandLineInvoker.Debug)));
         rootCommand.AddCommand(runAsServerCommand);
         rootCommand.Description = "BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.";
         rootCommand.TreatUnmatchedTokensAsErrors = true;
 
         //WEB登录
-        loginCommand.SetHandler(BBDownTLoginUtil.LoginWEB);
+        loginCommand.SetHandler(async context =>
+        {
+            context.ExitCode = await (login ?? BBDownTLoginUtil.LoginWEB)();
+        });
 
         //TV登录
-        loginTVCommand.SetHandler(BBDownTLoginUtil.LoginTV);
+        loginTVCommand.SetHandler(async context =>
+        {
+            context.ExitCode = await (loginTv ?? BBDownTLoginUtil.LoginTV)();
+        });
 
         var parser = new CommandLineBuilder(rootCommand)
             .UseDefaults()
             .EnablePosixBundling(false)
             .UseExceptionHandler((ex, context) =>
             {
-                LogError(ex.Message);
+                LogError(Config.DEBUG_LOG ? RedactSensitiveText(ex.ToString()) : ErrorText.Describe(ex));
                 try { Console.CursorVisible = true; } catch { }
                 Thread.Sleep(3000);
                 Environment.Exit(1);
@@ -278,7 +286,7 @@ partial class Program
             }
         }
 
-        if (commandLineResult.CommandResult.Command.Name.ToLower() != Path.GetFileNameWithoutExtension(Environment.ProcessPath)!.ToLower() && Path.GetFileNameWithoutExtension(Environment.ProcessPath)!.ToLower() != "dotnet")
+        if (commandLineResult.CommandResult.Command != rootCommand)
         {
             // 服务器模式需要完整的arg列表
             if (commandLineResult.CommandResult.Command.Name.ToLower() == "serve")
@@ -302,14 +310,14 @@ partial class Program
             commandLineResult.CommandResult.Children.OfType<OptionResult>(),
             args))
         {
-            newArgsList.Add("--" + o.Option.Name);
-            newArgsList.AddRange(o.Tokens.Select(t => t.Value));
+            newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));
         }
 
         Console.BackgroundColor = ConsoleColor.DarkBlue;
         Console.ForegroundColor = ConsoleColor.White;
         var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
-        Console.Write($"BBDownT version {ver.Major}.{ver.Minor}.{ver.Build}, Bilibili Downloader.\r\n");
+        var version = BBDownTSelfUpdater.CurrentVersion()?.ToString() ?? $"{ver.Major}.{ver.Minor}.{ver.Build}";
+        Console.Write($"BBDownT version {version}, Bilibili Downloader.\r\n");
         Console.ResetColor();
         Console.Write("遇到问题请首先到以下地址查阅有无相关信息：\r\nhttps://github.com/LOVAHE/BBDownT/issues\r\n");
         Console.WriteLine();
@@ -343,26 +351,31 @@ partial class Program
         int finishedRetentionHours,
         bool allowInsecureTls,
         string? cookieAllowedDomains,
-        int maxGrpcMessageMb)
+        int maxGrpcMessageMb,
+        bool debug)
     {
+        Config.DEBUG_LOG = ServerDebug = debug;
         var defaultListenUrl = "http://127.0.0.1:23333";
         var actualListenUrl = string.IsNullOrEmpty(listenUrl) ? defaultListenUrl : listenUrl;
         ApplyServeSecurityOptions(allowInsecureTls, cookieAllowedDomains, maxGrpcMessageMb);
-        var serverOptions = new BBDownTServerOptions
+        var defaults = new BBDownTServerOptions();
+        var serverOptions = defaults with
         {
             AllowAria2cArgs = allowAria2cArgs,
             AllowCustomOutput = allowCustomOutput,
             AllowCustomNetworkHosts = allowCustomNetworkHosts,
             AllowPrivateCallbacks = allowPrivateCallbacks,
-            DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? Environment.CurrentDirectory : downloadRoot,
-            MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : 100,
-            MaxFinishedTasks = maxFinishedTasks > 0 ? maxFinishedTasks : 1000,
-            FinishedTaskRetentionSeconds = (finishedRetentionHours > 0 ? finishedRetentionHours : 24) * 60L * 60L
+            DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? defaults.DownloadRoot : downloadRoot,
+            MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : defaults.MaxQueueLength,
+            MaxFinishedTasks = maxFinishedTasks > 0 ? maxFinishedTasks : defaults.MaxFinishedTasks,
+            FinishedTaskRetentionSeconds = finishedRetentionHours > 0
+                ? finishedRetentionHours * 60L * 60L
+                : defaults.FinishedTaskRetentionSeconds
         };
         //检测更新
         _ = CheckUpdateAsync();
-        var server = new BBDownTApiServer();
-        server.SetUpServer(serverOptions);
+        var server = new BBDownTApiServer(serverOptions);
+        server.SetUpServer();
         server.Run(actualListenUrl, apiToken);
     }
 
@@ -381,17 +394,12 @@ partial class Program
         }
     }
 
+    internal static bool ServerDebug { get; set; }
+
     public static (Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority, string? firstEncoding,
-        bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, int delay)
+        bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, int delay)
         SetUpWork(MyOption myOption)
     {
-        if (SubtitleSelection.ValidateOptions(myOption) is { } subtitleError)
-            throw new ArgumentException(subtitleError);
-        if (AudioLanguageSelection.ValidateOptions(myOption) is { } audioError)
-            throw new ArgumentException(audioError);
-        if (myOption.UseIntlApi && (myOption.DownloadDanmaku || myOption.DanmakuOnly))
-            throw new ArgumentException("国际站弹幕暂不支持，请去掉 --download-danmaku 或 --danmaku-only");
-
         //处理废弃选项
         HandleDeprecatedOptions(myOption);
 
@@ -414,12 +422,8 @@ partial class Program
         bool downloadDanmaku = myOption.DownloadDanmaku || myOption.DanmakuOnly;
         BBDownTDanmakuFormat[] downloadDanmakuFormats = ParseDownloadDanmakuFormats(myOption);
 
-        string input = myOption.Url;
-        string savePathFormat = myOption.FilePattern;
-        string lang = myOption.Language;
-        string aidOri = ""; //原始aid
         int delay = Convert.ToInt32(myOption.DelayPerPage);
-        Config.DEBUG_LOG = myOption.Debug;
+        Config.DEBUG_LOG = myOption.Debug || (myOption is ServeRequestOptions && ServerDebug);
         Config.HOST = myOption.Host;
         Config.EPHOST = myOption.EpHost;
         Config.TVHOST = myOption.TvHost;
@@ -430,8 +434,8 @@ partial class Program
         TrustConfiguredCookieHosts(myOption);
 
         LogDebug("AppDirectory: {0}", APP_DIR);
-        LogDebug("运行参数：{0}", JsonSerializer.Serialize(myOption, MyOptionJsonContext.Default.MyOption));
-        return (encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats, input, savePathFormat, lang, aidOri, delay);
+        LogDebug("运行参数：{0}", JsonSerializer.Serialize(myOption, SourceGenerationContext.Default.MyOption));
+        return (encodingPriority, dfnPriority, firstEncoding, downloadDanmaku, downloadDanmakuFormats, delay);
     }
 
     private static void TrustConfiguredCookieHosts(MyOption myOption)
@@ -465,7 +469,8 @@ partial class Program
         return uri.Host.Trim('.');
     }
 
-    public static async Task<(string fetchedAid, VInfo vInfo, string apiType)> GetVideoInfoAsync(MyOption myOption, string aidOri, string input)
+    public static async Task<(string fetchedAid, VInfo vInfo, string apiType)> GetVideoInfoAsync(MyOption myOption,
+        Action<string>? onAidResolved = null)
     {
         // 加载认证信息
         string? webCookieFilePath = LoadCredentials(myOption);
@@ -478,20 +483,21 @@ partial class Program
             if (BBDownTCookieRefreshUtil.IsMissingBiliJct(Config.COOKIE))
                 LogWarn("当前Cookie缺少bili_jct，部分请求可能被拒绝；请重新执行 BBDownT login 或在 -c 中补全Cookie。将继续尝试下载。");
             Log("检测账号登录...");
-            if (!await CheckLogin(Config.COOKIE))
+            if (!await CheckLogin())
             {
                 LogWarn("你尚未登录B站账号, 解析可能受到限制");
             }
         }
 
         Log("获取aid...");
-        aidOri = await GetAvIdAsync(input);
+        string aidOri = await GetAvIdAsync(myOption.Url);
         Log($"获取aid结束: {aidOri}");
 
         if (string.IsNullOrEmpty(aidOri))
         {
             throw new Exception("输入有误");
         }
+        onAidResolved?.Invoke(aidOri);
 
         Log("获取视频信息...");
         IFetcher fetcher = FetcherFactory.CreateFetcher(aidOri, myOption.UseIntlApi);
@@ -500,7 +506,7 @@ partial class Program
         // 只输入 EP/SS 时优先按番剧查找，如果找不到则尝试按课程查找
         try
         {
-            vInfo = fetcher is BBDownT.Core.Fetcher.SpaceVideoFetcher && myOption.RestrictedOutputRoot is not null
+            vInfo = fetcher is BBDownT.Core.Fetcher.SpaceVideoFetcher
                 ? await BBDownT.Core.Fetcher.SpaceVideoFetcher.FetchAsync(aidOri, url => HTTPUtil.GetWebSourceAsync(url),
                     (path, content) => WriteSpaceExportAsync(path, content, myOption.RestrictedOutputRoot))
                 : await fetcher.FetchAsync(aidOri);
@@ -584,10 +590,10 @@ partial class Program
     }
 
     public static async Task DownloadPagesAsync(MyOption myOption, VInfo vInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
-        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, int delay, string apiType, DownloadTask? relatedTask = null)
+        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string fetchedAid, int delay, string apiType, DownloadTask? relatedTask = null)
     {
         // Compose legacy side effects here; the runner only owns page scheduling.
-        List<string>? selectedPages = GetSelectedPages(myOption, vInfo, input);
+        List<string>? selectedPages = GetSelectedPages(myOption, vInfo);
         Log($"共计 {vInfo.PagesInfo.Count} 个分P, 已选择：" + (selectedPages == null ? "ALL" : string.Join(",", selectedPages)));
 
         var plan = PageDownloadPlan.Create(
@@ -596,23 +602,57 @@ partial class Program
             CheckAidFromFile, SaveAidToFile,
             (milliseconds, token) => Task.Delay(milliseconds, token), message => Log(message));
         var subtitleSession = new SubtitleSelection.Session();
-        var playbackId = GetIntlPlaybackId(vInfo, aidOri);
 
         var useAidArchive = AudioLanguageSelection.UseAidArchive(myOption);
         if (myOption.SaveArchivesToFile && !useAidArchive)
             Log("已选择配音版本，不读写默认配音的下载归档；常规混流模式按带语言后缀的输出文件检查是否已下载。");
-        var archiveVariant = myOption.SkipMux ? ":streams" : myOption.AudioOnly ? ":audio" : myOption.VideoOnly ? ":video" : "";
-        await runner.RunAsync(plan.Pages, useAidArchive, delay,
-            page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, encodingPriority, dfnPriority, firstEncoding,
-                downloadDanmaku, downloadDanmakuFormats, input, plan.SavePathFormat, lang, playbackId, apiType, relatedTask, subtitleSession),
-            vInfo.PagesInfo, archiveVariant: archiveVariant);
+        try
+        {
+            await runner.RunAsync(plan.Pages, useAidArchive && ReadsMediaArchive(myOption), delay,
+                page => DownloadPageAsync(page, myOption, vInfo, plan.Pages, plan.IsMultiPage, encodingPriority, dfnPriority, firstEncoding,
+                    downloadDanmaku, downloadDanmakuFormats, plan.SavePathFormat, fetchedAid, apiType, relatedTask, subtitleSession),
+                vInfo.PagesInfo, archiveVariant: GetArchiveVariant(myOption));
+        }
+        finally
+        {
+            if (NeedsMuxer(myOption) && !myOption.SkipCover)
+                DeleteLeftoverCovers(plan.Pages, myOption.RestrictedOutputRoot);
+        }
     }
 
-    private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
-        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string input, string savePathFormat, string lang, string aidOri, string apiType, DownloadTask? relatedTask = null, SubtitleSelection.Session? subtitleSession = null)
+    internal static bool ReadsMediaArchive(MyOption option)
+        => !(option.OnlyShowInfo || option.SubOnly || option.CoverOnly || option.DanmakuOnly);
+
+    internal static string GetArchiveVariant(MyOption option)
+    {
+        if (!option.SkipMux) return option.AudioOnly ? ":audio" : option.VideoOnly ? ":video" : "";
+        return option.AudioOnly == option.VideoOnly ? ":streams" : option.AudioOnly ? ":streams:audio" : ":streams:video";
+    }
+
+    internal static bool IsLastPageUsingDownloadDirectory(IEnumerable<Page> selectedPages, Page page)
+        => !selectedPages.SkipWhile(other => other != page).Skip(1).Any(other => other.DownloadId == page.DownloadId);
+
+    internal static void DeleteLeftoverCovers(IEnumerable<Page> pages, string? restrictedOutputRoot)
+    {
+        foreach (var id in pages.Select(page => page.DownloadId).Distinct())
+        {
+            try
+            {
+                if (!Directory.Exists(id)) continue;
+                File.Delete(OutputPathPolicy.ResolveArtifact($"{id}/{id}.jpg", restrictedOutputRoot));
+                DeleteEmptyDownloadDirectory(id);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                LogDebug("清理封面失败: {0}", ex.Message);
+            }
+        }
+    }
+
+    private static async Task<DownloadPageOutcome> DownloadPageAsync(Page p, MyOption myOption, VInfo vInfo, List<Page> selectedPagesInfo, bool multiPage, Dictionary<string, byte> encodingPriority, Dictionary<string, int> dfnPriority,
+        string? firstEncoding, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, string savePathFormat, string aidOri, string apiType, DownloadTask? relatedTask = null, SubtitleSelection.Session? subtitleSession = null)
     {
         string desc = string.IsNullOrEmpty(p.desc) ? vInfo.Desc : p.desc;
-        bool bangumi = vInfo.IsBangumi;
         var pagesCount = vInfo.PagesInfo.Count;
         List<Subtitle> subtitleInfo = [];
         string title = vInfo.Title;
@@ -625,9 +665,15 @@ partial class Program
         TimeSpan retryDelay;
         var progressiveSelection = new ProgressiveStreamSelection();
         var requestedAudioLanguage = AudioLanguageSelection.Normalize(myOption.AudioLanguage);
+        var recordedPaths = new HashSet<string>();
+        void RecordSavePath(string path)
+        {
+            if (recordedPaths.Add(path)) relatedTask?.AddSavePath(path);
+        }
         Task<ParsedResult> FetchTracks(string? language, string? quality = null) =>
             ExtractTracksAsync(aidOri, p.aid, p.cid, p.epid, myOption.UseTvApi, myOption.UseIntlApi,
-                myOption.UseAppApi, firstEncoding ?? string.Empty, quality ?? progressiveSelection.RequestedQuality, language);
+                myOption.UseAppApi, firstEncoding ?? string.Empty, quality ?? progressiveSelection.RequestedQuality, language,
+                vInfo.IntlSeasonId);
         downloadPage:
         try
         {
@@ -669,31 +715,9 @@ partial class Program
             // International covers are public metadata and do not require a
             // successful, region-authorized media playback request.
             if (myOption.UseIntlApi && myOption.CoverOnly)
-            {
-                var coverUrl = string.IsNullOrEmpty(pic) ? p.cover : pic;
-                if (string.IsNullOrWhiteSpace(coverUrl))
-                {
-                    LogWarn("当前视频没有可下载的封面");
-                    return DownloadPageOutcome.Failed;
-                }
-                if (myOption.OnlyShowInfo)
-                {
-                    Log($"封面地址: {coverUrl}");
-                    return DownloadPageOutcome.InfoOnly;
-                }
-                var coverDestination = Path.ChangeExtension(
-                    FormatSavePath(savePathFormat, title, null, null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot),
-                    Path.GetExtension(new Uri(coverUrl).AbsolutePath));
-                if (!await DownloadCoverAsync(myOption, coverUrl, coverDestination, new DownloadConfig
-                {
-                    UseAria2c = myOption.UseAria2c, Aria2cArgs = myOption.Aria2cArgs,
-                    ForceHttp = myOption.ForceHttp, MultiThread = myOption.MultiThread, RelatedTask = relatedTask,
-                    RestrictedOutputRoot = myOption.RestrictedOutputRoot
-                })) return DownloadPageOutcome.Failed;
-                if (!IsUsableArtifact(coverDestination)) return DownloadPageOutcome.Failed;
-                relatedTask?.AddSavePath(coverDestination);
-                return DownloadPageOutcome.ExclusiveArtifact;
-            }
+                return await DownloadCoverOnlyAsync(p, myOption, pic,
+                    () => FormatSavePath(savePathFormat, title, null, null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot),
+                    relatedTask, RecordSavePath);
 
             // Resolve media before creating download artifacts, so a preview
             // cannot be saved or archived as a completed episode.
@@ -705,14 +729,13 @@ partial class Program
             //处理封面&&字幕
             if (!myOption.OnlyShowInfo)
             {
-                if (!Directory.Exists(p.DownloadId))
+                if (!myOption.DanmakuOnly && !myOption.CoverOnly && !Directory.Exists(p.DownloadId))
                 {
                     Directory.CreateDirectory(p.DownloadId);
                 }
                 if (!myOption.SkipCover && !myOption.SubOnly && !File.Exists(coverPath) && !myOption.DanmakuOnly && !myOption.CoverOnly)
                 {
-                    await DownloadCoverAsync(myOption, pic == "" ? p.cover! : pic, coverPath,
-                        new DownloadConfig { RestrictedOutputRoot = myOption.RestrictedOutputRoot });
+                    await DownloadCoverForMuxAsync(myOption, pic == "" ? p.cover! : pic, coverPath);
                 }
 
                 if (!myOption.SkipSubtitle && !myOption.DanmakuOnly && !myOption.CoverOnly)
@@ -734,6 +757,7 @@ partial class Program
                             var suffix = Path.GetFileName(s.path).Split('.', 3)[2];
                             _outSubPath = OutputPathPolicy.ResolveArtifact(Path.ChangeExtension(_outSubPath, suffix), myOption.RestrictedOutputRoot);
                             File.Move(s.path, _outSubPath, true);
+                            RecordSavePath(_outSubPath);
                         }
                     }
                 }
@@ -773,13 +797,13 @@ partial class Program
                 bool useMp4box, bool isHevc)
             {
                 Log($"开始合并音视频{(subtitleInfo.Any() ? "和字幕" : "")}...");
-                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(useMp4box, p.bvid, videoPath, audioPath, audioMaterial, staged,
+                var muxed = MediaOutput.Write(savePath, staged => BBDownTMuxer.MuxAV(useMp4box, videoPath, audioPath, audioMaterial, staged,
                     desc,
-                    title,
+                    vInfo.Title,
                     p.ownerName ?? "",
-                    (pagesCount > 1 || (bangumi && !vInfo.IsBangumiEnd)) ? p.title : "",
+                    multiPage ? p.title : "",
                     GetCoverForMux(myOption, coverPath),
-                    lang,
+                    myOption.Language,
                     subtitleInfo, myOption.AudioOnly, myOption.VideoOnly, p.points, p.pubTime, myOption.SimplyMux, isHevc, myOption.RestrictedOutputRoot));
                 if (!muxed)
                 {
@@ -791,13 +815,17 @@ partial class Program
                 Thread.Sleep(200);
                 MediaOutput.DeleteInput(videoPath, savePath);
                 MediaOutput.DeleteInput(audioPath, savePath);
-                if (p.points.Any()) File.Delete(Path.Combine(Path.GetDirectoryName(string.IsNullOrEmpty(videoPath) ? audioPath : videoPath)!, "chapters"));
-                foreach (var s in subtitleInfo) File.Delete(s.path);
                 foreach (var a in audioMaterial) MediaOutput.DeleteInput(a.path, savePath);
-                if (!myOption.SkipCover && (selectedPagesInfo.Count == 1 || p.index == selectedPagesInfo.Last().index || p.DownloadId != selectedPagesInfo.Last().DownloadId))
+                CleanUpPageFiles();
+                return true;
+            }
+
+            void CleanUpPageFiles()
+            {
+                foreach (var s in subtitleInfo) File.Delete(s.path);
+                if (!myOption.SkipCover && IsLastPageUsingDownloadDirectory(selectedPagesInfo, p))
                     File.Delete(coverPath);
                 DeleteEmptyDownloadDirectory(p.DownloadId);
-                return true;
             }
 
             if ((parsedResult.VideoTracks.Any() || parsedResult.AudioTracks.Any()) && !parsedResult.Clips.Any())   //dash
@@ -847,7 +875,7 @@ partial class Program
                 int aIndex = 0; //用户手动选择的音频序号
 
                 //选择轨道
-                if (myOption.Interactive
+                if (ShouldPromptTrackSelection(myOption)
                     && (!selected || !TryRestoreTrackChoice(parsedResult, chosenVideo, chosenAudio, ref vIndex, ref aIndex)))
                 {
                     SelectTrackManually(parsedResult, ref vIndex, ref aIndex);
@@ -864,13 +892,17 @@ partial class Program
 
                 LogDebug("Format Before: " + savePathFormat);
                 savePath = FormatSavePath(savePathFormat, title, selectedVideo, selectedAudio, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
-                savePath = AudioLanguageSelection.OutputPath(savePath, requestedAudioLanguage, myOption.AudioOnly && !myOption.VideoOnly);
+                savePath = AudioLanguageSelection.OutputPath(savePath, requestedAudioLanguage, myOption.AudioOnly && !myOption.VideoOnly,
+                    myOption.VideoOnly && !myOption.AudioOnly);
                 savePath = OutputPathPolicy.ResolveArtifact(savePath, myOption.RestrictedOutputRoot);
                 savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
                 LogDebug("Format After: " + savePath);
 
-                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, savePath, downloadDanmaku,
-                        downloadDanmakuFormats, downloadConfig, relatedTask) is { } exclusiveOutcome)
+                var cachedOutput = ShouldUseMuxedOutputCache(myOption, savePath) ? savePath
+                    : FindLegacyOutput(myOption, savePath, savePathFormat, title, selectedVideo, selectedAudio, p, pagesCount,
+                        apiType, pubTime, requestedAudioLanguage);
+                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, cachedOutput ?? savePath, downloadDanmaku,
+                        downloadDanmakuFormats, relatedTask, RecordSavePath) is { } exclusiveOutcome)
                     return exclusiveOutcome;
 
                 Log($"已选择的流:");
@@ -879,23 +911,27 @@ partial class Program
                 //处理PCDN
                 HandlePcdn(myOption, selectedVideo, selectedAudio);
 
-                if (ShouldUseMuxedOutputCache(myOption, savePath))
+                if (cachedOutput is not null)
                 {
-                    OutputOwnership.Default.Record(savePath, p);
-                    Log($"{savePath}已存在, 跳过下载...");
-                    relatedTask?.AddSavePath(savePath);
-                    if (!myOption.SkipCover) File.Delete(coverPath);
-                    DeleteEmptyDownloadDirectory(p.DownloadId);
+                    Log($"{cachedOutput}已存在, 跳过下载...");
+                    relatedTask?.AddSavePath(cachedOutput);
+                    CleanUpPageFiles();
                     return DownloadPageOutcome.AlreadyExists;
                 }
 
+                var useMp4box = myOption.UseMP4box;
                 if (selectedVideo != null)
                 {
                     //杜比视界, 若ffmpeg版本小于5.0, 使用mp4box封装
-                    if (selectedVideo.id == "126" && !myOption.UseMP4box && !CheckFFmpegDOVI())
+                    if (selectedVideo.id == "126" && !useMp4box && !myOption.SkipMux && !CheckFFmpegDOVI())
                     {
+                        if (ResolveMp4box() is null)
+                        {
+                            LogError("检测到杜比视界清晰度且您的ffmpeg版本小于5.0, 需要mp4box混流, 但找不到可执行的mp4box文件");
+                            return DownloadPageOutcome.Failed;
+                        }
                         LogWarn($"检测到杜比视界清晰度且您的ffmpeg版本小于5.0,将使用mp4box混流...");
-                        myOption.UseMP4box = true;
+                        useMp4box = true;
                     }
                     Log($"开始下载P{p.index}视频...");
                     await DownloadTrackAsync(selectedVideo.baseUrl, videoPath, downloadConfig, video: true,
@@ -943,7 +979,7 @@ partial class Program
                         [videoPath, audioPath, .. audioMaterial.Select(material => material.path)]);
                     return DownloadPageOutcome.Partial;
                 }
-                if (!MuxAndCleanUp(savePath, videoPath, audioPath, audioMaterial, myOption.UseMP4box,
+                if (!MuxAndCleanUp(savePath, videoPath, audioPath, audioMaterial, useMp4box,
                         selectedVideo?.codecs == "HEVC"))
                     return DownloadPageOutcome.Failed;
             }
@@ -954,7 +990,7 @@ partial class Program
                     LogError("当前接口仅返回包含音视频的合并流，无法分别下载主视频流和主音频流");
                     return DownloadPageOutcome.Failed;
                 }
-                if (myOption.Interactive && !selected)
+                if (ShouldPromptTrackSelection(myOption) && !selected)
                 {
                     parsedResult = await progressiveSelection.ChooseAsync(parsedResult,
                         quality => FetchTracks(null, quality), Console.In, Console.Out);
@@ -984,17 +1020,19 @@ partial class Program
                 }
                 if (myOption.OnlyShowInfo) return DownloadPageOutcome.InfoOnly;
                 savePath = FormatSavePath(savePathFormat, title, parsedResult.VideoTracks.FirstOrDefault(), null, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot);
-                if (myOption.AudioOnly) savePath = Path.ChangeExtension(savePath, ".m4a");
+                savePath = AudioLanguageSelection.OutputPath(savePath, null, myOption.AudioOnly, myOption.VideoOnly && !myOption.AudioOnly);
                 savePath = OutputPathPolicy.ResolveArtifact(OutputOwnership.Default.Resolve(savePath, p, pagesCount > 1), myOption.RestrictedOutputRoot);
-                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, savePath, downloadDanmaku,
-                        downloadDanmakuFormats, downloadConfig, relatedTask) is { } exclusiveOutcome)
+                var cachedOutput = ShouldUseMuxedOutputCache(myOption, savePath) ? savePath
+                    : FindLegacyOutput(myOption, savePath, savePathFormat, title, parsedResult.VideoTracks.FirstOrDefault(), null, p,
+                        pagesCount, apiType, pubTime, null);
+                if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, cachedOutput ?? savePath, downloadDanmaku,
+                        downloadDanmakuFormats, relatedTask, RecordSavePath) is { } exclusiveOutcome)
                     return exclusiveOutcome;
-                if (ShouldUseMuxedOutputCache(myOption, savePath))
+                if (cachedOutput is not null)
                 {
-                    OutputOwnership.Default.Record(savePath, p);
-                    Log($"{savePath}已存在, 跳过下载...");
-                    relatedTask?.AddSavePath(savePath);
-                    DeleteEmptyDownloadDirectory(p.DownloadId);
+                    Log($"{cachedOutput}已存在, 跳过下载...");
+                    relatedTask?.AddSavePath(cachedOutput);
+                    CleanUpPageFiles();
                     return DownloadPageOutcome.AlreadyExists;
                 }
                 var pad = string.Empty.PadRight(clips.Count.ToString().Length, '0');
@@ -1056,54 +1094,72 @@ partial class Program
         return true;
     }
 
+    internal static bool ShouldPromptTrackSelection(MyOption option)
+        => option.Interactive && !option.OnlyShowInfo && !option.CoverOnly && !option.DanmakuOnly;
+
     private static async Task<DownloadPageOutcome?> DownloadExclusiveArtifactsAsync(Page p, MyOption myOption, string pic,
-        string savePath, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats, DownloadConfig downloadConfig,
-        DownloadTask? relatedTask)
+        string savePath, bool downloadDanmaku, BBDownTDanmakuFormat[] downloadDanmakuFormats,
+        DownloadTask? relatedTask, Action<string> recordSavePath)
     {
         if (downloadDanmaku)
         {
-            var saved = await DownloadDanmakuAsync(p.cid, savePath, downloadDanmakuFormats, downloadConfig, myOption.RestrictedOutputRoot);
+            var saved = await DownloadDanmakuAsync(p.cid, savePath, downloadDanmakuFormats, myOption, relatedTask, recordSavePath);
             if (myOption.DanmakuOnly)
-            {
-                DeleteEmptyDownloadDirectory(p.DownloadId);
                 return saved ? DownloadPageOutcome.ExclusiveArtifact : DownloadPageOutcome.Failed;
-            }
         }
 
         if (!myOption.CoverOnly) return null;
-        var coverUrl = pic == "" ? p.cover! : pic;
+        return await DownloadCoverOnlyAsync(p, myOption, pic, () => savePath, relatedTask, recordSavePath);
+    }
+
+    private static async Task<DownloadPageOutcome> DownloadCoverOnlyAsync(Page p, MyOption myOption, string? pic,
+        Func<string> outputPath, DownloadTask? relatedTask, Action<string> recordSavePath)
+    {
+        var coverUrl = string.IsNullOrEmpty(pic) ? p.cover : pic;
         if (string.IsNullOrWhiteSpace(coverUrl))
         {
             LogWarn("当前视频没有可下载的封面");
             return DownloadPageOutcome.Failed;
         }
-        var coverPath = Path.ChangeExtension(savePath, Path.GetExtension(coverUrl));
-        if (!await DownloadCoverAsync(myOption, coverUrl, coverPath, downloadConfig))
-            return DownloadPageOutcome.Failed;
+        if (myOption.OnlyShowInfo)
+        {
+            Log($"封面地址: {coverUrl}");
+            return DownloadPageOutcome.InfoOnly;
+        }
+        var coverPath = Path.ChangeExtension(outputPath(), GetCoverExtension(coverUrl));
+        await DownloadFileAsync(coverUrl, coverPath, ArtifactDownloadConfig(myOption, relatedTask));
         if (!IsUsableArtifact(coverPath))
         {
             LogWarn("封面下载未生成有效文件");
             return DownloadPageOutcome.Failed;
         }
-        DeleteEmptyDownloadDirectory(p.DownloadId);
-        relatedTask?.AddSavePath(coverPath);
+        recordSavePath(coverPath);
         return DownloadPageOutcome.ExclusiveArtifact;
     }
 
+    internal static string GetCoverExtension(string url)
+        => Path.GetExtension(Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsolutePath : url);
+
     private static async Task<bool> DownloadDanmakuAsync(string cid, string savePath, BBDownTDanmakuFormat[] formats,
-        DownloadConfig downloadConfig, string? restrictedOutputRoot)
+        MyOption myOption, DownloadTask? relatedTask, Action<string> recordSavePath)
     {
         var xmlPath = Path.ChangeExtension(savePath, ".xml");
-        var assPath = OutputPathPolicy.ResolveArtifact(Path.ChangeExtension(savePath, ".ass"), restrictedOutputRoot);
-        var keepXml = formats.Contains(BBDownTDanmakuFormat.Xml);
+        var assPath = OutputPathPolicy.ResolveArtifact(Path.ChangeExtension(savePath, ".ass"), myOption.RestrictedOutputRoot);
         Log("正在下载弹幕Xml文件");
-        await DownloadFileAsync($"https://comment.bilibili.com/{cid}.xml", xmlPath, downloadConfig with { UseAria2c = false });
+        await DownloadFileAsync($"https://comment.bilibili.com/{cid}.xml", xmlPath, ArtifactDownloadConfig(myOption, relatedTask));
+        return await SaveDanmakuAsync(xmlPath, assPath, formats, recordSavePath);
+    }
+
+    internal static async Task<bool> SaveDanmakuAsync(string xmlPath, string assPath, BBDownTDanmakuFormat[] formats,
+        Action<string> recordSavePath)
+    {
+        var keepXml = formats.Contains(BBDownTDanmakuFormat.Xml);
         var danmakus = DanmakuUtil.ParseXml(xmlPath);
         var saved = true;
         if (danmakus == null)
         {
             LogWarn(keepXml ? "弹幕Xml解析失败, 已保留原始Xml" : "弹幕Xml解析失败, 未生成Ass");
-            saved = keepXml && IsUsableArtifact(xmlPath);
+            saved = keepXml && !formats.Contains(BBDownTDanmakuFormat.Ass) && IsUsableArtifact(xmlPath);
         }
         else if (danmakus.Length == 0)
         {
@@ -1114,9 +1170,11 @@ partial class Program
         {
             Log("正在保存弹幕Ass文件...");
             await DanmakuUtil.SaveAsAssAsync(danmakus, assPath);
+            if (IsUsableArtifact(assPath)) recordSavePath(assPath);
         }
 
         if (!keepXml && File.Exists(xmlPath)) File.Delete(xmlPath);
+        else if (keepXml && IsUsableArtifact(xmlPath)) recordSavePath(xmlPath);
         return saved;
     }
 
@@ -1179,16 +1237,23 @@ partial class Program
         }
         catch (Exception e)
         {
-            Console.BackgroundColor = ConsoleColor.Red;
-            Console.ForegroundColor = ConsoleColor.White;
-            var msg = Config.DEBUG_LOG ? RedactSensitiveText(e.ToString()) : ErrorText.Describe(e);
-            Console.Write($"{msg}{Environment.NewLine}");
-            if (ErrorText.SuggestsUpdate(e)) Console.Write("请尝试升级到最新版本后重试!");
-            Console.ResetColor();
-            Console.WriteLine();
+            PrintFailure(e);
             Thread.Sleep(1);
             Environment.Exit(1);
         }
+    }
+
+    internal static string PrintFailure(Exception e, string? header = null)
+    {
+        var description = ErrorText.Describe(e);
+        Console.BackgroundColor = ConsoleColor.Red;
+        Console.ForegroundColor = ConsoleColor.White;
+        if (header is not null) Console.WriteLine(header);
+        Console.Write($"{(Config.DEBUG_LOG ? RedactSensitiveText(e.ToString()) : description)}{Environment.NewLine}");
+        if (ErrorText.SuggestsUpdate(e)) Console.Write("请尝试升级到最新版本后重试!");
+        Console.ResetColor();
+        Console.WriteLine();
+        return description;
     }
 
     internal static List<Video> SortTracks(List<Video> videoTracks, Dictionary<string, int> dfnPriority, Dictionary<string, byte> encodingPriority, bool videoAscending, bool encodingPriorityFirst)
@@ -1229,12 +1294,47 @@ partial class Program
         return OutputPathPolicy.Resolve(result, restrictedRoot);
     }
 
-    private static string CleanNamePart(string value) => GetValidFileName(value, filterSlash: true).Trim().TrimEnd('.').Trim();
+    internal static string? FindLegacyOutput(MyOption myOption, string savePath, string savePathFormat, string title,
+        Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? audioLanguage)
+    {
+        if (myOption.VideoOnly && !myOption.AudioOnly) return null;
+        try
+        {
+            var format = savePathFormat == MultiPageDefaultSavePath
+                ? savePathFormat.Replace("<pageNumberWithZero:2>", "<pageNumberWithZero>", StringComparison.Ordinal)
+                : savePathFormat;
+            var legacy = ExpandSavePath(format, LegacyNamePart(title), LegacyNamePart(p.title),
+                p.ownerName == null ? "" : LegacyNamePart(p.ownerName), videoTrack, audioTrack, p, pagesCount, apiType, pubTime,
+                logErrors: false);
+            legacy = OutputPathPolicy.Resolve(legacy, myOption.RestrictedOutputRoot);
+            legacy = AudioLanguageSelection.OutputPath(legacy, audioLanguage, myOption.AudioOnly);
+            legacy = OutputPathPolicy.ResolveArtifact(legacy, myOption.RestrictedOutputRoot);
+            return !string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(savePath), OutputPathPolicy.PathComparison)
+                && ShouldUseMuxedOutputCache(myOption, legacy)
+                && !OutputOwnership.Default.IsOwnedByAnother(legacy, p) ? legacy : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string LegacyNamePart(string value) => GetValidFileName(value).Trim().TrimEnd('.').Trim();
+
+    private static string CleanNamePart(string value) => EscapeReservedDeviceName(LegacyNamePart(value));
+
+    private static string EscapeReservedDeviceName(string name)
+    {
+        var dot = name.IndexOf('.');
+        var stem = (dot < 0 ? name : name[..dot]).TrimEnd(' ');
+        return ReservedDeviceNameRegex().IsMatch(stem) ? stem + "_" + name[stem.Length..] : name;
+    }
 
     private static string ExpandSavePath(string savePathFormat, string videoTitle, string pageTitle, string ownerName,
-        Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime)
+        Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, bool logErrors = true)
     {
         var result = savePathFormat.Replace('\\', '/');
+        var rooted = Path.IsPathRooted(savePathFormat) || result.StartsWith('/');
         // File-template aliases use a stable episode key when international
         // metadata has no domestic IDs. The metadata itself remains unchanged.
         var nativeInternational = apiType == "INTL" && string.IsNullOrEmpty(p.aid);
@@ -1286,12 +1386,17 @@ partial class Program
                 "videoBandwidth" => videoTrack == null ? "" : videoTrack.bandwith.ToString(),
                 "audioCodecs" => audioTrack == null ? "" : audioTrack.codecs,
                 "audioBandwidth" => audioTrack == null ? "" : audioTrack.bandwith.ToString(),
-                "publishDate" => FormatTimeStamp(pubTime, defaultDateFormat),
-                "videoDate" => FormatTimeStamp(p.pubTime, defaultDateFormat),
+                "publishDate" => FormatTimeStamp(pubTime, defaultDateFormat, logErrors),
+                "videoDate" => FormatTimeStamp(p.pubTime, defaultDateFormat, logErrors),
                 "apiType" => apiType,
                 _ => $"<{key}>"
             };
             result = result.Replace(m.Value, v);
+        }
+        if (!rooted)
+        {
+            var segments = result.Split('/');
+            result = string.Join('/', segments[..^1].Where(segment => segment.Length > 0).Append(segments[^1]));
         }
         if (!result.EndsWith(".mp4")) { result += ".mp4"; }
         return result;
@@ -1299,4 +1404,7 @@ partial class Program
 
     [GeneratedRegex("<(pageNumberWithZero:[^>]*|[\\w:\\-.]+?)>")]
     private static partial Regex InfoRegex();
+
+    [GeneratedRegex("^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ReservedDeviceNameRegex();
 }

@@ -36,7 +36,7 @@ internal static class CommandLineInvoker
     private static readonly Option<bool> SkipCover = new(["--skip-cover"], "跳过封面下载");
     private static readonly Option<bool> ForceHttp = new(["--force-http"], "下载音视频时强制使用HTTP协议替换HTTPS（国内模式默认开启，国际模式默认关闭）");
     private static readonly Option<bool> DownloadDanmaku = new(["--download-danmaku", "-dd"], "下载弹幕");
-    private static readonly Option<string> DownloadDanmakuFormats = new(["--download-danmaku-formats", "-ddf"], $"指定需下载的弹幕格式, 用逗号分隔, 可选 {string.Join('/', BBDownTDanmakuFormatInfo.AllFormatNames)}, 默认: \"{string.Join(',', BBDownTDanmakuFormatInfo.AllFormatNames)}\"");
+    private static readonly Option<string> DownloadDanmakuFormats = new(["--download-danmaku-formats", "-ddf"], $"指定需下载的弹幕格式, 用逗号分隔, 可选 {string.Join('/', BBDownTDanmakuFormatInfo.AllFormatNames)}, 默认: \"{string.Join(',', BBDownTDanmakuFormatInfo.DefaultFormatsNames)}\"");
     private static readonly Option<bool> SkipAi = new(["--skip-ai"], description: "跳过AI字幕下载(默认开启)");
     private static readonly Option<string> SubtitleLanguage = new(["--subtitle-language"], "筛选字幕语言，逗号分隔；zh/en 匹配语言族，zh-Hans/ai-zh 精确匹配");
     private static readonly Option<string> AiSubtitlePolicy = new(["--ai-subtitle-policy"], "字幕AI策略: exclude/include/prefer-human/only；显式指定时优先于 --skip-ai");
@@ -61,7 +61,7 @@ internal static class CommandLineInvoker
     private static readonly Option<string> Aria2cPath = new(["--aria2c-path"], "设置aria2c的路径");
     private static readonly Option<string> UposHost = new(["--upos-host"], "自定义upos服务器");
     private static readonly Option<bool> ForceReplaceHost = new(["--force-replace-host"], "强制替换下载服务器host(默认开启)");
-    private static readonly Option<bool> SaveArchivesToFile = new(["--save-archives-to-file"], "将下载过的视频记录到本地文件中, 用于后续跳过下载同个视频");
+    private static readonly Option<bool> SaveArchivesToFile = new(["--save-archives-to-file"], "按视频和分P记录下载结果，用于后续跳过已完成的分P");
     private static readonly Option<string> DelayPerPage = new(["--delay-per-page"], "设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)");
     private static readonly Option<bool> DownloadAll = new(["--download-all"], "导出UP主空间TXT清单后，按清单逐条下载全部投稿");
     private static readonly Option<int> DelayPerVideo = new(["--delay-per-video"], "批量下载时视频之间的间隔秒数，默认10，0为不等待");
@@ -172,7 +172,6 @@ internal static class CommandLineInvoker
             if (bindingContext.ParseResult.HasOption(EpHost)) option.EpHost = bindingContext.ParseResult.GetValueForOption(EpHost)!;
             if (bindingContext.ParseResult.HasOption(TvHost)) option.TvHost = bindingContext.ParseResult.GetValueForOption(TvHost)!;
             if (bindingContext.ParseResult.HasOption(Area)) option.Area = bindingContext.ParseResult.GetValueForOption(Area)!;
-            if (bindingContext.ParseResult.HasOption(ConfigFile)) option.ConfigFile = bindingContext.ParseResult.GetValueForOption(ConfigFile)!;
             if (bindingContext.ParseResult.HasOption(Aria2cProxy)) option.Aria2cProxy = bindingContext.ParseResult.GetValueForOption(Aria2cProxy)!;
             if (bindingContext.ParseResult.HasOption(OnlyHevc)) option.OnlyHevc = bindingContext.ParseResult.GetValueForOption(OnlyHevc)!;
             if (bindingContext.ParseResult.HasOption(OnlyAvc)) option.OnlyAvc = bindingContext.ParseResult.GetValueForOption(OnlyAvc)!;

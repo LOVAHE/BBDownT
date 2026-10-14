@@ -43,13 +43,11 @@ public class MediaListFetcherCoreTests
             {
                 Assert.Equal(1, page.index);
                 Assert.Equal("Video_P1_First", page.title);
-                Assert.Equal("1920x1080", page.res);
             },
             page =>
             {
                 Assert.Equal(2, page.index);
                 Assert.Equal("Video_P2_Second", page.title);
-                Assert.Equal("1280x720", page.res);
             });
     }
 
@@ -75,6 +73,44 @@ public class MediaListFetcherCoreTests
             () => Task.FromResult(fallback));
 
         Assert.Same(fallback, result);
+    }
+
+    [Fact]
+    public async Task RateLimitedCollectionInfo_DoesNotTryTheSeriesFallback()
+    {
+        var requests = 0;
+
+        var exception = await Assert.ThrowsAsync<BilibiliApiException>(() => MediaListFetcherCore.FetchAsync(
+            "42",
+            8,
+            false,
+            false,
+            "合集",
+            _ =>
+            {
+                requests++;
+                return Task.FromResult("{\"code\":-352,\"message\":\"risk control\",\"data\":null}");
+            },
+            () => throw new Xunit.Sdk.XunitException("A rate limit must not try the series fallback")));
+
+        Assert.Equal(1, requests);
+        Assert.Equal(-352, exception.Code);
+        Assert.Equal("获取合集信息失败：risk control（错误码 -352）", exception.Message);
+    }
+
+    [Fact]
+    public async Task FailedSeriesFallback_ReportsTheOriginalCollectionError()
+    {
+        var exception = await Assert.ThrowsAsync<BilibiliApiException>(() => MediaListFetcherCore.FetchAsync(
+            "42",
+            8,
+            false,
+            false,
+            "合集",
+            _ => Task.FromResult("{\"code\":-404,\"message\":\"not found\",\"data\":null}"),
+            () => throw new InvalidDataException("series failed")));
+
+        Assert.Equal(-404, exception.Code);
     }
 
     [Fact]
@@ -181,15 +217,13 @@ public class MediaListFetcherCoreTests
                   "id": 3,
                   "page": 1,
                   "title": "First",
-                  "duration": 10,
-                  "dimension": { "width": 1920, "height": 1080 }
+                  "duration": 10
                 },
                 {
                   "id": 4,
                   "page": 2,
                   "title": "Second",
-                  "duration": 20,
-                  "dimension": { "width": 1280, "height": 720 }
+                  "duration": 20
                 }
               ]
             }]
@@ -216,8 +250,7 @@ public class MediaListFetcherCoreTests
                   "id": 20,
                   "page": 1,
                   "title": "Page",
-                  "duration": 10,
-                  "dimension": { "width": 1920, "height": 1080 }
+                  "duration": 10
                 }]
               },
               { "id": 9, "attr": 1 }
@@ -245,8 +278,7 @@ public class MediaListFetcherCoreTests
                   "id": 20,
                   "page": 1,
                   "title": "Page",
-                  "duration": 10,
-                  "dimension": { "width": 1920, "height": 1080 }
+                  "duration": 10
                 }]
               },
               {
@@ -262,8 +294,7 @@ public class MediaListFetcherCoreTests
                   "id": 30,
                   "page": 1,
                   "title": "Page",
-                  "duration": 10,
-                  "dimension": { "width": 1280, "height": 720 }
+                  "duration": 10
                 }]
               }
             ]

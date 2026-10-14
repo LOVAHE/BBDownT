@@ -115,12 +115,13 @@ public class IntlAppTransportTests
     [Theory]
     [InlineData(false, true, false)]
     [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
     public async Task AppTransport_FixedIdentityAndCookieRealmAllowlist(bool international, bool allowed, bool expectedCookie)
     {
         using var config = new ConfigScope();
         Config.COOKIE_IS_INTL = international;
         Config.COOKIE_ALLOWED_DOMAINS = allowed ? ["biliintl.com"] : ["other.example.test"];
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             AssertAppHeaders(request);
             Assert.Equal(expectedCookie, request.Headers.Contains("Cookie"));
@@ -133,13 +134,14 @@ public class IntlAppTransportTests
 
     [Theory]
     [InlineData("https://proxy.example.test:8443/intl/gateway/v2/app/playurl/player", true)]
+    [InlineData("http://proxy.example.test:8443/intl/gateway/v2/app/playurl/player", false)]
     public async Task AppTransport_InternationalProxyCookieRequiresExactHttpsGateway(string url, bool expectedCookie)
     {
         using var config = new ConfigScope();
         Config.COOKIE_IS_INTL = true;
         Config.HOST = "proxy.example.test:8443";
         Config.COOKIE_ALLOWED_DOMAINS = ["proxy.example.test", "bilibili.com"];
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             Assert.Equal(expectedCookie, request.Headers.Contains("Cookie"));
             return Task.FromResult(Response(request, HttpStatusCode.OK, new StringContent("complete")));
@@ -157,7 +159,7 @@ public class IntlAppTransportTests
         var headers = new List<string>();
         var contents = new List<MemoryContent>();
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             requests.Add(request);
             headers.Add(request.Headers.ToString());
@@ -190,7 +192,7 @@ public class IntlAppTransportTests
     {
         using var config = new ConfigScope();
         var calls = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             calls++;
             AssertAppHeaders(request);
@@ -211,7 +213,7 @@ public class IntlAppTransportTests
         using var config = new ConfigScope();
         using var caller = new CancellationTokenSource();
         var attempts = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             attempts++;
             return Task.FromResult(Response(request, HttpStatusCode.ServiceUnavailable, new StringContent("")));
@@ -235,7 +237,7 @@ public class IntlAppTransportTests
         Config.COOKIE_IS_INTL = true;
         Config.TOKEN = "synthetic-debug-token";
         const string signedUrl = "https://media.example.test/video.m4s?signature=synthetic-media-secret";
-        using var handler = new MemoryHandler((request, _) => Task.FromResult(Response(request,
+        using var handler = new DelegateHandler((request, _) => Task.FromResult(Response(request,
             HttpStatusCode.OK, new StringContent("{\"url\":\"" + signedUrl + "\"}"))));
         using var client = new HttpClient(handler);
         var originalOutput = Console.Out;
@@ -296,23 +298,5 @@ public class IntlAppTransportTests
             Config.COOKIE_ALLOWED_DOMAINS = domains;
             Config.DEBUG_LOG = debug;
         }
-    }
-
-    private sealed class MemoryHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
-        : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => send(request, cancellationToken);
-    }
-
-    private sealed class MemoryContent(Func<Stream, CancellationToken, Task> write) : HttpContent
-    {
-        internal bool Disposed { get; private set; }
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
-            => write(stream, CancellationToken.None);
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
-            => write(stream, cancellationToken);
-        protected override bool TryComputeLength(out long length) { length = 0; return false; }
-        protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
     }
 }

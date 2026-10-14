@@ -47,13 +47,11 @@ static class AppHelper
     /// </summary>
     /// <param name="epId"></param>
     /// <param name="cid"></param>
-    /// <param name="qn"></param>
-    /// <param name="appkey"></param>
     /// <returns></returns>
-    public static async Task<string> DoReqAsync(string aid, string cid, string epId, string qn, bool bangumi, string encoding, string appkey = "")
+    public static async Task<string> DoReqAsync(string aid, string cid, string epId, bool bangumi, string encoding)
     {
 
-        var headers = GetHeader(appkey);
+        var headers = GetHeader();
         LogDebug("App-Req-Headers: {0}", string.Join(", ", headers.Keys));
         byte[] data;
         // 只有pgc接口才有配音和片头尾信息
@@ -61,12 +59,12 @@ static class AppHelper
         {
             if (!(string.IsNullOrEmpty(encoding) || encoding == "HEVC"))
                 LogWarn("APP的番剧不支持 HEVC 以外的编码");
-            var body = GetPayload(Convert.ToInt64(epId), Convert.ToInt64(cid), Convert.ToInt64(qn), PlayViewReq.Types.CodeType.Code265);
+            var body = GetPayload(Convert.ToInt64(epId), Convert.ToInt64(cid), PlayViewReq.Types.CodeType.Code265);
             data = await GetPostResponseAsync(BilibiliAppProtocol.PgcPlayViewEndpoint, body, headers);
         }
         else
         {
-            var body = GetPayload(Convert.ToInt64(aid), Convert.ToInt64(cid), Convert.ToInt64(qn), GetVideoCodeType(encoding));
+            var body = GetPayload(Convert.ToInt64(aid), Convert.ToInt64(cid), GetVideoCodeType(encoding));
             data = await GetPostResponseAsync(BilibiliAppProtocol.UgcPlayViewEndpoint, body, headers);
         }
         var resp = new MessageParser<PlayViewReply>(() => new PlayViewReply()).ParseFrom(ReadMessage(data));
@@ -206,7 +204,7 @@ static class AppHelper
         return JsonSerializer.Serialize(json, JsonContext.Default.DashJson);
     }
 
-    internal static byte[] GetPayload(long aid, long cid, long qn, PlayViewReq.Types.CodeType codec)
+    internal static byte[] GetPayload(long aid, long cid, PlayViewReq.Types.CodeType codec)
     {
         var obj = new PlayViewReq
         {
@@ -229,7 +227,7 @@ static class AppHelper
 
     #region 生成Headers相关方法
 
-    internal static Dictionary<string, string> GetHeader(string appkey)
+    internal static Dictionary<string, string> GetHeader()
     {
         return new Dictionary<string, string>()
         {
@@ -237,7 +235,7 @@ static class AppHelper
             ["user-agent"] = $"Dalvik/{dalvikVer} (Linux; U; Android {osVer}; {brand} {model}) {appVer} os/android model/{brand} mobi_app/android build/{build} channel/{channel} innerVer/{build} osVer/{osVer} network/2 grpc-java-cronet/{cronet}",
             ["te"] = "trailers",
             ["x-bili-fawkes-req-bin"] = GenerateFawkesReqBin(),
-            ["x-bili-metadata-bin"] = GenerateMetadataBin(appkey),
+            ["x-bili-metadata-bin"] = GenerateMetadataBin(),
             ["authorization"] = $"identify_v1 {Config.TOKEN}",
             ["x-bili-device-bin"] = GenerateDeviceBin(),
             ["x-bili-network-bin"] = GenerateNetworkBin(),
@@ -290,11 +288,11 @@ static class AppHelper
         return Convert.ToBase64String(obj.ToByteArray());
     }
 
-    private static string GenerateMetadataBin(string appkey)
+    private static string GenerateMetadataBin()
     {
         var obj = new Metadata
         {
-            AccessKey = appkey,
+            AccessKey = Config.TOKEN,
             MobiApp = mobiApp,
             Build = build,
             Channel = channel,
@@ -429,7 +427,6 @@ static class AppHelper
 [JsonSerializable(typeof(DashJson))]
 [JsonSerializable(typeof(PlayViewReq))]
 [JsonSerializable(typeof(PlayViewReply))]
-[JsonSerializable(typeof(Dictionary<string, string>))]
 internal partial class JsonContext : JsonSerializerContext { }
 
 internal class AudioMaterial

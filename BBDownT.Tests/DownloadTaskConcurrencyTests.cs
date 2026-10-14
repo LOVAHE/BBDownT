@@ -12,7 +12,7 @@ public class DownloadTaskConcurrencyTests
             for (var index = 0; index < 250; index++)
             {
                 task.ReportProgress(index / 250d);
-                task.ReportDownloadedBytes(1);
+                task.ReportDownloadedBytes(1, 1);
                 task.AddSavePath($"{worker}-{index}");
             }
         }));

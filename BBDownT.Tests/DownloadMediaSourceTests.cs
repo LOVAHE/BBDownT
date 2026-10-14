@@ -67,10 +67,6 @@ public class DownloadMediaSourceTests
     }
 
     [Theory]
-    [InlineData("upos-sz-mirrorcoso1.bilivideo.com", "cdn.test")]
-    [InlineData("upos-sz-mirrorcoso1.bilivideo.com", "upos-sz-mirrorcoso1.bilivideo.com.evil.test")]
-    [InlineData("upos-sz-mirrorcoso1.bilivideo.com", "bilivideo.com")]
-    [InlineData("upos-sz-mirrorcoso1.bilivideo.com", "unknown.bilivideo.com")]
     [InlineData("https://", "ftp://")]
     [InlineData("https://", "https://user@")]
     [InlineData("/upgcxcode/01/", "/upgcxcode//")]
@@ -114,29 +110,20 @@ public class DownloadMediaSourceTests
     }
 
     [Theory]
-    [InlineData("upos-sz-mirrorcoso1.bilivideo.cn")]
-    [InlineData("cn-hk-eq-bcache-16.bilivideo.com")]
-    [InlineData("upos-bstar1-mirrorakam.akamaized.net")]
-    [InlineData("upos-hz-mirrorakam.akamaized.net")]
-    public void KnownProviderHost_IsRecognized(string host)
-        => Assert.NotNull(DownloadMediaSource.CreateObjectHash(Url.Replace("upos-sz-mirrorcoso1.bilivideo.com", host)));
-
-    [Theory]
     [InlineData(".mp4")]
     [InlineData(".flv")]
     public void KnownMediaExtension_IsRecognized(string extension)
         => Assert.NotNull(DownloadMediaSource.CreateObjectHash(Url.Replace(".m4s", extension)));
 
     [Fact]
-    public void CustomHostRequiresExplicitOptIn_AndRetainsAllOtherGuards()
+    public void CustomHost_IsScopedByHostAndRetainsAllOtherGuards()
     {
         var custom = Url.Replace("upos-sz-mirrorcoso1.bilivideo.com", "media.example.test");
 
-        Assert.Null(DownloadMediaSource.CreateObjectHash(custom));
-        Assert.NotNull(DownloadMediaSource.CreateObjectHash(custom, allowCustomHost: true));
-        Assert.NotEqual(DownloadMediaSource.CreateObjectHash(Url), DownloadMediaSource.CreateObjectHash(custom, true));
-        Assert.Null(DownloadMediaSource.CreateObjectHash(custom.Replace("/upgcxcode/", "/other/"), true));
-        Assert.Null(DownloadMediaSource.CreateObjectHash(custom.Replace("platform=pc", "platform=pc&platform=pc"), true));
+        Assert.NotNull(DownloadMediaSource.CreateObjectHash(custom));
+        Assert.NotEqual(DownloadMediaSource.CreateObjectHash(Url), DownloadMediaSource.CreateObjectHash(custom));
+        Assert.Null(DownloadMediaSource.CreateObjectHash(custom.Replace("/upgcxcode/", "/other/")));
+        Assert.Null(DownloadMediaSource.CreateObjectHash(custom.Replace("platform=pc", "platform=pc&platform=pc")));
     }
 
     [Fact]
@@ -173,10 +160,10 @@ public class DownloadMediaSourceTests
         if (customHost) original = original.Replace("upos-sz-mirrorcoso1.bilivideo.com", "media.example.test");
         var next = original.Replace("os=cosovbv", "os=akam").Replace("buvid=first-device", "buvid=second-device");
 
-        var hash = DownloadMediaSource.CreateObjectHash(original, customHost);
+        var hash = DownloadMediaSource.CreateObjectHash(original);
         Assert.NotNull(hash);
-        Assert.Equal(hash, DownloadMediaSource.CreateObjectHash(next, customHost));
-        Assert.NotEqual(hash, DownloadMediaSource.CreateObjectHash(next.Replace("os=akam", "os=unverified-storage"), customHost));
+        Assert.Equal(hash, DownloadMediaSource.CreateObjectHash(next));
+        Assert.NotEqual(hash, DownloadMediaSource.CreateObjectHash(next.Replace("os=akam", "os=unverified-storage")));
     }
 
     [Fact]

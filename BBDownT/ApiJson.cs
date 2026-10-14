@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
@@ -11,14 +12,18 @@ namespace BBDownT;
 
 record struct MyOptionBindingResult<T>(T? Result, Exception? Exception)
 {
+    private static readonly JsonSerializerOptions RequestOptions = new()
+    {
+        TypeInfoResolver = SourceGenerationContext.Default.WithAddedModifier(KeepDefaultForNull)
+    };
+
     public bool IsValid => Exception is null;
 
     public static async ValueTask<MyOptionBindingResult<T>> BindAsync(HttpContext httpContext)
     {
         try
         {
-            JsonTypeInfo? jsonTypeInfo = SourceGenerationContext.Default.GetTypeInfo(typeof(T));
-            if (jsonTypeInfo is null)
+            if (!RequestOptions.TryGetTypeInfo(typeof(T), out var jsonTypeInfo))
             {
                 return new(default, new InvalidOperationException($"Cannot find TypeInfo for type {typeof(T)}"));
             }
@@ -31,6 +36,18 @@ record struct MyOptionBindingResult<T>(T? Result, Exception? Exception)
         catch (Exception ex)
         {
             return new(default, ex);
+        }
+    }
+
+    private static void KeepDefaultForNull(JsonTypeInfo typeInfo)
+    {
+        foreach (var property in typeInfo.Properties)
+        {
+            if (property.PropertyType.IsValueType || property.Set is not { } set) continue;
+            property.Set = (target, value) =>
+            {
+                if (value is not null) set(target, value);
+            };
         }
     }
 }

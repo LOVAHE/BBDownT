@@ -82,7 +82,7 @@ public class TrackResumeIdentityTests
         MediaOutput.DeleteInput(final, final, _ => throw new Exception("Final media must be preserved"));
     }
 
-    private static Page IntlPage(string episode) => new(1, "", "", episode, "E1", 0, "", 0);
+    private static Page IntlPage(string episode) => new(1, "", "", episode, "E1", 0, 0);
 
     private static Video VideoTrack() => new()
     {

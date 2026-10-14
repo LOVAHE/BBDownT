@@ -11,15 +11,14 @@ internal static partial class AuthenticatedWebProfileStore
 {
     internal const string FileName = "BBDownT.web.json";
 
-    internal static BrowserRequestProfile Configure(string directory)
+    internal static void Configure(string directory)
     {
-        if (!HTTPUtil.IsAutomaticUserAgent) return HTTPUtil.AuthenticatedBrowserProfile;
+        if (!HTTPUtil.IsAutomaticUserAgent) return;
 
         var profile = LoadOrCreate(directory);
         HTTPUtil.ConfigureAuthenticatedBrowserProfile(
             profile,
             updated => Save(directory, updated));
-        return profile;
     }
 
     internal static BrowserRequestProfile LoadOrCreate(string directory)
@@ -61,25 +60,11 @@ internal static partial class AuthenticatedWebProfileStore
     {
         if (!profile.IsValid()) throw new InvalidOperationException("拒绝保存无效的浏览器请求配置");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, FileName);
-        var tempPath = path + $".writing-{Guid.NewGuid():N}";
-        try
-        {
-            var json = JsonSerializer.Serialize(
+        BBDownTLoginUtil.WritePrivateFile(
+            Path.Combine(directory, FileName),
+            JsonSerializer.SerializeToUtf8Bytes(
                 profile,
-                BrowserRequestProfileJsonContext.Default.BrowserRequestProfile);
-            File.WriteAllText(tempPath, json);
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(tempPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-            File.Move(tempPath, path, true);
-        }
-        catch
-        {
-            if (File.Exists(tempPath)) File.Delete(tempPath);
-            throw;
-        }
+                BrowserRequestProfileJsonContext.Default.BrowserRequestProfile));
     }
 
     [JsonSerializable(typeof(BrowserRequestProfile))]

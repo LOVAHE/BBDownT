@@ -19,21 +19,22 @@ internal static class MediaListFetcherCore
         var infoApi = $"https://api.bilibili.com/x/v1/medialist/info?type={type}&biz_id={bizId}&tid=0";
         var infoJsonText = await fetch(infoApi);
         using var infoJson = JsonDocument.Parse(infoJsonText);
-        var infoRoot = infoJson.RootElement;
-        if (!TryGetData(infoRoot, out var infoData))
+        JsonElement infoData;
+        try
         {
-            if (fallback is not null)
+            infoData = BilibiliApi.ReadPayload(infoJson.RootElement, $"获取{displayName}信息");
+        }
+        catch (BilibiliApiException error) when (fallback is not null && !BilibiliApi.IsRateLimited(error.Code))
+        {
+            try
             {
-                try
-                {
-                    return await fallback();
-                }
-                catch
-                {
-                    // Report the original collection lookup failure below.
-                }
+                return await fallback();
             }
-            throw CreateApiException($"获取{displayName}信息", infoRoot);
+            catch
+            {
+                // Report the original collection lookup failure below.
+            }
+            throw;
         }
 
         var title = infoData.GetProperty("title").GetString()!;
@@ -51,11 +52,7 @@ internal static class MediaListFetcherCore
             var listApi = $"https://api.bilibili.com/x/v2/medialist/resource/list?type={type}&oid={oid}&otype=2&biz_id={bizId}{bvidParameter}&with_current=true&mobi_app=web&ps=20&direction=false&sort_field=1&tid=0&desc={descending.ToString().ToLowerInvariant()}";
             var listJsonText = await fetch(listApi);
             using var listJson = JsonDocument.Parse(listJsonText);
-            var listRoot = listJson.RootElement;
-            if (!TryGetData(listRoot, out var listData))
-            {
-                throw CreateApiException($"获取{displayName}视频列表", listRoot);
-            }
+            var listData = BilibiliApi.ReadPayload(listJson.RootElement, $"获取{displayName}视频列表");
 
             hasMore = listData.GetProperty("has_more").GetBoolean();
             foreach (var media in listData.GetProperty("media_list").EnumerateArray())
@@ -98,7 +95,6 @@ internal static class MediaListFetcherCore
                     ? media.GetProperty("title").ToString()
                     : $"{media.GetProperty("title")}_P{page.GetProperty("page")}_{page.GetProperty("title")}",
                 page.GetProperty("duration").GetInt32(),
-                page.GetProperty("dimension").GetProperty("width") + "x" + page.GetProperty("dimension").GetProperty("height"),
                 media.GetProperty("pubtime").GetInt64(),
                 media.GetProperty("cover").ToString(),
                 description,
@@ -114,15 +110,4 @@ internal static class MediaListFetcherCore
             }
         }
     }
-
-    private static bool TryGetData(JsonElement root, out JsonElement data)
-    {
-        data = default;
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("data", out data)
-            && data.ValueKind == JsonValueKind.Object;
-    }
-
-    private static BilibiliApiException CreateApiException(string operation, JsonElement root)
-        => BilibiliApi.GetError(root, operation) ?? new BilibiliApiException($"{operation}失败：接口没有返回数据", 0);
 }

@@ -7,7 +7,7 @@ namespace BBDownT;
 
 // This is a selected-page plan, not an isolated configuration for concurrent tasks.
 // Keep the original Page instances: the page downloader fills their chapter information.
-internal sealed record PageDownloadPlan(List<Page> Pages, string SavePathFormat)
+internal sealed record PageDownloadPlan(List<Page> Pages, string SavePathFormat, bool IsMultiPage)
 {
     internal static PageDownloadPlan Create(
         VInfo info, MyOption option, List<string>? selectedPages,
@@ -23,6 +23,6 @@ internal sealed record PageDownloadPlan(List<Page> Pages, string SavePathFormat)
         if (string.IsNullOrEmpty(pattern))
             pattern = useMultiPagePattern ? multiPageDefault : singlePageDefault;
 
-        return new PageDownloadPlan(pages, pattern);
+        return new PageDownloadPlan(pages, pattern, useMultiPagePattern);
     }
 }

@@ -16,7 +16,7 @@ public class WebRequestRetryTests
         var requests = new List<HttpRequestMessage>();
         var headers = new List<string>();
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             requests.Add(request);
             headers.Add(request.Headers.ToString());
@@ -51,7 +51,7 @@ public class WebRequestRetryTests
         var complete = new MemoryContent((stream, token) => stream.WriteAsync(Encoding.UTF8.GetBytes("complete"), token).AsTask());
         var attempts = 0;
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) => Task.FromResult(Response(request,
+        using var handler = new DelegateHandler((request, _) => Task.FromResult(Response(request,
             HttpStatusCode.OK, ++attempts == 1 ? partial : complete)));
         using var client = new HttpClient(handler);
 
@@ -76,7 +76,7 @@ public class WebRequestRetryTests
         });
         var attempts = 0;
         var logs = new List<string>();
-        using var handler = new MemoryHandler((request, _) => Task.FromResult(Response(request,
+        using var handler = new DelegateHandler((request, _) => Task.FromResult(Response(request,
             HttpStatusCode.OK, ++attempts == 1 ? partial : new StringContent("complete"))));
         using var client = new HttpClient(handler);
         Assert.Equal("complete", await HTTPUtil.GetWebSourceAsync(client, "https://example.test/body", "test-client/1",
@@ -91,7 +91,7 @@ public class WebRequestRetryTests
     {
         var failure = new IOException("remote read interrupted");
         var contents = new List<MemoryContent>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             var content = new MemoryContent((_, _) => throw failure);
             contents.Add(content);
@@ -121,7 +121,7 @@ public class WebRequestRetryTests
         };
         var attempts = 0;
         var content = new MemoryContent((_, _) => throw failure);
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             attempts++;
             return Task.FromResult(Response(request, HttpStatusCode.OK, content));
@@ -143,7 +143,7 @@ public class WebRequestRetryTests
     {
         var attempts = 0;
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             var response = Response(request, ++attempts < 3 ? HttpStatusCode.TooManyRequests : HttpStatusCode.OK,
                 new StringContent("complete"));
@@ -166,7 +166,7 @@ public class WebRequestRetryTests
         var identities = new List<string>();
         var rotations = 0;
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             identities.Add(string.Join(' ', request.Headers.GetValues("User-Agent")));
             return Task.FromResult(Response(request, identities.Count == 2
@@ -195,7 +195,7 @@ public class WebRequestRetryTests
     public async Task ExplicitUserAgent_412DoesNotRotateOrRetry()
     {
         var attempts = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             attempts++;
             return Task.FromResult(Response(request, HttpStatusCode.PreconditionFailed, new StringContent("")));
@@ -212,7 +212,7 @@ public class WebRequestRetryTests
     public async Task Head_RetriesTransientStatusesWithFreshRequests()
     {
         var requests = new List<HttpRequestMessage>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             Assert.Equal(HttpMethod.Head, request.Method);
             requests.Add(request);
@@ -234,7 +234,7 @@ public class WebRequestRetryTests
     {
         var content = new MemoryContent((_, _) => Task.CompletedTask);
         var attempts = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             attempts++;
             return Task.FromResult(Response(request, (HttpStatusCode)status, content));
@@ -253,7 +253,7 @@ public class WebRequestRetryTests
     {
         var failure = new HttpRequestException(HttpRequestError.SecureConnectionError, "private URL",
             new AuthenticationException("certificate failure"));
-        using var handler = new MemoryHandler((_, _) => throw failure);
+        using var handler = new DelegateHandler((_, _) => throw failure);
         using var client = new HttpClient(handler);
         var error = await Assert.ThrowsAsync<HttpRequestException>(() => HTTPUtil.GetWebSourceAsync(client,
             "https://example.test/status", "test-client/1",
@@ -266,7 +266,7 @@ public class WebRequestRetryTests
     {
         var contents = new List<MemoryContent>();
         var waits = new List<TimeSpan>();
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             var content = new MemoryContent((_, _) => Task.CompletedTask);
             contents.Add(content);
@@ -286,7 +286,7 @@ public class WebRequestRetryTests
     public async Task Get_ExplicitHttpTimeoutRetriesButOrdinaryCancellationDoesNot()
     {
         var attempts = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             if (++attempts == 1) throw new TaskCanceledException("timeout", new TimeoutException("HTTP timeout"));
             return Task.FromResult(Response(request, HttpStatusCode.OK, new StringContent("complete")));
@@ -297,7 +297,7 @@ public class WebRequestRetryTests
         Assert.Equal(2, attempts);
 
         var failure = new OperationCanceledException("explicit cancellation");
-        using var cancelledHandler = new MemoryHandler((_, _) => throw failure);
+        using var cancelledHandler = new DelegateHandler((_, _) => throw failure);
         using var cancelledClient = new HttpClient(cancelledHandler);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => HTTPUtil.GetWebSourceAsync(cancelledClient,
             "https://example.test/body", "test-client/1",
@@ -309,7 +309,7 @@ public class WebRequestRetryTests
     {
         using var caller = new CancellationTokenSource();
         var attempts = 0;
-        using var handler = new MemoryHandler((request, _) =>
+        using var handler = new DelegateHandler((request, _) =>
         {
             attempts++;
             return Task.FromResult(Response(request, HttpStatusCode.ServiceUnavailable, new StringContent("")));
@@ -336,7 +336,7 @@ public class WebRequestRetryTests
             Config.COOKIE = "SESSDATA=test-only";
             Config.COOKIE_IS_INTL = true;
             var allowedCookies = new List<string?>();
-            using var handler = new MemoryHandler((request, _) =>
+            using var handler = new DelegateHandler((request, _) =>
             {
                 allowedCookies.Add(request.Headers.TryGetValues("Cookie", out var cookies) ? Assert.Single(cookies) : null);
                 var response = Response(request, allowedCookies.Count == 1
@@ -353,7 +353,7 @@ public class WebRequestRetryTests
             Assert.False(HTTPUtil.ShouldSendCookie("https://example.test/redirect"));
 
             var deniedCookies = new List<bool>();
-            using var deniedHandler = new MemoryHandler((request, _) =>
+            using var deniedHandler = new DelegateHandler((request, _) =>
             {
                 deniedCookies.Add(request.Headers.Contains("Cookie"));
                 return Task.FromResult(Response(request, deniedCookies.Count == 1
@@ -373,22 +373,4 @@ public class WebRequestRetryTests
 
     private static HttpResponseMessage Response(HttpRequestMessage request, HttpStatusCode status, HttpContent content)
         => new(status) { RequestMessage = request, Content = content };
-
-    private sealed class MemoryHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send)
-        : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => send(request, cancellationToken);
-    }
-
-    private sealed class MemoryContent(Func<Stream, CancellationToken, Task> write) : HttpContent
-    {
-        internal bool Disposed { get; private set; }
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
-            => write(stream, CancellationToken.None);
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
-            => write(stream, cancellationToken);
-        protected override bool TryComputeLength(out long length) { length = 0; return false; }
-        protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
-    }
 }

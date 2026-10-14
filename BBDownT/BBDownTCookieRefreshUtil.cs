@@ -44,20 +44,11 @@ JNrRuoEUXpabUzGB8QIDAQAB
         "sid"
     };
 
-    public static async Task TryRefreshCookieAsync(string? cookieFilePath)
-    {
-        using var client = new HttpClient(HTTPUtil.CreateWebHandler(allowRedirects: true))
-        {
-            Timeout = HTTPUtil.AppHttpClient.Timeout
-        };
-        await TryRefreshCookieAsync(cookieFilePath, client, SaveCookieFileAsync);
-    }
+    public static Task TryRefreshCookieAsync(string? cookieFilePath)
+        => TryRefreshCookieAsync(cookieFilePath, HTTPUtil.AppHttpClient, SaveCookieFileAsync);
 
     private static Task SaveCookieFileAsync(string path, string cookie)
-    {
-        path = Path.GetFullPath(path);
-        return BBDownTLoginUtil.SaveLoginDataAsync(Path.GetDirectoryName(path)!, Path.GetFileName(path), cookie);
-    }
+        => BBDownTLoginUtil.SaveLoginDataAsync(Path.GetFullPath(path), cookie);
 
     internal static async Task TryRefreshCookieAsync(string? cookieFilePath, HttpClient client,
         Func<string, string, Task> save)

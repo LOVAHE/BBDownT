@@ -9,7 +9,7 @@ using BBDownT.Core;
  */
 namespace BBDownT;
 
-class ProgressBar : IDisposable, IProgress<double>
+class ProgressBar : IDisposable
 {
 	private const int blockCount = 40;
 	private readonly TimeSpan animationInterval = TimeSpan.FromSeconds(1.0 / 8);
@@ -55,38 +55,18 @@ class ProgressBar : IDisposable, IProgress<double>
 		speedTimer = new Timer(SpeedTimerHandler);
 		if (task is not null) RelatedTask = task;
 		if (!outputRedirected) progressLine = Logger.RegisterProgressLine(output);
-		// A progress bar is only for temporary display in a console window.
-		// If the console output is redirected to a file, draw nothing.
-		// Otherwise, we'll end up with a lot of garbage in the target file.
-		// However, if this progressbar is for a server download task,
-		// we still need it to report progress no matter where stdout is redirected.
-		// The prevention of writing garbage should be controlled on the methods do the actual writing.
-		if (runTimers && (!outputRedirected || RelatedTask is not null))
-		{
-			ResetTimer();
-			ResetSpeedTimer();
-
-		}
-	}
-
-	public void Report(double value)
-	{
-		value = NormalizeProgress(value);
-		Interlocked.Exchange(ref currentProgress, value);
-	}
-
-	public void Report(double value, long bytesCount)
-	{
-		value = NormalizeProgress(value);
-		Interlocked.Exchange(ref currentProgress, value);
-		Interlocked.Exchange(ref downloadedBytes, bytesCount);
+		// Redirected output gets no animation; a server task still needs speed samples.
+		if (runTimers && progressLine is not null) ResetTimer();
+		if (runTimers && (progressLine is not null || RelatedTask is not null)) ResetSpeedTimer();
 	}
 
 	internal void ReportDownload(double value, long transferredBytes, string? status = null)
 	{
-		Report(value, transferredBytes);
+		value = NormalizeProgress(value);
+		Interlocked.Exchange(ref currentProgress, value);
+		Interlocked.Exchange(ref downloadedBytes, transferredBytes);
 		Interlocked.Exchange(ref statusText, status);
-		RelatedTask?.ReportProgress(NormalizeProgress(value));
+		RelatedTask?.ReportProgress(value);
 	}
 
 	internal static double NormalizeProgress(double value)
@@ -100,19 +80,20 @@ class ProgressBar : IDisposable, IProgress<double>
 		{
 			if (disposed) return;
 
-			UpdateSpeed();
+			var delta = TakeTransferredBytes();
+			speedString = " - " + BBDownTUtil.FormatFileSize(delta) + "/s";
+			RelatedTask?.ReportDownloadedBytes(delta, delta);
 
-			if (runTimers) ResetSpeedTimer();
+			ResetSpeedTimer();
 		}
 	}
 
-	private void UpdateSpeed()
+	private long TakeTransferredBytes()
 	{
 		var received = Interlocked.Read(ref downloadedBytes);
 		var delta = Math.Max(0, received - lastDownloadedBytes);
-		speedString = " - " + BBDownTUtil.FormatFileSize(delta) + "/s";
 		lastDownloadedBytes = received;
-		RelatedTask?.ReportDownloadedBytes(delta);
+		return delta;
 	}
 
 	private void TimerHandler(object? state)
@@ -124,10 +105,6 @@ class ProgressBar : IDisposable, IProgress<double>
 			string text = FormatDisplayText(currentProgress, speedString, statusText,
 				animation[animationIndex++ % animation.Length], GetTerminalColumns());
 			UpdateText(text);
-			if (RelatedTask is not null) 
-			{
-					RelatedTask.ReportProgress(currentProgress);
-			}
 
 			if (runTimers) ResetTimer();
 		}
@@ -147,7 +124,7 @@ class ProgressBar : IDisposable, IProgress<double>
 
 	internal static string FormatDisplayText(double progress, string speed, string? status, char frame, int columns)
 	{
-		int padding = 28;
+		int padding = Logger.TimestampWidth;
 		int blocks = blockCount;
 		string percent = string.Format(" {0,3:0.00}% {1}", progress * 100, frame);
 		string phase = status is null ? "" : " - " + status;
@@ -223,7 +200,7 @@ class ProgressBar : IDisposable, IProgress<double>
 		}
 		lock (speedTimer)
 		{
-			UpdateSpeed();
+			RelatedTask?.ReportDownloadedBytes(TakeTransferredBytes(), 0);
 			speedTimer.Dispose();
 		}
 	}

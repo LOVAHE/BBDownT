@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.IO;
 using System.Linq;
 using System.Globalization;
+using BBDownT.Core.Util;
 using static BBDownT.Core.Logger;
 
 namespace BBDownT;
@@ -18,24 +19,29 @@ internal static class BBDownTConfigParser
         {
             var inlineConfigPath = newArgsList
                 .FirstOrDefault(argument => argument.StartsWith("--config-file=", StringComparison.Ordinal));
+            var explicitPath = inlineConfigPath is not null || newArgsList.Contains("--config-file");
             configPath = inlineConfigPath is not null
                 ? inlineConfigPath[(inlineConfigPath.IndexOf('=') + 1)..]
-                : newArgsList.Contains("--config-file")
+                : explicitPath
                     ? newArgsList.ElementAt(newArgsList.IndexOf("--config-file") + 1)
                     : Path.Combine(Program.APP_DIR, "BBDownT.config");
+            if (explicitPath && !File.Exists(configPath))
+            {
+                LogError($"配置文件不存在: {configPath}");
+                return false;
+            }
             if (File.Exists(configPath))
             {
                 Log($"加载配置文件: {configPath}");
-                var configLines = File.ReadAllLines(configPath);
-                var normalizedConfigLines = configLines.Select(line => line.Trim()).ToArray();
-                var knownAliases = rootCommand.Options
-                    .Concat(rootCommand.Children.OfType<Command>().SelectMany(command => command.Options))
-                    .SelectMany(option => option.Aliases)
-                    .ToHashSet(StringComparer.Ordinal);
-                var unknownOptions = normalizedConfigLines
-                    .Where(IsOptionDeclaration)
-                    .Select(OptionAlias)
-                    .Where(option => !knownAliases.Contains(option))
+                var configLines = File.ReadAllLines(configPath)
+                    .Select(line => line.Trim())
+                    .Where(line => line.Length > 0 && !line.StartsWith('#'));
+                var optionsByAlias = OptionsByAlias(rootCommand, commandName);
+                var entries = ReadEntries(configLines, optionsByAlias);
+                var unknownOptions = entries
+                    .Select(entry => entry.Alias)
+                    .OfType<string>()
+                    .Where(alias => !optionsByAlias.ContainsKey(alias))
                     .Distinct(StringComparer.Ordinal)
                     .ToArray();
                 if (unknownOptions.Length > 0)
@@ -47,21 +53,9 @@ internal static class BBDownTConfigParser
                     return false;
                 }
                 var validationCommand = string.IsNullOrEmpty(commandName) ? "config-validation-placeholder" : commandName;
-                var configArgs = LinesForCommand(normalizedConfigLines,
+                var configArgsArray = ArgumentsForCommand(entries,
                         alias => !rootCommand.Parse([validationCommand, alias]).UnmatchedTokens.Contains(alias))
-                    .SelectMany(s =>
-                        {
-                            var trimLine = s.Trim();
-                            if (trimLine.StartsWith('-') && trimLine.Contains(' '))
-                            {
-                                var spaceIndex = trimLine.IndexOf(' ');
-                                var paramsGroup = new[] { trimLine[..spaceIndex], trimLine[spaceIndex..] };
-                                return paramsGroup.Where(s => !string.IsNullOrEmpty(s)).Select(s => s.Trim(' ').Trim('\"'));
-                            }
-                            return [trimLine.Trim('\"')];
-                        }
-                    );
-                var configArgsArray = configArgs.ToArray();
+                    .ToArray();
                 var configArgsResult = rootCommand.Parse([validationCommand, .. configArgsArray]);
                 if (configArgsResult.Errors.Any())
                 {
@@ -80,15 +74,15 @@ internal static class BBDownTConfigParser
                     return false;
                 }
 
+                var commandLine = rootCommand.Parse(newArgsList.ToArray());
                 var orderedOptionResults = CommandLineOptionOrder.ByAppearance(
                     configArgsResult.CommandResult.Children.OfType<OptionResult>(),
                     configArgsArray);
                 foreach (var o in orderedOptionResults)
                 {
-                    if (!CommandLineOptionOrder.ContainsOption(newArgsList, o.Option.Aliases))
+                    if (commandLine.FindResultFor(o.Option) is not { IsImplicit: false })
                     {
-                        newArgsList.Add("--" + o.Option.Name);
-                        newArgsList.AddRange(o.Tokens.Select(t => t.Value));
+                        newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));
                     }
                 }
 
@@ -99,23 +93,73 @@ internal static class BBDownTConfigParser
         }
         catch (Exception ex)
         {
-            LogError($"配置文件读取异常 ({configPath ?? "路径未解析"}): {CommandLineLogSanitizer.SanitizeText(ex.Message)}");
+            LogError($"配置文件读取异常 ({configPath ?? "路径未解析"}): {CommandLineLogSanitizer.SanitizeText(ErrorText.Describe(ex))}");
             return false;
         }
     }
 
-    private static IEnumerable<string> LinesForCommand(IEnumerable<string> lines, Func<string, bool> appliesToCommand)
+    private sealed record ConfigEntry(string? Alias, string[] Arguments);
+
+    private static Dictionary<string, Option> OptionsByAlias(RootCommand rootCommand, string? commandName)
+    {
+        var commands = rootCommand.Children.OfType<Command>().ToArray();
+        var optionsByAlias = new Dictionary<string, Option>(StringComparer.Ordinal);
+        foreach (var option in commands.Where(command => command.Name == commandName).SelectMany(command => command.Options)
+            .Concat(rootCommand.Options)
+            .Concat(commands.SelectMany(command => command.Options)))
+        {
+            foreach (var alias in option.Aliases) optionsByAlias.TryAdd(alias, option);
+        }
+        return optionsByAlias;
+    }
+
+    private static List<ConfigEntry> ReadEntries(IEnumerable<string> lines, IReadOnlyDictionary<string, Option> optionsByAlias)
+    {
+        var entries = new List<ConfigEntry>();
+        string? awaitingValue = null;
+        foreach (var line in lines)
+        {
+            if (awaitingValue is not null)
+            {
+                entries.Add(new(awaitingValue, WithValue(awaitingValue, line.Trim('"'))));
+                awaitingValue = null;
+            }
+            else if (!IsOptionDeclaration(line))
+            {
+                entries.Add(new(null, [line.Trim('"')]));
+            }
+            else if (OptionAlias(line) is var alias && alias.Length < line.Length)
+            {
+                var value = line[(alias.Length + 1)..].Trim(' ');
+                entries.Add(new(alias, value.Length > 0 ? WithValue(alias, value.Trim('"')) : [alias]));
+            }
+            else if (optionsByAlias.TryGetValue(line, out var option) && option.Arity.MinimumNumberOfValues > 0)
+            {
+                awaitingValue = line;
+            }
+            else
+            {
+                entries.Add(new(line, [line]));
+            }
+        }
+        if (awaitingValue is not null) entries.Add(new(awaitingValue, [awaitingValue]));
+        return entries;
+    }
+
+    private static string[] WithValue(string alias, string value) => value.Length > 0 ? [$"{alias}={value}"] : [alias, value];
+
+    private static IEnumerable<string> ArgumentsForCommand(IEnumerable<ConfigEntry> entries, Func<string, bool> appliesToCommand)
     {
         var keep = true;
-        foreach (var line in lines.Where(s => s.Length > 0 && !s.StartsWith('#')))
+        foreach (var entry in entries)
         {
-            if (IsOptionDeclaration(line))
+            if (entry.Alias is not null)
             {
-                var alias = OptionAlias(line);
-                keep = appliesToCommand(alias);
-                if (!keep) LogDebug($"配置项 {CommandLineLogSanitizer.SanitizeText(alias)} 不适用于当前命令，已忽略");
+                keep = appliesToCommand(entry.Alias);
+                if (!keep) LogDebug($"配置项 {CommandLineLogSanitizer.SanitizeText(entry.Alias)} 不适用于当前命令，已忽略");
             }
-            if (keep) yield return line;
+            if (!keep) continue;
+            foreach (var argument in entry.Arguments) yield return argument;
         }
     }
 

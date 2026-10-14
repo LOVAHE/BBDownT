@@ -148,12 +148,10 @@ public class ResumeStateCodecTests
     }
 
     [Fact]
-    public void LegacyTwoLineValidator_RemainsReadableButDoesNotInventResourceIdentity()
+    public void LegacyTwoLineValidator_DoesNotInventResourceIdentity()
     {
         var text = Convert.ToBase64String(Encoding.UTF8.GetBytes("\"legacy\"")) + "\n\n";
-        Assert.Equal(new DownloadResumeValidator("\"legacy\"", null), DownloadResumeValidator.Parse(text));
         Assert.Null(DownloadResumeState.Parse(text));
-        Assert.Null(DownloadResumeValidator.Parse("broken\ninvalid-date\n"));
     }
 
     [Fact]
@@ -181,7 +179,7 @@ public class ResumeStateCodecTests
         };
         response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"new-entity\"");
         response.Content.Headers.LastModified = date;
-        Assert.False(old.Matches(response));
+        Assert.False(old.Matches(DownloadResumeValidator.FromResponse(response)));
         Assert.True(old.KnownChanged(new(null, date.AddSeconds(1))));
         Assert.True(current.KnownChanged(new("\"different\"", date)));
         Assert.False(current.KnownChanged(old));

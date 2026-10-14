@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BBDownT.Core.Util;
@@ -7,12 +8,15 @@ namespace BBDownT.Tests;
 
 public class IntlSubtitleSelectionTests
 {
+    private static List<Subtitle> SelectNonInteractive(IReadOnlyList<Subtitle> subtitles, MyOption option)
+        => SubtitleSelection.Choose(subtitles, option, TextReader.Null, TextWriter.Null);
+
     [Theory]
-    [InlineData("", 2, "srt")]
-    [InlineData("1-2", 2, "ass")]
-    [InlineData("3-4", 2, "srt")]
+    [InlineData("", "srt")]
+    [InlineData("1-2", "ass")]
+    [InlineData("3-4", "srt")]
     public void InteractiveSelection_ShowsAllFormatsAndUsesDefaultsOrExplicitChoices(
-        string answer, int count, string? expectedFormat)
+        string answer, string expectedFormat)
     {
         var resources = Episode("13287667");
 
@@ -21,9 +25,8 @@ public class IntlSubtitleSelectionTests
             new StringReader(answer + "\n"), output);
 
         Assert.Equal(4, resources.Count);
-        Assert.Equal(count, selected.Count);
-        if (expectedFormat is not null)
-            Assert.All(selected, subtitle => Assert.Equal(expectedFormat, SubtitleSelection.OutputFormat(subtitle)));
+        Assert.Equal(2, selected.Count);
+        Assert.All(selected, subtitle => Assert.Equal(expectedFormat, SubtitleSelection.OutputFormat(subtitle)));
         Assert.Contains("1. en | English | 来源未知 | ASS | 未选", output.ToString());
         Assert.Contains("2. th | Thai | 来源未知 | ASS | 未选", output.ToString());
         Assert.Contains("3. en | English | 来源未知 | SRT | 已选", output.ToString());
@@ -71,7 +74,7 @@ public class IntlSubtitleSelectionTests
     {
         var resources = Episode("13287667").Where(subtitle => SubtitleSelection.OutputFormat(subtitle) == "ass").ToList();
 
-        var selected = SubtitleSelection.Filter(resources, IntlOption());
+        var selected = SelectNonInteractive(resources, IntlOption());
 
         Assert.Equal(2, selected.Count);
         Assert.All(selected, subtitle => Assert.Equal("ass", SubtitleSelection.OutputFormat(subtitle)));
@@ -82,7 +85,7 @@ public class IntlSubtitleSelectionTests
     {
         var resources = SameLanguageTracks("13287667", distinguishLabels: true);
 
-        var selected = SubtitleSelection.Filter(resources, IntlOption());
+        var selected = SelectNonInteractive(resources, IntlOption());
 
         Assert.Equal(4, resources.Count);
         Assert.Equal(2, selected.Count);
@@ -95,10 +98,10 @@ public class IntlSubtitleSelectionTests
     {
         var ungrouped = new[] { Track("en", "srt", "one"), Track("en", "srt", "two") };
         foreach (var subtitle in ungrouped) subtitle.FormatVariantGroup = null;
-        Assert.Equal(2, SubtitleSelection.Filter(ungrouped, IntlOption()).Count);
+        Assert.Equal(2, SelectNonInteractive(ungrouped, IntlOption()).Count);
 
         var resources = Episode("13287667");
-        Assert.Equal(4, SubtitleSelection.Filter(resources, new MyOption()).Count);
+        Assert.Equal(4, SelectNonInteractive(resources, new MyOption()).Count);
     }
 
     [Fact]
@@ -106,7 +109,7 @@ public class IntlSubtitleSelectionTests
     {
         var resources = new[] { Track("en", "srt", "shared"), Track("th", "srt", "shared") };
 
-        Assert.Equal(new[] { "en", "th" }, SubtitleSelection.Filter(resources, IntlOption()).Select(subtitle => subtitle.lan));
+        Assert.Equal(new[] { "en", "th" }, SelectNonInteractive(resources, IntlOption()).Select(subtitle => subtitle.lan));
     }
 
     [Theory]
@@ -431,6 +434,80 @@ public class IntlSubtitleSelectionTests
         var subtitles = await SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => Task.FromResult(responses.Dequeue()));
 
         Assert.Equal("vi", Assert.Single(subtitles).lan);
+    }
+
+    private static string AppSeason(params string[] languages) => new JsonObject
+    {
+        ["code"] = 0,
+        ["result"] = new JsonObject
+        {
+            ["modules"] = new JsonArray(new JsonObject
+            {
+                ["data"] = new JsonObject
+                {
+                    ["episodes"] = new JsonArray(new JsonObject
+                    {
+                        ["id"] = "30",
+                        ["subtitles"] = new JsonArray(languages.Select(language => (JsonNode)new JsonObject
+                        {
+                            ["key"] = language, ["url"] = $"https://sub.test/30.{language}.json"
+                        }).ToArray())
+                    })
+                }
+            })
+        }
+    }.ToJsonString();
+
+    [Fact]
+    public async Task ListFailures_WithoutAnyAnswerForTheEpisodeEndTheTask()
+    {
+        var malformed = new InvalidDataException("bad subtitle list");
+        var bothFailed = await Assert.ThrowsAsync<SubtitleUnavailableException>(() =>
+            SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => Task.FromException<string>(malformed)));
+        Assert.Same(malformed, bothFailed.InnerException);
+
+        var timeout = new HttpRequestException("timed out", new TimeoutException());
+        var responses = new Queue<Func<Task<string>>>([
+            () => Task.FromException<string>(timeout),
+            () => Task.FromResult("{\"code\":0,\"result\":{\"modules\":[]}}")
+        ]);
+        Assert.Same(timeout, await Assert.ThrowsAsync<HttpRequestException>(() =>
+            SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => responses.Dequeue()())));
+
+        var fallbackTimeout = new Queue<Func<Task<string>>>([
+            () => Task.FromException<string>(malformed),
+            () => Task.FromException<string>(timeout)
+        ]);
+        Assert.Same(timeout, await Assert.ThrowsAsync<HttpRequestException>(() =>
+            SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => fallbackTimeout.Dequeue()())));
+    }
+
+    [Fact]
+    public async Task FallbackFailure_AfterAnEmptyPrimaryListMeansNoSubtitles()
+    {
+        var responses = new Queue<Func<Task<string>>>([
+            () => Task.FromResult("{\"code\":0,\"data\":{}}"),
+            () => Task.FromException<string>(new HttpRequestException("bad gateway", null, System.Net.HttpStatusCode.BadGateway))
+        ]);
+
+        Assert.Empty(await SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => responses.Dequeue()()));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PrimaryFailure_UsesTheFallbackAnswerForTheEpisode(bool hasSubtitles)
+    {
+        string[] languages = hasSubtitles ? ["vi"] : [];
+        var responses = new Queue<Func<Task<string>>>([
+            () => Task.FromException<string>(new HttpRequestException("reset", new SocketException((int)SocketError.ConnectionReset))),
+            () => Task.FromResult(AppSeason(languages))
+        ]);
+
+        var subtitles = await SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => responses.Dequeue()());
+
+        Assert.Equal(languages, subtitles.Select(subtitle => subtitle.lan));
+        Assert.All(subtitles, subtitle => Assert.EndsWith(".srt", subtitle.path));
     }
 
     private sealed class NoInputReader : TextReader

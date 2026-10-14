@@ -12,10 +12,10 @@ public enum BBDownTDanmakuFormat
 public static class BBDownTDanmakuFormatInfo
 {
     // 默认
-    public static BBDownTDanmakuFormat[] DefaultFormats = [BBDownTDanmakuFormat.Xml, BBDownTDanmakuFormat.Ass];
-    public static string[] DefaultFormatsNames = DefaultFormats.Select(f => f.ToString().ToLower()).ToArray();
+    public static readonly BBDownTDanmakuFormat[] DefaultFormats = [BBDownTDanmakuFormat.Xml, BBDownTDanmakuFormat.Ass];
+    public static readonly string[] DefaultFormatsNames = DefaultFormats.Select(f => f.ToString().ToLower()).ToArray();
     // 可选项
-    public static string[] AllFormatNames = Enum.GetNames(typeof(BBDownTDanmakuFormat)).Select(f => f.ToLower()).ToArray();
+    public static readonly string[] AllFormatNames = Enum.GetNames(typeof(BBDownTDanmakuFormat)).Select(f => f.ToLower()).ToArray();
 
     public static BBDownTDanmakuFormat FromFormatName(string formatName)
     {

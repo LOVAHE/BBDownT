@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Web;
@@ -12,7 +13,7 @@ public class IntlLoginTests
         using var generator = new QRCoder.QRCodeGenerator();
         using var data = generator.CreateQrCode("https://www.biliintl.com/h5/en/qrcode/login?ticket=" + new string('x', 160),
             QRCoder.QRCodeGenerator.ECCLevel.Q);
-        var rows = BBDownTIntlLoginUtil.CreateQrRows(data);
+        var rows = BBDownTLoginUtil.CreateQrRows(data);
         Assert.All(rows, row => Assert.Equal(data.ModuleMatrix.Count, row.Length));
         Assert.Equal((data.ModuleMatrix.Count + 1) / 2, rows.Length);
         Assert.True(rows[0].Length <= 80);
@@ -527,13 +528,13 @@ public class IntlLoginTests
     {
         var reads = 0;
 
-        var cookie = BBDownTIntlLoginUtil.ReadCookieKeys(() =>
+        var error = Assert.Throws<ArgumentException>(() => BBDownTIntlLoginUtil.ReadCookieKeys(() =>
         {
             reads++;
             return new ConsoleKeyInfo('x', ConsoleKey.X, false, false, false);
-        });
+        }));
 
-        Assert.Null(cookie);
+        Assert.Equal("国际站 Cookie 过长", error.Message);
         Assert.Equal(16385, reads);
     }
 
@@ -544,10 +545,39 @@ public class IntlLoginTests
     {
         using var reader = new StringReader(new string('x', length) + "\n");
 
-        var cookie = BBDownTIntlLoginUtil.ReadRedirectedCookie(reader);
+        if (accepted) Assert.Equal(length, BBDownTIntlLoginUtil.ReadRedirectedCookie(reader)!.Length);
+        else Assert.Equal("国际站 Cookie 过长",
+            Assert.Throws<ArgumentException>(() => BBDownTIntlLoginUtil.ReadRedirectedCookie(reader)).Message);
+    }
 
-        if (accepted) Assert.Equal(length, cookie!.Length);
-        else Assert.Null(cookie);
+    [Theory]
+    [InlineData("abc", "国际站 Cookie 格式无效，应为 name=value; name=value")]
+    [InlineData("intl_auth=synthetic-secret\nInjected: value", "请输入完整的国际站 Cookie 请求头，不要包含换行")]
+    public async Task InvalidManualCookie_ReportsTheValidationReason(string input, string expected)
+    {
+        var output = new List<string>();
+
+        var exit = await BBDownTIntlLoginUtil.RunWithDependenciesAsync(true, null,
+            _ => throw new Exception("No save expected"), () => input, output.Add,
+            _ => throw new Exception("No QR expected"), _ => Task.CompletedTask);
+
+        Assert.Equal(1, exit);
+        Assert.Equal(expected, output[^1]);
+        Assert.DoesNotContain(output, line => line.Contains("synthetic-secret") || line.Contains("已取消"));
+    }
+
+    [Fact]
+    public async Task OverlongManualCookie_IsReportedAsTooLongRatherThanCancelled()
+    {
+        var output = new List<string>();
+        using var reader = new StringReader(new string('x', 16385) + "\n");
+
+        var exit = await BBDownTIntlLoginUtil.RunWithDependenciesAsync(true, null,
+            _ => throw new Exception("No save expected"), () => BBDownTIntlLoginUtil.ReadRedirectedCookie(reader),
+            output.Add, _ => throw new Exception("No QR expected"), _ => Task.CompletedTask);
+
+        Assert.Equal(1, exit);
+        Assert.Equal("国际站 Cookie 过长", output[^1]);
     }
 
     [Theory]
@@ -626,6 +656,18 @@ public class IntlLoginTests
 
         Assert.Equal("intl_auth=explicit", result.Cookie);
         Assert.Null(result.FilePath);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("synthetic-secret-without-pairs")]
+    public void InvalidSavedIntlCookie_PointsAtTheFile(string content)
+    {
+        var error = Assert.Throws<ArgumentException>(() => IntlCookieStore.Load("", "/in-memory", true,
+            _ => true, _ => content));
+
+        Assert.Equal("BBDownTIntl.data内容无效，请重新执行loginintl", error.Message);
+        Assert.Null(error.InnerException);
     }
 
     [Fact]
@@ -894,19 +936,18 @@ public class IntlLoginTests
         Assert.Equal(4, handler.Requests.Count);
     }
 
-    [Theory]
-    [InlineData(403)]
-    public async Task HttpFailureDiagnostics_ExposeOnlyStageStatusAndExceptionCategory(int status)
+    [Fact]
+    public async Task HttpFailureDiagnostics_ExposeOnlyStageStatusAndExceptionCategory()
     {
         var diagnostics = new List<string>();
-        using var handler = new StubHandler((_, _) => new HttpResponseMessage((HttpStatusCode)status)
+        using var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.Forbidden)
         {
             Content = new StringContent("synthetic-secret-cookie username=synthetic-user")
         });
         using var client = new IntlLoginClient(handler, false, diagnostics.Add);
 
         await Assert.ThrowsAsync<IntlLoginTransportException>(() => client.GenerateAsync());
-        Assert.Contains($"国际站登录 stage=Generate HTTP={status}", diagnostics);
+        Assert.Contains("国际站登录 stage=Generate HTTP=403", diagnostics);
         Assert.Contains(diagnostics, line => line.Contains("exception=TransportFailure"));
         Assert.DoesNotContain(diagnostics, line => line.Contains("synthetic") || line.Contains("https://"));
     }
@@ -964,10 +1005,9 @@ public class IntlLoginTests
     [Theory]
     [InlineData(true, "UnauthorizedAccessException")]
     [InlineData(false, "IOException")]
-    public async Task SaveFailure_HasFixedStageAndCategoryAndPreservesOldCredential(bool permission, string category)
+    public async Task SaveFailure_HasFixedStageAndCategory(bool permission, string category)
     {
         var path = Path.Combine("/in-memory", IntlCookieStore.FileName);
-        var files = new Dictionary<string, string> { [path] = "old-cookie" };
         var attempts = 0;
         var diagnostics = new List<string>();
         var output = new List<string>();
@@ -986,10 +1026,32 @@ public class IntlLoginTests
 
         Assert.Equal(1, exit);
         Assert.Equal(1, attempts);
-        Assert.Equal("old-cookie", files[path]);
         Assert.Contains(output, line => line.Contains("保存登录文件失败") && line.Contains("现有登录文件未被替换"));
+        Assert.DoesNotContain(output, line => line.Contains("手动导入"));
         Assert.Contains($"国际站登录 stage=Save exception={category}", diagnostics);
         Assert.DoesNotContain(output.Concat(diagnostics), line => line.Contains("synthetic"));
+    }
+
+    [UnixNonRootFact]
+    [UnsupportedOSPlatform("windows")]
+    public async Task SaveFailure_PreservesOldCredential()
+    {
+        using var files = new MediaTestDirectory();
+        var path = files.Write(IntlCookieStore.FileName, "old-cookie");
+        var mode = File.GetUnixFileMode(files.Root);
+        try
+        {
+            File.SetUnixFileMode(files.Root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(
+                () => IntlCookieStore.SaveAsync(files.Root, "auth=synthetic-cookie"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(files.Root, mode);
+        }
+
+        Assert.Equal("old-cookie", File.ReadAllText(path));
+        Assert.Equal(new[] { path }, Directory.GetFiles(files.Root));
     }
 
     private static HttpResponseMessage ConfirmUserWithCookie(HttpRequestMessage request)

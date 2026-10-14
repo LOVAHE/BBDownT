@@ -18,6 +18,9 @@ namespace BBDownT;
 
 internal static class BBDownTDownloadUtil
 {
+    internal const long DefaultClipSize = 20L * 1024 * 1024;
+    private const string ClipIndexFormat = "00000";
+
     public sealed record DownloadConfig
     {
         public bool UseAria2c { get; set; } = false;
@@ -27,15 +30,15 @@ internal static class BBDownTDownloadUtil
         public DownloadTask? RelatedTask { get; set; } = null;
         internal string? RestrictedOutputRoot { get; set; }
         internal string? ResourceIdentity { get; set; }
-        internal bool IsBilibiliMedia { get; set; }
         internal Func<TimeSpan, CancellationToken, Task>? RetryDelay { get; set; }
         internal CancellationToken CancellationToken { get; set; }
         internal int? MaxParallelDownloads { get; set; }
+        internal long ClipSize { get; set; } = DefaultClipSize;
     }
 
     internal static async Task RangeDownloadToTmpAsync(
         int id, string url, string tmpName, long fromPosition, long? toPosition,
-        Action<int, long, long> onProgress, bool failOnRangeNotSupported = false,
+        bool failOnRangeNotSupported = false,
         HttpClient? httpClient = null, string? restrictedOutputRoot = null,
         string? resourceIdentity = null, DownloadResourceMetadata? expectedResource = null,
         Func<TimeSpan, CancellationToken, Task>? retryDelay = null, CancellationToken cancellationToken = default,
@@ -46,9 +49,7 @@ internal static class BBDownTDownloadUtil
         var validatorPath = OutputPathPolicy.ResolveArtifact(tmpName + ".resume", restrictedOutputRoot);
         var identity = DownloadResumeState.Scope(url, resourceIdentity);
         var sourceHash = DownloadResumeState.SourceHash(url);
-        sourceObjectHash ??= resourceIdentity is not null ? DownloadMediaSource.CreateObjectHash(url) : null;
         var state = await DownloadResumeState.LoadAsync(validatorPath);
-        var legacyValidator = state is null ? await DownloadResumeValidator.LoadAsync(validatorPath) : null;
         await using var local = new FileStream(tmpName, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None,
             262144, FileOptions.Asynchronous);
         var existing = local.Length;
@@ -61,7 +62,8 @@ internal static class BBDownTDownloadUtil
         {
             // A complete part still needs remote validation. Multi-thread callers
             // share one header probe; direct callers perform their own probe.
-            expectedResource ??= await TryGetResourceMetadataAsync(url, httpClient, cancellationToken, retryDelay);
+            expectedResource ??= await TryGetResourceMetadataAsync(url, httpClient, cancellationToken, retryDelay,
+                sourceObjectHash is not null);
             if (expectedResource is not null && state.TotalLength == expectedResource.TotalLength
                 && state.Validator.Matches(expectedResource.Validator))
             {
@@ -69,7 +71,6 @@ internal static class BBDownTDownloadUtil
                 if (!state.Complete || state.SourceUriHash != sourceHash || state.SourceObjectHash != sourceObjectHash)
                     await (state with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
                         .SaveAsync(validatorPath, restrictedOutputRoot);
-                onProgress(id, existing, state.TotalLength);
                 onTransferProgress?.Invoke(id, new(existing, 0) { TotalLength = state.TotalLength });
                 return;
             }
@@ -87,9 +88,9 @@ internal static class BBDownTDownloadUtil
         var requestedFrom = append ? checked(fromPosition + retainedLength) : fromPosition;
         var international = BBDownT.Core.Config.COOKIE_IS_INTL;
         using var request = MediaRequestPolicy.CreateRequest(url, international, requestedFrom, toPosition);
-        var requestValidator = expectedResource?.Validator ?? (sameSource ? state!.Validator : legacyValidator);
+        var requestValidator = expectedResource?.Validator ?? (sameSource ? state!.Validator : null);
         if (requestValidator is { IsUsable: true }) requestValidator.Apply(request);
-        var client = httpClient ?? GetMediaHttpClient(international);
+        var client = httpClient ?? AppHttpClient;
         using var response = await SendMediaRequestAsync(client, request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
         {
@@ -101,7 +102,6 @@ internal static class BBDownTDownloadUtil
                 await local.FlushAsync();
                 await (state with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
                     .SaveAsync(validatorPath, restrictedOutputRoot);
-                onProgress(id, retainedLength, length.Value);
                 onTransferProgress?.Invoke(id, new(retainedLength, 0) { TotalLength = length.Value });
                 return;
             }
@@ -127,7 +127,7 @@ internal static class BBDownTDownloadUtil
                 // bytes match it. Re-read the complete local prefix first.
                 response.Dispose();
                 await local.DisposeAsync();
-                await RangeDownloadToTmpAsync(id, url, tmpName, fromPosition, toPosition, onProgress,
+                await RangeDownloadToTmpAsync(id, url, tmpName, fromPosition, toPosition,
                     failOnRangeNotSupported, httpClient, restrictedOutputRoot, resourceIdentity,
                     new(totalLength, remoteValidator), retryDelay, cancellationToken, sourceObjectHash, onTransferProgress);
                 return;
@@ -136,7 +136,11 @@ internal static class BBDownTDownloadUtil
         else if (response.StatusCode == HttpStatusCode.OK)
         {
             if (failOnRangeNotSupported && (requestedFrom > 0 || toPosition is not null))
+            {
+                if (expectedResource is not null && expectedResource.Validator.KnownChanged(remoteValidator))
+                    throw new InvalidDataException("远端资源版本已变化，请重新解析后重试");
                 throw new NotSupportedException("Range request is not supported.");
+            }
             if (fromPosition != 0) throw new NotSupportedException("Range request is not supported.");
             totalLength = responseLength ?? 0;
             // If-Range yielding 200 replaces the old representation rather than
@@ -154,7 +158,7 @@ internal static class BBDownTDownloadUtil
                 {
                     response.Dispose();
                     await local.DisposeAsync();
-                    await RangeDownloadToTmpAsync(id, url, tmpName, fromPosition, toPosition, onProgress,
+                    await RangeDownloadToTmpAsync(id, url, tmpName, fromPosition, toPosition,
                         failOnRangeNotSupported, httpClient, restrictedOutputRoot, resourceIdentity,
                         new(totalLength, remoteValidator), retryDelay, cancellationToken, sourceObjectHash, onTransferProgress);
                     return;
@@ -167,7 +171,7 @@ internal static class BBDownTDownloadUtil
         using var remote = await ReadRemoteAsync(token => new ValueTask<Stream>(response.Content.ReadAsStreamAsync(token)),
             client.Timeout, cancellationToken);
         await CopyVerifiedRangeAsync(local, remote, append ? retainedLength : 0,
-            comparePrefix, responseLength, bytes => onProgress(id, bytes, totalLength > 0 ? totalLength : bytes),
+            comparePrefix, responseLength,
             async (length, hash, complete) =>
             {
                 if (totalLength <= 0 && !complete) return;
@@ -185,7 +189,7 @@ internal static class BBDownTDownloadUtil
     // Without a validator (or after an unrecognized source change), every retained byte
     // must match the new response before any suffix is appended.
     internal static async Task CopyVerifiedRangeAsync(Stream local, Stream remote,
-        long appendLength, bool comparePrefix, long? responseLength, Action<long> progress,
+        long appendLength, bool comparePrefix, long? responseLength,
         Func<long, string, bool, Task> checkpoint, TimeSpan? readTimeout = null,
         CancellationToken cancellationToken = default, Action<DownloadProgressUpdate>? onTransferProgress = null,
         bool checkpointVerifiedPrefix = false)
@@ -257,7 +261,6 @@ internal static class BBDownTDownloadUtil
                 hash.AppendData(buffer, 0, read);
                 position += read;
                 received += read;
-                progress(position);
                 onTransferProgress?.Invoke(new(!replaced ? Math.Max(position, retainedProgress) : position, read,
                     !replaced && position < retainedProgress, Math.Min(verificationLength, position - appendLength), verificationLength));
                 if (position - savedAt >= 4 * 1024 * 1024) await SaveAsync(false);
@@ -362,7 +365,8 @@ internal static class BBDownTDownloadUtil
             return;
         }
         // Audio and video paths often share a stem; include the extension.
-        string tmpName = Path.Combine(desDir, Path.GetFileName(path) + ".tmp");
+        string tmpName = OutputPathPolicy.ResolveArtifact(Path.Combine(desDir, Path.GetFileName(path) + ".tmp"),
+            config.RestrictedOutputRoot);
         DownloadResourceMetadata? metadata = expectedResource;
         if (config.ResourceIdentity is not null)
         {
@@ -371,9 +375,9 @@ internal static class BBDownTDownloadUtil
             if (await IsCompletedTrackAsync(url, path, config, metadata))
             {
                 config.CancellationToken.ThrowIfCancellationRequested();
+                config.RelatedTask?.ReportProgress(1);
                 return;
             }
-            await SeedCompletedTrackAsync(path, tmpName, config);
         }
         using var progress = new ProgressBar(config.RelatedTask);
         var tracker = new DownloadProgressTracker(metadata?.TotalLength ?? 0,
@@ -385,16 +389,24 @@ internal static class BBDownTDownloadUtil
                 || !saved.Validator.IsUsable || (metadata is not null && !saved.Validator.Matches(metadata.Validator))
                 || new FileInfo(tmpName).Length > saved.LocalLength);
         tracker.ReportRestored();
-        await NetworkRetry.ExecuteAsync(token => RangeDownloadToTmpAsync(0, url, tmpName, 0, null,
-            (_, _, _) => { },
-            httpClient: httpClient, restrictedOutputRoot: config.RestrictedOutputRoot,
-            resourceIdentity: config.ResourceIdentity, expectedResource: metadata,
-            retryDelay: config.RetryDelay, cancellationToken: token,
-            sourceObjectHash: sourceObjectHash, onTransferProgress: tracker.Report), NetworkRetry.DownloadDelays,
-            "下载媒体数据", config.CancellationToken, config.RetryDelay, message => LogWarn(message));
-        // Publication and local sidecar writes are deliberately outside retry.
-        config.CancellationToken.ThrowIfCancellationRequested();
-        File.Move(tmpName, path, true);
+        try
+        {
+            await NetworkRetry.ExecuteAsync(token => RangeDownloadToTmpAsync(0, url, tmpName, 0, null,
+                httpClient: httpClient, restrictedOutputRoot: config.RestrictedOutputRoot,
+                resourceIdentity: config.ResourceIdentity, expectedResource: metadata,
+                retryDelay: config.RetryDelay, cancellationToken: token,
+                sourceObjectHash: sourceObjectHash, onTransferProgress: tracker.Report), NetworkRetry.DownloadDelays,
+                "下载媒体数据", config.CancellationToken, config.RetryDelay, message => LogWarn(message));
+            // Publication and local sidecar writes are deliberately outside retry.
+            config.CancellationToken.ThrowIfCancellationRequested();
+            File.Move(tmpName, path, true);
+        }
+        catch (Exception error) when (config.ResourceIdentity is null && !MediaOutput.IsLockConflict(error))
+        {
+            File.Delete(tmpName);
+            File.Delete(tmpName + ".resume");
+            throw;
+        }
         if (config.ResourceIdentity is not null)
         {
             var state = await DownloadResumeState.LoadAsync(tmpName + ".resume")
@@ -415,7 +427,6 @@ internal static class BBDownTDownloadUtil
         if (config.UseAria2c)
         {
             await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
-            DeleteStaleClipFiles(path);
             Console.WriteLine();
             return [];
         }
@@ -429,7 +440,6 @@ internal static class BBDownTDownloadUtil
         {
             LogWarn($"{ex.Message}，自动切换为单线程下载");
             await DownloadFileAsync(url, path, config with { ForceHttp = false }, httpClient);
-            DeleteStaleClipFiles(path);
             return [];
         }
         var fileSize = metadata.TotalLength;
@@ -437,54 +447,17 @@ internal static class BBDownTDownloadUtil
         if (await IsCompletedTrackAsync(url, path, config, metadata))
         {
             config.CancellationToken.ThrowIfCancellationRequested();
-            using var cachedProgress = new ProgressBar(config.RelatedTask);
-            cachedProgress.ReportDownload(1, 0);
+            config.RelatedTask?.ReportProgress(1);
             return [];
         }
-        var trackState = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(path + ".resume", config.RestrictedOutputRoot));
-        if (trackState is { Complete: true } && trackState.MatchesRange(
-            DownloadResumeState.Scope(url, config.ResourceIdentity), 0, null)
-            && await trackState.MatchesFileAsync(path))
-        {
-            // An unrecognized source or missing validator requires full byte comparison,
-            // using a scratch copy so a failed replacement preserves the track.
-            var temporary = OutputPathPolicy.ResolveArtifact(path + ".verify.tmp", config.RestrictedOutputRoot);
-            await SeedCompletedTrackAsync(path, temporary, config);
-            using var verifiedProgress = new ProgressBar(config.RelatedTask);
-            var verifiedTracker = new DownloadProgressTracker(fileSize, [fileSize],
-                verifiedProgress.ReportDownload, message => Log(message));
-            if (trackState.TotalLength == fileSize && !trackState.Validator.KnownChanged(metadata.Validator))
-                verifiedTracker.Restore(0, trackState.LocalLength, true);
-            verifiedTracker.ReportRestored();
-            await NetworkRetry.ExecuteAsync(token => RangeDownloadToTmpAsync(0, url, temporary, 0, null,
-                (_, _, _) => { },
-                httpClient: httpClient, restrictedOutputRoot: config.RestrictedOutputRoot,
-                resourceIdentity: config.ResourceIdentity, expectedResource: metadata,
-                retryDelay: config.RetryDelay, cancellationToken: token,
-                sourceObjectHash: sourceObjectHash, onTransferProgress: verifiedTracker.Report), NetworkRetry.DownloadDelays,
-                "核验已下载轨道", config.CancellationToken, config.RetryDelay, message => LogWarn(message));
-            config.CancellationToken.ThrowIfCancellationRequested();
-            File.Move(temporary, path, true);
-            var verified = await DownloadResumeState.LoadAsync(temporary + ".resume")
-                ?? throw new InvalidDataException("完整轨道缺少续传记录");
-            await verified.SaveAsync(path + ".resume", config.RestrictedOutputRoot);
-            File.Delete(temporary + ".resume");
-            return [];
-        }
-        List<Clip> allClips = GetAllClips(fileSize);
-        var clipPaths = allClips.Select(clip => Path.Combine(Path.GetDirectoryName(path)!,
-            clip.index.ToString("00000") + "_" + Path.GetFileNameWithoutExtension(path)
-            + (Path.GetExtension(path).Equals(".mp4", StringComparison.OrdinalIgnoreCase) ? ".vclip" : ".aclip")))
-            .ToArray();
+        List<Clip> allClips = GetAllClips(fileSize, config.ClipSize);
+        var clipPaths = allClips.Select(clip => GetClipPath(path, clip.index)).ToArray();
         if (allClips.Count > 1 && !metadata.Validator.IsUsable)
         {
             // Multiple independent responses without a version validator cannot
-            // establish a common snapshot. Compare the existing contiguous
-            // prefix against one full response instead of mixing generations.
-            Log("服务器未提供资源版本校验器，使用单个响应核验已有数据并续传...");
-            await SeedClipPrefixAsync(clipPaths, allClips, path + ".tmp", config.RestrictedOutputRoot);
+            // establish a common snapshot, so download the track as one response.
+            Log("服务器未提供资源版本校验器，自动切换为单线程下载...");
             await DownloadFileAsync(url, path, config, httpClient, metadata);
-            DeleteStaleClipFiles(path);
             return [];
         }
         int total = allClips.Count;
@@ -522,7 +495,7 @@ internal static class BBDownTDownloadUtil
                 try
                 {
                     await NetworkRetry.ExecuteAsync(attemptToken => RangeDownloadToTmpAsync(clip.index, url,
-                        clipPaths[clip.index], clip.from, clip.to == -1 ? null : clip.to, (_, _, _) => { },
+                        clipPaths[clip.index], clip.from, clip.to,
                         true, httpClient, config.RestrictedOutputRoot, config.ResourceIdentity, metadata,
                         config.RetryDelay, attemptToken, sourceObjectHash, tracker.Report), NetworkRetry.DownloadDelays, $"下载分片 {clip.index}",
                         token, config.RetryDelay, message => LogWarn(message));
@@ -553,54 +526,42 @@ internal static class BBDownTDownloadUtil
         return clipPaths;
     }
 
-    internal static void MergeTrackClips(string[] files, string destination)
-        => MergeTrackClipsAsync(files, destination).GetAwaiter().GetResult();
-
-    internal static async Task MergeTrackClipsAsync(string[] files, string destination, DownloadConfig? config = null)
+    internal static async Task MergeTrackClipsAsync(string[] files, string destination, DownloadConfig config)
     {
         if (files.Length == 0) return;
-        destination = OutputPathPolicy.ResolveArtifact(destination, config?.RestrictedOutputRoot);
-        OutputPathPolicy.ResolveArtifact(destination + ".resume", config?.RestrictedOutputRoot);
+        destination = OutputPathPolicy.ResolveArtifact(destination, config.RestrictedOutputRoot);
+        OutputPathPolicy.ResolveArtifact(destination + ".resume", config.RestrictedOutputRoot);
         var states = new List<DownloadResumeState>();
         foreach (var file in files)
         {
-            OutputPathPolicy.ResolveArtifact(file, config?.RestrictedOutputRoot);
+            OutputPathPolicy.ResolveArtifact(file, config.RestrictedOutputRoot);
             var state = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(
-                file + ".resume", config?.RestrictedOutputRoot));
+                file + ".resume", config.RestrictedOutputRoot));
             if (state is null || !state.Complete || !await state.MatchesFileAsync(file))
-            {
-                if (config?.ResourceIdentity is not null) throw new InvalidDataException("分片缺少完整且有效的续传记录");
-                states.Clear();
-                break;
-            }
+                throw new InvalidDataException("分片缺少完整且有效的续传记录");
             states.Add(state);
         }
-        if (states.Count > 0)
+        long next = 0;
+        var first = states[0];
+        foreach (var state in states)
         {
-            long next = 0;
-            var first = states[0];
-            foreach (var state in states)
-            {
-                if (state.FromPosition != next || state.ResourceIdentity != first.ResourceIdentity
-                    || state.SourceUriHash != first.SourceUriHash || state.TotalLength != first.TotalLength
-                    || !first.Validator.SameVersionAs(state.Validator)
-                    || (config?.ResourceIdentity is not null && state.ResourceIdentity != config.ResourceIdentity))
-                    throw new InvalidDataException("分片不属于同一个轨道、范围或资源版本");
-                next += state.LocalLength;
-            }
-            if (next != first.TotalLength) throw new InvalidDataException("完整分片未覆盖整个轨道");
+            if (state.FromPosition != next || state.ResourceIdentity != first.ResourceIdentity
+                || state.SourceUriHash != first.SourceUriHash || state.TotalLength != first.TotalLength
+                || !first.Validator.SameVersionAs(state.Validator)
+                || state.ResourceIdentity != config.ResourceIdentity)
+                throw new InvalidDataException("分片不属于同一个轨道、范围或资源版本");
+            next += state.LocalLength;
         }
+        if (next != first.TotalLength) throw new InvalidDataException("完整分片未覆盖整个轨道");
         BBDownTUtil.CombineMultipleFilesIntoSingleFile(files, destination);
-        if (states.Count > 0)
+        await using (var stream = File.OpenRead(destination))
         {
-            await using var stream = File.OpenRead(destination);
-            var first = states[0];
             var completed = first with
             {
                 FromPosition = 0, ToPosition = null, Complete = true, LocalLength = stream.Length,
                 LocalSha256 = Convert.ToHexString(await SHA256.HashDataAsync(stream))
             };
-            await completed.SaveAsync(destination + ".resume", config?.RestrictedOutputRoot);
+            await completed.SaveAsync(destination + ".resume", config.RestrictedOutputRoot);
         }
         foreach (var file in files)
         {
@@ -625,38 +586,7 @@ internal static class BBDownTDownloadUtil
     }
 
     private static string? GetSourceObjectHash(string url, DownloadConfig config)
-        => config.ResourceIdentity is null ? null : DownloadMediaSource.CreateObjectHash(url, config.IsBilibiliMedia);
-
-    private static async Task SeedCompletedTrackAsync(string path, string temporary, DownloadConfig config)
-    {
-        temporary = OutputPathPolicy.ResolveArtifact(temporary, config.RestrictedOutputRoot);
-        if (File.Exists(temporary)) return;
-        var state = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(path + ".resume", config.RestrictedOutputRoot));
-        if (state is not { Complete: true } || (config.ResourceIdentity is not null && state.ResourceIdentity != config.ResourceIdentity)
-            || !await state.MatchesFileAsync(path)) return;
-        OutputPathPolicy.ResolveArtifact(temporary + ".resume", config.RestrictedOutputRoot);
-        File.Copy(path, temporary);
-        await state.SaveAsync(temporary + ".resume", config.RestrictedOutputRoot);
-    }
-
-    private static async Task SeedClipPrefixAsync(string[] paths, List<Clip> clips, string temporary, string? restrictedOutputRoot)
-    {
-        temporary = OutputPathPolicy.ResolveArtifact(temporary, restrictedOutputRoot);
-        if (File.Exists(temporary)) return;
-        await using var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-            262144, FileOptions.Asynchronous);
-        for (var index = 0; index < paths.Length; index++)
-        {
-            var path = OutputPathPolicy.ResolveArtifact(paths[index], restrictedOutputRoot);
-            if (!File.Exists(path)) break;
-            var expected = clips[index].to - clips[index].from + 1;
-            var length = new FileInfo(path).Length;
-            if (length <= 0 || length > expected) break;
-            await using var input = File.OpenRead(path);
-            await input.CopyToAsync(output);
-            if (length < expected) break;
-        }
-    }
+        => config.ResourceIdentity is null ? null : DownloadMediaSource.CreateObjectHash(url);
 
     private static async Task DownloadWithAria2cAsync(string url, string path, string extraArgs)
     {
@@ -677,7 +607,17 @@ internal static class BBDownTDownloadUtil
         DeleteStaleClipFiles(destinationPath);
         File.Delete(destinationPath + ".tmp");
         File.Delete(destinationPath + ".tmp.resume");
+        File.Delete(destinationPath + ".verify.tmp");
+        File.Delete(destinationPath + ".verify.tmp.resume");
     }
+
+    private static string GetClipPath(string destinationPath, int index)
+        => Path.Combine(Path.GetDirectoryName(destinationPath)!,
+            index.ToString(ClipIndexFormat) + GetClipSuffix(destinationPath));
+
+    private static string GetClipSuffix(string destinationPath)
+        => "_" + Path.GetFileNameWithoutExtension(destinationPath)
+            + (Path.GetExtension(destinationPath).Equals(".mp4", StringComparison.OrdinalIgnoreCase) ? ".vclip" : ".aclip");
 
     internal static int DeleteStaleClipFiles(string destinationPath)
     {
@@ -691,19 +631,16 @@ internal static class BBDownTDownloadUtil
             return 0;
         }
 
-        var destinationName = Path.GetFileNameWithoutExtension(destinationPath);
-        var clipExtension = Path.GetExtension(destinationPath).EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
-            ? ".vclip"
-            : ".aclip";
-        var expectedSuffix = $"_{destinationName}{clipExtension}";
+        var expectedSuffix = GetClipSuffix(destinationPath);
+        var indexLength = ClipIndexFormat.Length;
         var deletedCount = 0;
         foreach (var candidate in Directory.EnumerateFiles(directory))
         {
             var fileName = Path.GetFileName(candidate);
-            var generatedSuffix = fileName.Length >= 5 ? fileName[5..] : string.Empty;
-            if (fileName.Length < 5
+            var generatedSuffix = fileName.Length >= indexLength ? fileName[indexLength..] : string.Empty;
+            if (fileName.Length < indexLength
                 || (generatedSuffix != expectedSuffix && generatedSuffix != expectedSuffix + ".resume")
-                || !fileName.AsSpan(0, 5).ToString().All(char.IsDigit))
+                || !fileName.AsSpan(0, indexLength).ToString().All(char.IsDigit))
             {
                 continue;
             }
@@ -715,15 +652,15 @@ internal static class BBDownTDownloadUtil
     }
 
     //此函数主要是切片下载逻辑
-    internal static List<Clip> GetAllClips(long fileSize)
+    internal static List<Clip> GetAllClips(long fileSize, long clipSize = DefaultClipSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(clipSize);
         List<Clip> clips = [];
         int index = 0;
         long from = 0;
-        const int perSize = 20 * 1024 * 1024;
         while (from < fileSize)
         {
-            var to = Math.Min(checked(from + perSize - 1), fileSize - 1);
+            var to = Math.Min(checked(from + clipSize - 1), fileSize - 1);
             clips.Add(new Clip
             {
                 index = index,
@@ -753,15 +690,14 @@ internal static class BBDownTDownloadUtil
     {
         var intl = international ?? BBDownT.Core.Config.COOKIE_IS_INTL;
         using var httpRequestMessage = MediaRequestPolicy.CreateRequest(url, intl);
-        using var response = await SendMediaRequestAsync(httpClient ?? GetMediaHttpClient(intl),
+        using var response = await SendMediaRequestAsync(httpClient ?? AppHttpClient,
             httpRequestMessage, cancellationToken);
         NetworkRetry.EnsureSuccessStatusCode(response);
         var size = GetTotalFileSize(
             response.StatusCode,
             response.Content.Headers.ContentLength,
             response.Content.Headers.ContentRange);
-        return new DownloadResourceMetadata(size, DownloadResumeValidator.FromResponse(response,
-            allowBareCdnTag || DownloadMediaSource.CreateObjectHash(url) is not null));
+        return new DownloadResourceMetadata(size, DownloadResumeValidator.FromResponse(response, allowBareCdnTag));
     }
 
     private static async Task<DownloadResourceMetadata?> TryGetResourceMetadataAsync(string url,

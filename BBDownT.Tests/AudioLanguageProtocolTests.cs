@@ -1,11 +1,18 @@
 using System.Text.Json;
 using BBDownT.Core;
 using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 
 namespace BBDownT.Tests;
 
-public class AudioLanguageProtocolTests
+public class AudioLanguageProtocolTests : IDisposable
 {
+    private readonly string originalKey = Config.WBI;
+
+    public AudioLanguageProtocolTests() => Config.WBI = WbiKeyTests.MixinKey;
+
+    public void Dispose() => Config.WBI = originalKey;
+
     [Fact]
     public void Metadata_MapsLanguagesAndAiClassificationWithoutGuessingOriginal()
     {
@@ -61,15 +68,15 @@ public class AudioLanguageProtocolTests
     [InlineData("cheese:1", "/pugv/player/web/v2/playurl", false)]
     public async Task WebRequest_SendsEncodedLanguageBeforeSigning(string input, string path, bool signed)
     {
-        string? requestedUrl = null;
+        var requests = new List<string>();
         await Parser.GetPlayJsonAsync("", input, "1", "2", "3", false, false, false,
             "129", "en-US&qn=0", url =>
             {
-                requestedUrl = url;
+                requests.Add(url);
                 return Task.FromResult("{}");
             });
 
-        Assert.NotNull(requestedUrl);
+        var requestedUrl = Assert.Single(requests);
         Assert.Equal(path, new Uri(requestedUrl).AbsolutePath);
         Assert.Contains("&qn=129", requestedUrl);
         Assert.Contains("&cur_language=en-US%26qn%3D0&wts=", requestedUrl);
@@ -79,12 +86,15 @@ public class AudioLanguageProtocolTests
     [Fact]
     public async Task DefaultWebRequest_DoesNotSendLanguageParameter()
     {
+        var requests = new List<string>();
         await Parser.GetPlayJsonAsync("", "BV", "1", "2", "", false, false, false,
             fetchWeb: url =>
             {
-                Assert.DoesNotContain("cur_language", url);
+                requests.Add(url);
                 return Task.FromResult("{}");
             });
+
+        Assert.DoesNotContain("cur_language", Assert.Single(requests));
     }
 
     [Theory]
@@ -104,7 +114,7 @@ public class AudioLanguageProtocolTests
         var responses = new Queue<string>([Fixture("en-US"), Fixture("zh-CN")]);
 
         await Assert.ThrowsAsync<AudioLanguageUnavailableException>(() => Parser.ExtractTracksWithFetcherAsync(
-            "BV", "1", "2", "", false, false, false, "0",
+            "BV", "1", "2", false, false, false, "0",
             _ => Task.FromResult(responses.Dequeue()),
             (_, _) => throw new Exception("No intl request expected"), "en-US"));
 
@@ -116,13 +126,44 @@ public class AudioLanguageProtocolTests
     {
         var qualities = new List<string>();
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "1", "2", "", false, false, false, "0",
+            "BV", "1", "2", false, false, false, "0",
             qn => { qualities.Add(qn); return Task.FromResult(Fixture("en-US")); },
             (_, _) => throw new Exception("No intl request expected"), "en-US");
 
         Assert.Equal(new[] { "0", "129" }, qualities);
         Assert.Equal("en-US", result.CurrentAudioLanguage);
         Assert.Equal("en-US", Assert.Single(result.AudioLanguages).Code);
+        Assert.Equal("https://cdn.test/en-US-video.m4s", Assert.Single(result.VideoTracks).baseUrl);
+        Assert.Equal("https://cdn.test/en-US-audio.m4s", Assert.Single(result.AudioTracks).baseUrl);
+    }
+
+    [Fact]
+    public async Task SelectedLanguage_PlayApiRefusalKeepsItsRetryableReason()
+    {
+        const string refusal = "{\"code\":-352,\"message\":\"风控校验失败\"}";
+
+        var error = await Assert.ThrowsAsync<BilibiliApiException>(() => AudioLanguageSelection.FetchAsync("en-US",
+            language => Parser.ExtractTracksWithFetcherAsync(
+                "BV", "1", "2", false, false, false, "0",
+                _ => Task.FromResult(refusal),
+                (_, _) => throw new Exception("No intl request expected"), language)));
+
+        Assert.Equal(-352, error.Code);
+        Assert.True(new PageDownloadRetry().TryGetDelay(error, out _));
+    }
+
+    [Fact]
+    public async Task SelectedLanguage_RefusedQualityRefetchKeepsVerifiedTracks()
+    {
+        var responses = new Queue<string>([Fixture("en-US"), "{\"code\":-352,\"message\":\"风控校验失败\"}"]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "BV", "1", "2", false, false, false, "0",
+            _ => Task.FromResult(responses.Dequeue()),
+            (_, _) => throw new Exception("No intl request expected"), "en-US");
+
+        Assert.Empty(responses);
+        Assert.Equal("en-US", result.CurrentAudioLanguage);
         Assert.Equal("https://cdn.test/en-US-video.m4s", Assert.Single(result.VideoTracks).baseUrl);
         Assert.Equal("https://cdn.test/en-US-audio.m4s", Assert.Single(result.AudioTracks).baseUrl);
     }

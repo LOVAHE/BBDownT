@@ -1,10 +1,18 @@
+using BBDownT.Core;
 using BBDownT.Core.Entity;
 using BBDownT.Core.Fetcher;
+using BBDownT.Core.Util;
 
 namespace BBDownT.Tests;
 
-public class SpaceVideoFetcherTests
+public class SpaceVideoFetcherTests : IDisposable
 {
+    private readonly string originalKey = Config.WBI;
+
+    public SpaceVideoFetcherTests() => Config.WBI = WbiKeyTests.MixinKey;
+
+    public void Dispose() => Config.WBI = originalKey;
+
     [Fact]
     public async Task Export_WritesAllPagesBeforeReturningSuccessfulResult()
     {
@@ -50,6 +58,21 @@ public class SpaceVideoFetcherTests
     }
 
     [Fact]
+    public async Task Export_ReplacesPathSeparatorsAndNulInTheUploaderName()
+    {
+        var responses = new Queue<string>([
+            """{"data":{"info":{"uname":"A\u0000B\\C/D"}}}""",
+            """{"data":{"list":{"vlist":[]},"page":{"count":0}}}"""
+        ]);
+        string? savedPath = null;
+
+        await SpaceVideoFetcher.FetchAsync("mid:42", _ => Task.FromResult(responses.Dequeue()),
+            (path, _) => { savedPath = path; return Task.CompletedTask; });
+
+        Assert.EndsWith(Path.DirectorySeparatorChar + "A.B.C.D的投稿视频.txt", savedPath);
+    }
+
+    [Fact]
     public async Task LaterPageFailure_DoesNotWriteAPartialList()
     {
         var responses = new Queue<string>(["""{"data":{"info":{"uname":"UP"}}}""", Page(51, 1)]);
@@ -85,6 +108,25 @@ public class SpaceVideoFetcherTests
 
         Assert.IsType<SpaceVideoInfo>(info);
         Assert.Equal("", saved);
+    }
+
+    [Fact]
+    public async Task MissingWbiKey_IsFetchedBeforeTheFirstSignedListRequest()
+    {
+        Config.WBI = "";
+        var calls = new List<string>();
+        var responses = new Queue<string>(["""{"data":{"info":{"uname":"UP"}}}""", WbiKeyTests.Nav, Page(1, 1)]);
+
+        await SpaceVideoFetcher.FetchAsync("mid:42", url =>
+        {
+            calls.Add(url);
+            return Task.FromResult(responses.Dequeue());
+        }, (_, _) => Task.CompletedTask);
+
+        Assert.Equal(3, calls.Count);
+        Assert.Equal(WbiKey.NavApi, calls[1]);
+        Assert.StartsWith("https://api.bilibili.com/x/space/wbi/arc/search?mid=42&", calls[2]);
+        WbiKeyTests.AssertSignedWithMixinKey(calls[2]);
     }
 
     private static string Url(int aid) => $"https://www.bilibili.com/video/av{aid}";

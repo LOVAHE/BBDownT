@@ -36,7 +36,7 @@ internal static class SpaceBatchDownload
             && (!int.TryParse(option.DelayPerPage, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pageDelay)
                 || pageDelay > MaxDelaySeconds))
             return $"DelayPerPage（--delay-per-page）必须是不超过{MaxDelaySeconds}的整数秒数";
-        if (option.DownloadAll && !IsSpaceUrl(option.Url))
+        if (option.DownloadAll && !IsSpaceUrl(option.Url) && !BBDownTUtil.IsShortLinkUri(option.Url))
             return "DownloadAll（--download-all）仅适用于UP主空间投稿链接";
         return null;
     }
@@ -75,7 +75,7 @@ internal static class SpaceBatchDownload
             {
                 await downloadVideo(option.ForBatchVideo(urls[index], workDir));
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException error) when (!NetworkRetry.IsTransient(error))
             {
                 throw;
             }

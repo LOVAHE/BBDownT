@@ -11,6 +11,18 @@ public class ErrorTextTests
     private const string PrivateMessage = "https://name:password@example.test/path?access_token=secret#cookie SESSDATA=secret";
 
     [Fact]
+    public void ArgumentErrors_DoNotShowTheParameterName()
+    {
+        Assert.Equal("分P参数无效: 9。", ErrorText.Describe(new ArgumentException("分P参数无效: 9。", "selection")));
+        Assert.Equal("分P参数无效: 9。", ErrorText.Describe(new ResourceKeyArgumentException("分P参数无效: 9。", "selection")));
+    }
+
+    private sealed class ResourceKeyArgumentException(string message, string paramName) : ArgumentException(message, paramName)
+    {
+        public override string Message => $"分P参数无效: 9。 Arg_ParamName_Name, {ParamName}";
+    }
+
+    [Fact]
     public void TransportFailures_AreSummarizedWithoutTheirMessages()
     {
         Assert.Equal("域名解析失败", ErrorText.Describe(new HttpRequestException(HttpRequestError.NameResolutionError,
@@ -48,6 +60,24 @@ public class ErrorTextTests
 
         Assert.Equal(refusal.Message, ErrorText.Describe(new IOException("wrapped", refusal)));
         Assert.False(ErrorText.SuggestsUpdate(refusal));
+    }
+
+    [Fact]
+    public void PageBatch_KeepsItsSummaryWhenTheFirstFailureIsAnApiRefusal()
+    {
+        var batch = new PageDownloadBatchException(
+        [
+            (1, new BilibiliApiException("获取播放地址失败：啥都木有（错误码 -404）", -404)),
+            (3, new HttpRequestException(PrivateMessage, null, HttpStatusCode.BadGateway))
+        ], 2);
+
+        var description = ErrorText.Describe(batch);
+
+        Assert.Contains("本批次有 2 个分P下载失败：P1、P3", description);
+        Assert.Contains("剩余 2 个分P未处理", description);
+        Assert.Contains("P1：获取播放地址失败：啥都木有（错误码 -404）", description);
+        Assert.Contains("P3：服务器返回 HTTP 502", description);
+        Assert.DoesNotContain("password", description);
     }
 
     [Fact]

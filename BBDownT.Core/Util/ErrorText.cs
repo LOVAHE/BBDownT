@@ -12,9 +12,9 @@ public static partial class ErrorText
 
     public static string Describe(Exception error)
     {
+        if (error is AggregateException aggregate) return Sanitize(aggregate.Message);
         var causes = Causes(error).ToArray();
-        var international = causes.OfType<IntlApiException>().FirstOrDefault(cause => cause.UserDescription is not null);
-        if (international is not null) return international.UserDescription!;
+        if (causes.OfType<IntlApiException>().FirstOrDefault() is { } international) return international.Message;
         var api = causes.OfType<BilibiliApiException>().FirstOrDefault();
         if (api is not null) return Sanitize(api.Message);
 
@@ -44,10 +44,11 @@ public static partial class ErrorText
     private static string? ReadableMessage(Exception error)
     {
         if (error is HttpRequestException or HttpIOException or SocketException or OperationCanceledException
-            or TimeoutException or AuthenticationException or IntlApiException)
+            or TimeoutException or AuthenticationException)
             return null;
-        var match = ResourceKeyPattern().Match(error.Message);
-        if (match.Success && error.Message.StartsWith("net_", StringComparison.Ordinal)) return null;
+        var message = MessageText(error);
+        var match = ResourceKeyPattern().Match(message);
+        if (match.Success && message.StartsWith("net_", StringComparison.Ordinal)) return null;
         var argument = match.Success && match.Groups["argument"].Success ? match.Groups["argument"].Value : null;
         if (IsDataShapeError(error)) return DataShapeMessage;
         var label = error switch
@@ -61,10 +62,19 @@ public static partial class ErrorText
         };
         if (label is not null)
         {
-            var detail = match.Success ? argument : error.Message;
+            var detail = match.Success ? argument : message;
             return string.IsNullOrWhiteSpace(detail) ? label : $"{label}：{Sanitize(detail)}";
         }
-        return match.Success || string.IsNullOrWhiteSpace(error.Message) ? null : Sanitize(error.Message);
+        return match.Success || string.IsNullOrWhiteSpace(message) ? null : Sanitize(message);
+    }
+
+    private static string MessageText(Exception error)
+    {
+        var message = error.Message;
+        if (error is not ArgumentException { ParamName: { Length: > 0 } name }) return message;
+        foreach (var suffix in (string[])[$" (Parameter '{name}')", $" Arg_ParamName_Name, {name}"])
+            if (message.EndsWith(suffix, StringComparison.Ordinal)) return message[..^suffix.Length];
+        return message;
     }
 
     private static bool IsDataShapeError(Exception error)

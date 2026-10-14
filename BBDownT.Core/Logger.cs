@@ -7,6 +7,7 @@ namespace BBDownT.Core;
 
 public static class Logger
 {
+    internal const int TimestampWidth = 28;
     private static readonly object OutputLock = new();
     private static ProgressLine? activeProgressLine;
     private static bool logLineOpen;
@@ -152,86 +153,40 @@ public static class Logger
         return value;
     }
 
-    public static void Log(object text, bool enter = true)
-    {
-        lock (OutputLock)
-        {
-            activeProgressLine?.Clear();
-            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - " + RedactSensitiveText(text));
-            if (enter) Console.WriteLine();
-            logLineOpen = activeProgressLine is not null && !enter;
-        }
-    }
+    public static void Log(object text, bool enter = true) => Write(text, null, enter: enter);
 
-    public static void LogError(object text)
-    {
-        lock (OutputLock)
-        {
-            activeProgressLine?.Clear();
-            Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.Write(RedactSensitiveText(text));
-            Console.ResetColor();
-            Console.WriteLine();
-            logLineOpen = false;
-        }
-    }
+    public static void LogError(object text) => Write(text, ConsoleColor.Red);
 
-    public static void LogColor(object text, bool time = true)
-    {
-        lock (OutputLock)
-        {
-            activeProgressLine?.Clear();
-            if (time)
-                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            if (time)
-                Console.Write(RedactSensitiveText(text));
-            else
-                Console.Write("                            " + RedactSensitiveText(text));
-            Console.ResetColor();
-            Console.WriteLine();
-            logLineOpen = false;
-        }
-    }
+    public static void LogColor(object text, bool time = true) => Write(text, ConsoleColor.Cyan, time);
 
-    public static void LogWarn(object text, bool time = true)
-    {
-        lock (OutputLock)
-        {
-            activeProgressLine?.Clear();
-            if (time)
-                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            if (time)
-                Console.Write(RedactSensitiveText(text));
-            else
-                Console.Write("                            " + RedactSensitiveText(text));
-            Console.ResetColor();
-            Console.WriteLine();
-            logLineOpen = false;
-        }
-    }
+    public static void LogWarn(object text, bool time = true) => Write(text, ConsoleColor.DarkYellow, time);
 
     public static void LogDebug(string toFormat, params object[] args)
     {
-        if (Config.DEBUG_LOG)
+        if (!Config.DEBUG_LOG) return;
+        var message = args.Length > 0 ? string.Format(toFormat, args).Trim() : toFormat;
+        Write(message, ConsoleColor.DarkGray, colorTimestamp: true);
+    }
+
+    private static void Write(object text, ConsoleColor? color, bool time = true, bool enter = true, bool colorTimestamp = false)
+    {
+        lock (OutputLock)
         {
-            lock (OutputLock)
+            activeProgressLine?.Clear();
+            var prefix = time ? DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - " : new string(' ', TimestampWidth);
+            if (color is { } foreground)
             {
-                activeProgressLine?.Clear();
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write(DateTime.Now.ToString("[yyyy-MM-dd HH:mm:ss.fff]") + " - ");
-                string message;
-                if (args.Length > 0)
-                    message = string.Format(toFormat, args).Trim();
-                else
-                    message = toFormat;
-                Console.Write(RedactSensitiveText(message));
-                Console.ResetColor();
-                Console.WriteLine();
-                logLineOpen = false;
+                if (time && !colorTimestamp)
+                {
+                    Console.Write(prefix);
+                    prefix = "";
+                }
+                Console.ForegroundColor = foreground;
             }
+            Console.Write(prefix + RedactSensitiveText(text));
+            if (color is not null) Console.ResetColor();
+            if (enter) Console.WriteLine();
+            logLineOpen = activeProgressLine is not null && !enter;
         }
     }
 }

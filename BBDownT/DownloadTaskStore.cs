@@ -11,12 +11,16 @@ internal sealed class DownloadTaskStore
     private readonly List<DownloadTask> finishedTasks = [];
     private readonly object stateLock = new();
     private readonly Func<long> getCurrentTimeSeconds;
-    private long finishedRetentionSeconds = 86400;
+    private readonly int maxFinishedTasks;
+    private readonly long finishedRetentionSeconds;
 
-    internal DownloadTaskStore(Func<long>? getCurrentTimeSeconds = null)
+    internal DownloadTaskStore(Func<long>? getCurrentTimeSeconds = null, BBDownTServerOptions? options = null)
     {
         this.getCurrentTimeSeconds = getCurrentTimeSeconds
             ?? (() => DateTimeOffset.Now.ToUnixTimeSeconds());
+        options ??= new BBDownTServerOptions();
+        maxFinishedTasks = options.MaxFinishedTasks;
+        finishedRetentionSeconds = options.FinishedTaskRetentionSeconds;
     }
 
     public bool TryAddPending(DownloadTask task, int maxPendingTasks)
@@ -39,28 +43,23 @@ internal sealed class DownloadTaskStore
         {
             if (pendingTasks.Remove(task))
             {
+                task.MarkStarted(getCurrentTimeSeconds());
                 runningTasks.Add(task);
             }
         }
     }
 
-    public void Complete(
-        DownloadTask task,
-        long finishedAt,
-        bool succeeded,
-        int maxFinishedTasks = 1000,
-        long retentionSeconds = 86400)
+    public void Complete(DownloadTask task, long finishedAt, bool succeeded)
     {
         lock (stateLock)
         {
-            finishedRetentionSeconds = retentionSeconds;
             task.Finish(finishedAt, succeeded);
             if (runningTasks.Remove(task))
             {
                 finishedTasks.Add(task);
             }
 
-            var oldestAllowed = finishedAt - retentionSeconds;
+            var oldestAllowed = finishedAt - finishedRetentionSeconds;
             finishedTasks.RemoveAll(finishedTask => finishedTask.TaskFinishTime < oldestAllowed);
             if (finishedTasks.Count > maxFinishedTasks)
             {

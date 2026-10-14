@@ -5,44 +5,73 @@ namespace BBDownT.Tests;
 
 public class CoverSelectionTests
 {
-    [Fact]
-    public async Task SkipCover_PreventsTheDownloadCallback()
+    [Theory]
+    [InlineData("not-found")]
+    [InlineData("timeout")]
+    [InlineData("interrupted")]
+    public async Task FailedEmbeddedCover_DoesNotFailThePage(string kind)
     {
-        var calls = 0;
-        var result = await Program.DownloadCoverAsync(new MyOption
+        Exception failure = kind switch
         {
-            SkipCover = true
-        }, "https://example.test/cover.jpg", "/in-memory/cover.jpg", new DownloadConfig(),
-            (_, _, _) => { calls++; return Task.CompletedTask; });
+            "not-found" => new HttpRequestException("Not Found", null, System.Net.HttpStatusCode.NotFound),
+            "timeout" => new TaskCanceledException("HTTP timeout", new TimeoutException()),
+            _ => new IOException("connection reset")
+        };
 
-        Assert.False(result);
-        Assert.Equal(0, calls);
+        await Program.DownloadCoverForMuxAsync(new MyOption(), "https://example.test/cover.jpg", "/in-memory/cover.jpg",
+            (_, _, _) => throw failure);
+    }
+
+    [Theory]
+    [InlineData("path")]
+    [InlineData("cancelled")]
+    public async Task EmbeddedCover_KeepsPathAndCancellationErrors(string kind)
+    {
+        Exception failure = kind == "path"
+            ? new ArgumentException("服务器输出路径不能经过符号链接或目录链接")
+            : new OperationCanceledException();
+
+        Assert.Same(failure, await Assert.ThrowsAnyAsync<Exception>(() => Program.DownloadCoverForMuxAsync(new MyOption(),
+            "https://example.test/cover.jpg", "/in-memory/cover.jpg", (_, _, _) => throw failure)));
     }
 
     [Fact]
-    public async Task InfoOnly_PreventsCoverDownload()
+    public async Task EmbeddedCover_UsesThePlainArtifactDownload()
     {
-        Assert.False(await Program.DownloadCoverAsync(new MyOption { OnlyShowInfo = true, CoverOnly = true },
-            "https://example.test/cover.jpg", "/in-memory/cover.jpg", new DownloadConfig(),
-            (_, _, _) => throw new Exception("Info must not download")));
-    }
+        var option = new MyOption { UseAria2c = true, ForceHttp = true, MultiThread = true, RestrictedOutputRoot = "/in-memory" };
+        DownloadConfig? used = null;
 
-    [Fact]
-    public async Task EnabledCover_ForwardsUrlPathAndExistingDownloadSettings()
-    {
-        var configuration = new DownloadConfig { UseAria2c = true, ForceHttp = false, MultiThread = true };
-        var calls = 0;
-        Assert.True(await Program.DownloadCoverAsync(new MyOption { CoverOnly = true },
-            "https://example.test/cover.jpg", "/in-memory/cover.jpg", configuration,
+        await Program.DownloadCoverForMuxAsync(option, "https://example.test/cover.jpg", "/in-memory/cover.jpg",
             (url, path, config) =>
             {
                 Assert.Equal("https://example.test/cover.jpg", url);
                 Assert.Equal("/in-memory/cover.jpg", path);
-                Assert.Same(configuration, config);
-                calls++;
+                used = config;
                 return Task.CompletedTask;
-            }));
-        Assert.Equal(1, calls);
+            });
+
+        Assert.Equal(new DownloadConfig { RestrictedOutputRoot = "/in-memory" }, used);
+    }
+
+    [Fact]
+    public void ArtifactDownloads_IgnoreMediaTransportOptions()
+    {
+        var task = new DownloadTask("1", "BV1xx411c7mD", 1);
+        var config = Program.ArtifactDownloadConfig(new MyOption
+        {
+            UseAria2c = true, Aria2cArgs = "-x16", ForceHttp = true, MultiThread = true, RestrictedOutputRoot = "/in-memory"
+        }, task);
+
+        Assert.Equal(new DownloadConfig { RestrictedOutputRoot = "/in-memory", RelatedTask = task }, config);
+    }
+
+    [Theory]
+    [InlineData("https://i0.hdslb.com/bfs/archive/cover.jpg", ".jpg")]
+    [InlineData("https://pic.bstarstatic.com/ogv/cover.png?w=1280", ".png")]
+    [InlineData("cover.webp", ".webp")]
+    public void CoverExtension_ComesFromTheUrlPath(string url, string expected)
+    {
+        Assert.Equal(expected, Program.GetCoverExtension(url));
     }
 
     [Fact]
@@ -61,10 +90,11 @@ public class CoverSelectionTests
     }
 
     [Fact]
-    public void ConflictingCoverFlags_FailBeforeNormalizingOtherOptions()
+    public async Task ConflictingCoverFlags_FailBeforeNormalizingOtherOptions()
     {
-        var option = new MyOption { SkipCover = true, CoverOnly = true, AudioOnly = true, VideoOnly = true };
-        var error = Assert.Throws<ArgumentException>(() => Program.HandleConflictingOptions(option));
+        var option = new MyOption { Url = "BV1xx411c7mD", SkipCover = true, CoverOnly = true, AudioOnly = true, VideoOnly = true };
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => Program.ExecuteWorkAsync(option,
+            prepare: _ => throw new InvalidOperationException("Invalid options must not be prepared")));
 
         Assert.Contains("--cover-only", error.Message);
         Assert.Contains("--skip-cover", error.Message);
@@ -80,7 +110,7 @@ public class CoverSelectionTests
             CoverOnly = true, SkipCover = true
         });
 
-        Assert.Equal(Program.ValidateCoverOptions(new MyOption { CoverOnly = true, SkipCover = true }), error);
+        Assert.Equal(Program.ValidateExclusiveOptions(new MyOption { CoverOnly = true, SkipCover = true }), error);
     }
 
     [Theory]

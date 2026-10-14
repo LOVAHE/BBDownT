@@ -91,6 +91,10 @@ public class SubtitleSourceTests
     [Theory]
     [InlineData("ar", "ara", "العربية")]
     [InlineData("xx-new", "und", "xx-new")]
+    [InlineData("ai-zh", "chi", "中文（简体, AI识别）")]
+    [InlineData("ai-ja", "jpn", "日本語 (AI)")]
+    [InlineData("ai-fr", "fre", "Français (AI)")]
+    [InlineData("ai-xx", "und", "ai-xx")]
     public void LanguageCodes_NameArabicAndKeepUnknownCodesReadable(string code, string tag, string name)
     {
         Assert.Equal((tag, name), SubUtil.GetSubtitleCode(code));

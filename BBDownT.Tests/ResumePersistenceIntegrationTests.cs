@@ -93,7 +93,7 @@ public class ResumePersistenceIntegrationTests
         {
             await Assert.ThrowsAsync<BBDownT.Core.Util.DownloadInterruptedException>(() =>
                 BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://cdn.test/current", path, 0, 7,
-                    (_, _, _) => { }, true, client, resourceIdentity: "track", expectedResource: new(8, validator)));
+                    true, client, resourceIdentity: "track", expectedResource: new(8, validator)));
             var saved = await DownloadResumeState.LoadAsync(path + ".resume");
             Assert.NotNull(saved);
             if (strong)
@@ -106,7 +106,7 @@ public class ResumePersistenceIntegrationTests
                 {
                     using var changed = new HttpClient(new VerificationSource(bytes, new("\"different\"", date), date));
                     await Assert.ThrowsAsync<InvalidDataException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-                        0, "https://cdn.test/current", path, 0, 7, (_, _, _) => { }, true, changed,
+                        0, "https://cdn.test/current", path, 0, 7, true, changed,
                         resourceIdentity: "track", expectedResource: new(8, validator)));
                     Assert.Equal(saved, await DownloadResumeState.LoadAsync(path + ".resume"));
                 }
@@ -117,7 +117,7 @@ public class ResumePersistenceIntegrationTests
         if (strong)
         {
             await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://cdn.test/current", path, 0, 7,
-                (_, _, _) => { }, true, client, resourceIdentity: "track", expectedResource: new(8, validator));
+                true, client, resourceIdentity: "track", expectedResource: new(8, validator));
             Assert.Equal(new long[] { 0, 2, 4, 6 }, handler.Starts);
             Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
             Assert.True((await DownloadResumeState.LoadAsync(path + ".resume"))!.Complete);
@@ -173,7 +173,7 @@ public class ResumePersistenceIntegrationTests
     [InlineData("local-corruption")]
     public async Task InterruptedMediaSession_ReusesOnlyUnchangedObjectsAcrossAuthenticationRefresh(string change)
     {
-        const int part = 20 * 1024 * 1024;
+        const int part = 64;
         using var files = new MediaTestDirectory();
         var destination = files.FilePath("track.mp4");
         files.FilePath("track.mp4.resume");
@@ -183,13 +183,14 @@ public class ResumePersistenceIntegrationTests
         files.FilePath("00001_track.vclip.resume");
         var bytes = Enumerable.Repeat((byte)42, part + 4).ToArray();
         var config = new BBDownTDownloadUtil.DownloadConfig
-        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask };
-        using (var previous = new HttpClient(new Source(bytes, failSuffix: true)))
+        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask, ClipSize = part };
+        using (var previous = new HttpClient(new Source(bytes, failSuffixFrom: part)))
         {
             // Establish the complete part before the deliberate peer failure can cancel it.
-            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, SignedMediaUrl, first, 0, part - 1, (_, _, _) => { },
+            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, SignedMediaUrl, first, 0, part - 1,
                 true, previous, resourceIdentity: config.ResourceIdentity,
-                expectedResource: new(bytes.Length, new("\"version\"", null)));
+                expectedResource: new(bytes.Length, new("\"version\"", null)),
+                sourceObjectHash: DownloadMediaSource.CreateObjectHash(SignedMediaUrl));
             await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
                 SignedMediaUrl, destination, config, previous));
         }
@@ -206,10 +207,10 @@ public class ResumePersistenceIntegrationTests
         if (change == "local-corruption")
         {
             await using var corrupt = File.OpenWrite(first);
-            corrupt.Position = 100;
+            corrupt.Position = part / 2;
             corrupt.WriteByte(99);
         }
-        else if (change is not "authentication" and not "device-and-storage-route") bytes[100] = 99;
+        else if (change is not "authentication" and not "device-and-storage-route") bytes[part / 2] = 99;
 
         using var source = new Source(bytes, entityTag: change == "version" ? "\"new-version\"" : "\"version\"");
         using var current = new HttpClient(source);
@@ -234,16 +235,17 @@ public class ResumePersistenceIntegrationTests
         using var files = new MediaTestDirectory();
         var destination = files.Write("track.mp4", "DATA");
         files.FilePath("track.mp4.resume");
-        files.FilePath("track.mp4.verify.tmp");
-        files.FilePath("track.mp4.verify.tmp.resume");
+        files.FilePath("00000_track.vclip");
+        files.FilePath("00000_track.vclip.resume");
         await SaveState(destination, SignedMediaUrl, "video", 0, null, 4, true);
         var config = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "video" };
         var refreshed = RefreshMediaUrl(SignedMediaUrl);
         using (var migration = new Source("DATA"u8.ToArray()))
         using (var client = new HttpClient(migration))
         {
-            Assert.Empty(await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(refreshed, destination, config, client));
+            var clips = await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(refreshed, destination, config, client);
             Assert.Equal(0L, Assert.Single(migration.Starts));
+            await BBDownTDownloadUtil.MergeTrackClipsAsync(clips, destination, config);
         }
         Assert.NotNull((await DownloadResumeState.LoadAsync(destination + ".resume"))!.SourceObjectHash);
         using var next = new Source("DATA"u8.ToArray());
@@ -255,9 +257,9 @@ public class ResumePersistenceIntegrationTests
     }
 
     [Fact]
-    public async Task MultiplePartsWithoutValidators_CompareContiguousOldPrefixAgainstOneFullNewResponse()
+    public async Task MultiplePartsWithoutValidators_UseOneFullNewResponseInsteadOfOldParts()
     {
-        const int part = 20 * 1024 * 1024;
+        const int part = 64;
         const string oldUrl = "https://cdn.test/media?signature=old";
         const string newUrl = "https://cdn.test/media?signature=new";
         const string identity = "episode-video-720-avc";
@@ -281,7 +283,7 @@ public class ResumePersistenceIntegrationTests
             old.Length, false, 2, Convert.ToHexString(SHA256.HashData(old.AsSpan(part, 2))), new(null, null))
             .SaveAsync(second + ".resume");
         var current = (byte[])old.Clone();
-        current[part / 2] = 99; // First and last bytes remain equal; sparse sampling would miss this.
+        current[part / 2] = 99;
         using var source = new NoValidatorSource(current, request =>
         {
             Assert.Equal(newUrl, request.RequestUri!.OriginalString);
@@ -289,13 +291,11 @@ public class ResumePersistenceIntegrationTests
             Assert.Equal(0L, range.From);
             Assert.Null(range.To);
             Assert.Null(request.Headers.IfRange);
-            // The fallback must seed the whole contiguous old prefix before verification.
-            Assert.Equal((long)part + 2, new FileInfo(temporary).Length);
         });
         using var client = new HttpClient(source);
 
         var clips = await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(newUrl, destination,
-            new() { ResourceIdentity = identity }, client);
+            new() { ResourceIdentity = identity, ClipSize = part }, client);
 
         Assert.Empty(clips); // The full-response fallback has already produced the track.
         Assert.Equal(1, source.Probes);
@@ -308,6 +308,7 @@ public class ResumePersistenceIntegrationTests
         Assert.False(completed.Validator.IsUsable);
         Assert.Equal(DownloadResumeState.SourceHash(newUrl), completed.SourceUriHash);
         Assert.Equal(Convert.ToHexString(SHA256.HashData(current)), completed.LocalSha256);
+        BBDownTDownloadUtil.DeleteStaleTrackFiles(destination);
         Assert.False(File.Exists(first));
         Assert.False(File.Exists(first + ".resume"));
         Assert.False(File.Exists(second));
@@ -322,7 +323,7 @@ public class ResumePersistenceIntegrationTests
     [InlineData(true, true)]
     public async Task InterruptedSession_ReparsePreservesPartsAndValidatesChangedSignedUrl(bool changedUrl, bool changedBytes)
     {
-        const int part = 20 * 1024 * 1024;
+        const int part = 64;
         const string original = "https://cdn.test/media?signature=old";
         using var files = new MediaTestDirectory();
         var destination = files.FilePath("track.mp4");
@@ -334,10 +335,10 @@ public class ResumePersistenceIntegrationTests
         var bytes = new byte[part + 4];
         Array.Fill(bytes, (byte)42);
         var config = new BBDownTDownloadUtil.DownloadConfig
-        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask };
-        using (var previous = new HttpClient(new Source(bytes, failSuffix: true)))
+        { ResourceIdentity = "episode-video-720-avc", RetryDelay = (_, _) => Task.CompletedTask, ClipSize = part };
+        using (var previous = new HttpClient(new Source(bytes, failSuffixFrom: part)))
         {
-            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, original, first, 0, part - 1, (_, _, _) => { },
+            await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, original, first, 0, part - 1,
                 true, previous, resourceIdentity: config.ResourceIdentity,
                 expectedResource: new(bytes.Length, new("\"version\"", null)));
             await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.MultiThreadDownloadFileAsync(
@@ -345,7 +346,7 @@ public class ResumePersistenceIntegrationTests
         }
         Assert.True((await DownloadResumeState.LoadAsync(first + ".resume"))!.Complete);
         Assert.Equal(1, new FileInfo(second).Length);
-        if (changedBytes) bytes[100] = 99; // Same opaque ETag on another URI is not a global content hash.
+        if (changedBytes) bytes[part / 2] = 99; // Same opaque ETag on another URI is not a global content hash.
         var url = changedUrl ? original.Replace("old", "new") : original;
         using var source = new Source(bytes);
         using var current = new HttpClient(source);
@@ -388,6 +389,39 @@ public class ResumePersistenceIntegrationTests
         Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CompleteTrack_ReportsFinishedTaskProgressOnBothDownloadPaths(bool multiThread)
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.Write("track.mp4", "DATA");
+        files.FilePath("track.mp4.resume");
+        const string url = "https://cdn.test/track";
+        await SaveState(destination, url, "video", 0, null, 4, true);
+        var task = new DownloadTask("1", url, 0);
+        var config = new BBDownTDownloadUtil.DownloadConfig { ResourceIdentity = "video", RelatedTask = task };
+        using var source = new Source("DATA"u8.ToArray());
+        using var client = new HttpClient(source);
+        if (multiThread) Assert.Empty(await BBDownTDownloadUtil.MultiThreadDownloadFileAsync(url, destination, config, client));
+        else await BBDownTDownloadUtil.DownloadFileAsync(url, destination, config, client);
+        Assert.Empty(source.Starts);
+        Assert.Equal(1, task.Progress);
+    }
+
+    [Fact]
+    public void StaleTrackCleanup_RemovesVerificationCopiesLeftByEarlierVersions()
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.Write("track.mp4", "DATA");
+        var copy = files.Write("track.mp4.verify.tmp", "DATA");
+        var record = files.Write("track.mp4.verify.tmp.resume", "{}");
+        BBDownTDownloadUtil.DeleteStaleTrackFiles(destination);
+        Assert.False(File.Exists(copy));
+        Assert.False(File.Exists(record));
+        Assert.Equal("DATA", File.ReadAllText(destination));
+    }
+
     [Fact]
     public async Task SameSizeAndSameOpaqueTag_WithDifferentRepresentationDoesNotReuseTrack()
     {
@@ -420,7 +454,7 @@ public class ResumePersistenceIntegrationTests
         await File.WriteAllBytesAsync(path, [1, 2, 3, 4]); // Last writes outlived the durable checkpoint.
         using var source = new Source([1, 2, 3, 4, 5, 6]);
         using var client = new HttpClient(source);
-        await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, url, path, 0, 5, (_, _, _) => { }, true, client,
+        await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, url, path, 0, 5, true, client,
             resourceIdentity: "video", expectedResource: new(6, new("\"version\"", null)));
         Assert.Equal(new[] { 2L }, source.Starts);
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, await File.ReadAllBytesAsync(path));
@@ -433,11 +467,11 @@ public class ResumePersistenceIntegrationTests
         var path = files.FilePath("old.vclip");
         files.FilePath("old.vclip.resume");
         await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
-        await new DownloadResumeValidator("\"version\"", null).SaveAsync(path + ".resume");
+        await File.WriteAllTextAsync(path + ".resume", Convert.ToBase64String("\"version\""u8) + "\n\n");
         using var source = new Source([1, 2, 3, 4]);
         using var client = new HttpClient(source);
         await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, "https://cdn.test/track", path, 0, 3,
-            (_, _, _) => { }, true, client, resourceIdentity: "video",
+            true, client, resourceIdentity: "video",
             expectedResource: new(4, new("\"version\"", null)));
         Assert.Equal(new[] { 0L }, source.Starts);
         Assert.True((await DownloadResumeState.LoadAsync(path + ".resume"))!.Complete);
@@ -456,6 +490,41 @@ public class ResumePersistenceIntegrationTests
         Assert.False(File.Exists(path + ".resume"));
         Assert.False(File.Exists(path + ".tmp"));
         Assert.False(File.Exists(path + ".tmp.resume"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GenericArtifactFailure_RemovesItsTemporaryFiles(bool interruptedBody)
+    {
+        using var files = new MediaTestDirectory();
+        var path = files.FilePath("danmaku.xml");
+        files.FilePath("danmaku.xml.tmp");
+        files.FilePath("danmaku.xml.tmp.resume");
+        using var client = new HttpClient(interruptedBody ? new Source([1, 2, 3, 4], failAllRanges: true) : new FailingSource());
+        await Assert.ThrowsAnyAsync<Exception>(() => BBDownTDownloadUtil.DownloadFileAsync("https://cdn.test/danmaku", path,
+            new() { RetryDelay = (_, _) => Task.CompletedTask }, client));
+        Assert.False(File.Exists(path));
+        Assert.False(File.Exists(path + ".tmp"));
+        Assert.False(File.Exists(path + ".tmp.resume"));
+    }
+
+    [Fact]
+    public async Task GenericArtifactBlockedByAnotherWriter_LeavesThatWritersTemporaryFile()
+    {
+        using var files = new MediaTestDirectory();
+        var path = files.FilePath("cover.jpg");
+        var temporary = files.Write("cover.jpg.tmp", "first writer");
+        files.FilePath("cover.jpg.tmp.resume");
+        using var client = new HttpClient(new Source([1, 2, 3, 4]));
+        await using (new FileStream(temporary, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var error = await Assert.ThrowsAnyAsync<IOException>(() => BBDownTDownloadUtil.DownloadFileAsync(
+                "https://cdn.test/cover", path, new() { RetryDelay = (_, _) => Task.CompletedTask }, client));
+            Assert.True(MediaOutput.IsLockConflict(error));
+        }
+        Assert.Equal("first writer", File.ReadAllText(temporary));
+        Assert.False(File.Exists(path));
     }
 
     [Fact]
@@ -498,7 +567,7 @@ public class ResumePersistenceIntegrationTests
         using var source = new Source([1, 2, 3, 4]);
         using var client = new HttpClient(source);
         var metadata = await BBDownTDownloadUtil.GetResourceMetadataAsync(url, client);
-        await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, url, path, 0, 3, (_, _, _) => { }, true, client,
+        await BBDownTDownloadUtil.RangeDownloadToTmpAsync(0, url, path, 0, 3, true, client,
             resourceIdentity: "video", expectedResource: metadata);
         Assert.Empty(source.Starts);
         Assert.True((await DownloadResumeState.LoadAsync(path + ".resume"))!.Complete);
@@ -517,7 +586,7 @@ public class ResumePersistenceIntegrationTests
         await state.SaveAsync(path + ".resume");
         using var client = new HttpClient(new FailingSource());
         await Assert.ThrowsAnyAsync<HttpRequestException>(() => BBDownTDownloadUtil.RangeDownloadToTmpAsync(
-            0, url, path, 0, 3, (_, _, _) => { }, true, client, resourceIdentity: "video",
+            0, url, path, 0, 3, true, client, resourceIdentity: "video",
             expectedResource: new(4, new("\"version\"", null))));
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, await File.ReadAllBytesAsync(path));
         Assert.Equal(state, await DownloadResumeState.LoadAsync(path + ".resume"));
@@ -530,7 +599,7 @@ public class ResumePersistenceIntegrationTests
             bytes.Length, Convert.ToHexString(SHA256.HashData(bytes)), new("\"version\"", null)).SaveAsync(path + ".resume");
     }
 
-    private sealed class Source(byte[] bytes, bool failSuffix = false, bool failAllRanges = false,
+    private sealed class Source(byte[] bytes, long? failSuffixFrom = null, bool failAllRanges = false,
         string entityTag = "\"version\"") : HttpMessageHandler
     {
         internal ConcurrentQueue<long> Starts { get; } = new();
@@ -549,10 +618,10 @@ public class ResumePersistenceIntegrationTests
             Starts.Enqueue(start);
             // Keep the outage active after the first saved byte. A longer retry
             // budget must not let this synthetic source finish one byte at a time.
-            if ((failAllRanges && start > 0) || (failSuffix && start > 20 * 1024 * 1024))
+            if ((failAllRanges && start > 0) || start > failSuffixFrom)
                 throw new HttpRequestException("synthetic persistent disconnect");
             var payload = bytes[(int)start..((int)end + 1)];
-            Stream stream = failAllRanges || (failSuffix && start >= 20 * 1024 * 1024)
+            Stream stream = failAllRanges || start >= failSuffixFrom
                 ? new DisconnectingStream(payload) : new MemoryStream(payload);
             var response = new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = new StreamContent(stream) };
             response.Headers.ETag = new EntityTagHeaderValue(entityTag);

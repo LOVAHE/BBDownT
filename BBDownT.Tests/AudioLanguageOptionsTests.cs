@@ -75,7 +75,7 @@ public class AudioLanguageOptionsTests
     [InlineData("subtitle")]
     [InlineData("cover")]
     [InlineData("danmaku")]
-    public void UnsupportedModes_RejectExplicitLanguageAtCliAndApiBoundaries(string mode)
+    public async Task UnsupportedModes_RejectExplicitLanguageAtCliAndApiBoundaries(string mode)
     {
         var request = new ServeRequestOptions
         {
@@ -85,7 +85,8 @@ public class AudioLanguageOptionsTests
         };
 
         Assert.NotNull(AudioLanguageSelection.ValidateOptions(request));
-        Assert.Throws<ArgumentException>(() => Program.SetUpWork(request));
+        await Assert.ThrowsAsync<ArgumentException>(() => Program.ExecuteWorkAsync(request,
+            prepare: _ => throw new InvalidOperationException("Invalid options must not be prepared")));
         Assert.NotNull(new BBDownTApiServer().ValidateAndNormalizeServerRequest(request));
 
         request.AudioLanguage = null;

@@ -6,10 +6,10 @@ namespace BBDownT.Tests;
 public class RangeDownloadTests
 {
     [Theory]
-    [InlineData(20L * 1024 * 1024 - 1, 1)]
-    [InlineData(20L * 1024 * 1024, 1)]
-    [InlineData(20L * 1024 * 1024 + 1, 2)]
-    [InlineData(2L * 20 * 1024 * 1024, 2)]
+    [InlineData(BBDownTDownloadUtil.DefaultClipSize - 1, 1)]
+    [InlineData(BBDownTDownloadUtil.DefaultClipSize, 1)]
+    [InlineData(BBDownTDownloadUtil.DefaultClipSize + 1, 2)]
+    [InlineData(2 * BBDownTDownloadUtil.DefaultClipSize, 2)]
     public void GetAllClips_CoversFileExactlyOnce(long fileSize, int expectedCount)
     {
         var clips = BBDownTDownloadUtil.GetAllClips(fileSize);

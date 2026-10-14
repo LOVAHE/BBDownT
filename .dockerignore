@@ -33,8 +33,8 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
-[Bb]in/
-[Oo]bj/
+**/[Bb]in/
+**/[Oo]bj/
 [Ll]og/
 [Ll]ogs/
 
@@ -381,5 +381,6 @@ debug_*.json
 **/BBDownT.config
 **/BBDownT.archives
 **/BBDownT.web.json
+**/BBDownT.outputs
 **/*.migrated-*
 downloads/

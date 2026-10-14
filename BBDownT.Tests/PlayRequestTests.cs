@@ -2,17 +2,22 @@ using BBDownT.Core;
 
 namespace BBDownT.Tests;
 
-public class PlayRequestTests
+public class PlayRequestTests : IDisposable
 {
-    [Theory]
-    [InlineData("0", null)]
-    public async Task BangumiWeb_KeepsV2AndOmitsBrowserHint(string qn, string? language)
+    private readonly string originalKey = Config.WBI;
+
+    public PlayRequestTests() => Config.WBI = WbiKeyTests.MixinKey;
+
+    public void Dispose() => Config.WBI = originalKey;
+
+    [Fact]
+    public async Task BangumiWeb_KeepsV2AndOmitsBrowserHint()
     {
         var urls = new List<Uri>();
         const string response = "{\"code\":0,\"result\":{\"play_check\":{\"limit_play_reason\":\"DRM_UNSUPPORTED\"}}}";
 
         var actual = await Parser.GetPlayJsonAsync("", "ep:808545", "538011486", "1387128145", "808545",
-            false, false, false, qn, language, url =>
+            false, false, false, "0", null, url =>
             {
                 urls.Add(new Uri(url));
                 return Task.FromResult(response);
@@ -23,9 +28,8 @@ public class PlayRequestTests
         Assert.DoesNotContain("from_client", request.Query);
         Assert.DoesNotContain("drm_tech_type", request.Query);
         Assert.Contains("fnval=4048", request.Query);
-        Assert.Contains("qn=" + qn, request.Query);
+        Assert.Contains("qn=0", request.Query);
         Assert.Contains("support_multi_audio=true", request.Query);
-        if (language is not null) Assert.Contains("cur_language=" + language, request.Query);
         Assert.Equal(response, actual);
     }
 
@@ -34,11 +38,12 @@ public class PlayRequestTests
     [InlineData("cheese:1", "/pugv/player/web/v2/playurl")]
     public async Task NonPgcWeb_PreservesBrowserHint(string aidOri, string path)
     {
-        Uri? request = null;
+        var requests = new List<Uri>();
         await Parser.GetPlayJsonAsync("", aidOri, "1", "2", "3", false, false, false,
-            fetchWeb: url => { request = new Uri(url); return Task.FromResult("{}"); });
+            fetchWeb: url => { requests.Add(new Uri(url)); return Task.FromResult("{}"); });
 
-        Assert.Equal(path, request!.AbsolutePath);
+        var request = Assert.Single(requests);
+        Assert.Equal(path, request.AbsolutePath);
         Assert.Contains("from_client=BROWSER", request.Query);
     }
 

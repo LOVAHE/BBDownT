@@ -17,6 +17,21 @@ public class ProgressBarTests
         Assert.Equal(10, task.CreateSnapshot().TotalDownloadedBytes);
     }
 
+    [Fact]
+    public void Dispose_RecordsFinalBytesWithoutReportingThemAsSpeed()
+    {
+        var task = new DownloadTask("episode", "https://example.test/episode", 0);
+        task.ReportDownloadedBytes(1000, 1000);
+        using (var progress = new ProgressBar(task))
+        {
+            progress.ReportDownload(0.5, 10);
+        }
+
+        var snapshot = task.CreateSnapshot();
+        Assert.Equal(1010, snapshot.TotalDownloadedBytes);
+        Assert.Equal(0, snapshot.DownloadSpeed);
+    }
+
     [Theory]
     [InlineData(double.NaN, 0)]
     [InlineData(double.PositiveInfinity, 0)]

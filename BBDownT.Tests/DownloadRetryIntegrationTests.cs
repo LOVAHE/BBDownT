@@ -14,7 +14,7 @@ public class DownloadRetryIntegrationTests
     [InlineData(false)]
     public async Task CdnOutage_PreservesCompletedPartAndResumesOnlyMissingSuffix(bool recovers)
     {
-        const int part = 20 * 1024 * 1024;
+        const int part = 64;
         const string url = "https://cdn.test/media?signature=synthetic-secret";
         const string identity = "selected-video";
         using var files = new MediaTestDirectory();
@@ -32,11 +32,11 @@ public class DownloadRetryIntegrationTests
             bytes.Length, true, part, Convert.ToHexString(SHA256.HashData(bytes.AsSpan(0, part))),
             new("\"version\"", null)).SaveAsync(first + ".resume");
         var clock = new VirtualClock();
-        using var source = new OutageSource(bytes, clock, recovers ? TimeSpan.FromSeconds(60) : TimeSpan.FromMinutes(10));
+        using var source = new OutageSource(bytes, part, clock, recovers ? TimeSpan.FromSeconds(60) : TimeSpan.FromMinutes(10));
         using var client = new HttpClient(source);
         var config = new BBDownTDownloadUtil.DownloadConfig
         {
-            ResourceIdentity = identity, RetryDelay = clock.Delay, MaxParallelDownloads = 2
+            ResourceIdentity = identity, RetryDelay = clock.Delay, MaxParallelDownloads = 2, ClipSize = part
         };
 
         if (recovers)
@@ -73,7 +73,7 @@ public class DownloadRetryIntegrationTests
     {
         var clock = new VirtualClock();
         var calls = 0;
-        using var client = new HttpClient(new Handler((_, _) =>
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
         {
             calls++;
             return Task.FromResult(calls < 3 ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
@@ -101,7 +101,7 @@ public class DownloadRetryIntegrationTests
         Exception cause = httpProtocolError ? new HttpIOException(HttpRequestError.InvalidResponse, "synthetic bad protocol")
             : new InvalidDataException("synthetic bad gzip");
         var calls = 0;
-        using var client = new HttpClient(new Handler((_, _) =>
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
         {
             calls++;
             return Task.FromResult(Partial(new ThrowingStream(cause), 0, 3, 4));
@@ -126,7 +126,7 @@ public class DownloadRetryIntegrationTests
         files.FilePath("00000_video.vclip");
         var clock = new VirtualClock();
         var calls = 0;
-        using var client = new HttpClient(new Handler(async (request, token) =>
+        using var client = new HttpClient(new DelegateHandler(async (request, token) =>
         {
             if (request.Headers.Range is null) return Probe(4);
             calls++;
@@ -175,7 +175,7 @@ public class DownloadRetryIntegrationTests
         }
     }
 
-    private sealed class OutageSource(byte[] bytes, VirtualClock clock, TimeSpan outage) : HttpMessageHandler
+    private sealed class OutageSource(byte[] bytes, long part, VirtualClock clock, TimeSpan outage) : HttpMessageHandler
     {
         internal ConcurrentQueue<long> Starts { get; } = new();
         internal int BodyBytesRead { get; private set; }
@@ -186,7 +186,7 @@ public class DownloadRetryIntegrationTests
             if (request.Headers.Range is null) return Task.FromResult(Probe(bytes.Length));
             var range = Assert.Single(request.Headers.Range.Ranges);
             var start = range.From!.Value;
-            Assert.True(start >= 20 * 1024 * 1024, "Completed part must not request another body");
+            Assert.True(start >= part, "Completed part must not request another body");
             Starts.Enqueue(start);
             if (unavailableUntil is { } until && clock.Elapsed < until)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
@@ -235,11 +235,5 @@ public class DownloadRetryIntegrationTests
     {
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             => ValueTask.FromException<int>(error);
-    }
-
-    private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> action) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => action(request, cancellationToken);
     }
 }

@@ -127,6 +127,33 @@ public class CommandLineEntryTests
         Assert.Equal("<bvid>[<dfn>]", option.FilePattern);
     }
 
+    [Fact]
+    public async Task SubcommandHelp_IsRoutedToTheSubcommand()
+    {
+        var result = await Invoke(["serve", "--help"], config: "");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("--listen", result.Output);
+        Assert.Contains("--server-max-queue", result.Output);
+        Assert.Equal(0, result.DownloadCalls);
+    }
+
+    [Fact]
+    public async Task InlineValues_AreNotReadAgainAsOptionsOrResponseFiles()
+    {
+        var result = await Invoke(
+            ["fixture", "--aria2c-args=@aria2c.conf", "--file-pattern=--", "-e=-q"],
+            config: "--dfn-priority\n1080P 高清\n");
+
+        Assert.Equal(0, result.ExitCode);
+        var option = Assert.IsType<MyOption>(result.Option);
+        Assert.Equal("@aria2c.conf", option.Aria2cArgs);
+        Assert.Equal("--", option.FilePattern);
+        Assert.Equal("-q", option.EncodingPriority);
+        Assert.Equal("1080P 高清", option.DfnPriority);
+        Assert.True(option.EncodingPriorityFirst);
+    }
+
     [Theory]
     [InlineData("--migrate", 0)]
     [InlineData("--migrate", 1)]

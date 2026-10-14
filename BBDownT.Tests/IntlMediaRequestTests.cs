@@ -84,6 +84,22 @@ public class IntlMediaRequestTests
         Assert.Equal("", option.UposHost);
     }
 
+    [Fact]
+    public void DomesticAllowPcdn_KeepsTheReturnedHostsWithTheDefaultForceReplaceHost()
+    {
+        const string url = "https://pcdn.example.test:448/media/video.m4s?signature=a%2Bb";
+        var option = new MyOption { AllowPcdn = true };
+        var video = CreateVideo(url);
+        var audio = CreateAudio(url);
+        Assert.True(option.ForceReplaceHost);
+
+        Program.HandlePcdn(option, video, audio);
+
+        Assert.Equal(url, video.baseUrl);
+        Assert.Equal(url, audio.baseUrl);
+        Assert.Equal("", option.UposHost);
+    }
+
     [Theory]
     [InlineData("", "foreign.akamaized.net")]
     [InlineData("th", BackupHost)]
@@ -160,22 +176,21 @@ public class IntlMediaRequestTests
         Assert.Equal("Mozilla/5.0", Assert.Single(request.Headers.GetValues("User-Agent")));
     }
 
-    [Theory]
-    [InlineData(false, "https://www.bilibili.com")]
-    public async Task SizeProbe_SendsTheActualRequestWithRealmRefererAndOriginalUrl(bool international, string referer)
+    [Fact]
+    public async Task SizeProbe_SendsTheActualRequestWithDomesticRefererAndOriginalUrl()
     {
         var calls = 0;
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             calls++;
             Assert.Equal(SignedUrl, request.RequestUri!.OriginalString);
-            Assert.Equal(new Uri(referer).AbsoluteUri, request.Headers.Referrer!.AbsoluteUri);
+            Assert.Equal("https://www.bilibili.com/", request.Headers.Referrer!.AbsoluteUri);
             Assert.Equal("Mozilla/5.0", Assert.Single(request.Headers.GetValues("User-Agent")));
             Assert.Null(request.Headers.Range);
             return SizeResponse();
         }));
 
-        var size = await BBDownTDownloadUtil.GetFileSizeAsync(SignedUrl, client, international);
+        var size = await BBDownTDownloadUtil.GetFileSizeAsync(SignedUrl, client, false);
 
         Assert.Equal(123L, size);
         Assert.Equal(1, calls);
@@ -188,7 +203,7 @@ public class IntlMediaRequestTests
         try
         {
             Config.COOKIE_IS_INTL = true;
-            using var client = new HttpClient(new StubHandler(request =>
+            using var client = new HttpClient(new DelegateHandler(request =>
             {
                 Assert.Equal("https://www.bilibili.tv/", Assert.Single(request.Headers.GetValues("Referer")));
                 return SizeResponse();
@@ -251,10 +266,4 @@ public class IntlMediaRequestTests
     {
         Content = new ByteArrayContent(new byte[123])
     };
-
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(respond(request));
-    }
 }

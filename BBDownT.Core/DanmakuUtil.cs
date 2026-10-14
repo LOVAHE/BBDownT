@@ -49,15 +49,11 @@ public static class DanmakuUtil
                 foreach (XmlNode node in dNodeList)
                 {
                     XmlElement dElement = (XmlElement)node;
-                    string attr = dElement.GetAttribute("p").ToString();
-                    if (attr != null)
+                    string[] vs = dElement.GetAttribute("p").Split(',');
+                    if (vs.Length >= 8)
                     {
-                        string[] vs = attr.Split(',');
-                        if (vs.Length >= 8)
-                        {
-                            DanmakuItem danmaku = new(vs, dElement.InnerText);
-                            danmakus.Add(danmaku);
-                        }
+                        DanmakuItem danmaku = new(vs, dElement.InnerText);
+                        danmakus.Add(danmaku);
                     }
                 }
             }
@@ -244,7 +240,6 @@ public static class DanmakuUtil
             {
                 Log(e.Message);
             }
-            FontSize = attrs[2];
             try
             {
                 int colorD = int.Parse(attrs[3]);
@@ -254,7 +249,6 @@ public static class DanmakuUtil
             {
                 Log(e.Message);
             }
-            Timestamp = attrs[4];
             Content = content;
         }
         private static string ComputeTime(double second)
@@ -275,12 +269,8 @@ public static class DanmakuUtil
         public int DanmakuMode { get; set; } = POS_MOVE;
         // 弹幕类型
         public bool IsAdvanced { get; set; }
-        public string FontSize { get; set; } = "";
-        // 字号
         public string Color { get; set; } = "";
         // 颜色
-        public string Timestamp { get; set; } = "";
-        // 时间戳
     }
 
     public class DanmakuComparer : IComparer<DanmakuItem>

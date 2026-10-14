@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using BBDownT.Core.Util;
 
 namespace BBDownT;
 
@@ -52,10 +53,12 @@ internal static partial class BBDownTSelfUpdater
     }
     internal enum InstallationKind { Standalone, DotnetTool, Managed }
 
+    internal static readonly TimeSpan UpdateTimeout = TimeSpan.FromMinutes(5);
+
     [UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "An empty assembly location identifies the standalone builds supported by self-update.")]
     internal static async Task<int> RunAsync()
     {
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        using var cancellation = new CancellationTokenSource(UpdateTimeout);
         ConsoleCancelEventHandler onCancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
         Console.CancelKeyPress += onCancel;
         try
@@ -77,9 +80,7 @@ internal static partial class BBDownTSelfUpdater
             if (file.LinkTarget is not null)
                 executable = file.ResolveLinkTarget(true)?.FullName ?? throw new IOException("无法解析程序符号链接");
 
-            var informational = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (!ReleaseVersion.TryParse(informational, out var current))
-                throw new InvalidOperationException("无法识别当前程序版本");
+            var current = CurrentVersion() ?? throw new InvalidOperationException("无法识别当前程序版本");
             // Update traffic never shares Bilibili cookies or permissive TLS settings.
             using var client = new HttpClient(new HttpClientHandler { UseCookies = false })
             {
@@ -105,7 +106,7 @@ internal static partial class BBDownTSelfUpdater
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"更新失败：{ex.Message}");
+            Console.Error.WriteLine($"更新失败：{ErrorText.Describe(ex)}");
             return 1;
         }
         finally
@@ -113,6 +114,10 @@ internal static partial class BBDownTSelfUpdater
             Console.CancelKeyPress -= onCancel;
         }
     }
+
+    internal static ReleaseVersion? CurrentVersion()
+        => ReleaseVersion.TryParse(Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, out var version) ? version : null;
 
     internal static InstallationKind DetectInstallation(string? executable, string assemblyLocation, bool hasToolSettings)
     {
@@ -154,7 +159,7 @@ internal static partial class BBDownTSelfUpdater
         var matches = release.GetProperty("assets").EnumerateArray()
             .Where(asset => asset.GetProperty("name").GetString() == assetName).ToArray();
         if (matches.Length != 1)
-            throw new InvalidDataException($"正式版本中没有唯一匹配的更新包：{assetName}");
+            throw new InvalidDataException($"版本 {tag} 中没有唯一匹配的更新包：{assetName}");
         var asset = matches[0];
         long size = asset.GetProperty("size").GetInt64();
         string digest = asset.GetProperty("digest").GetString() ?? "";
@@ -165,6 +170,20 @@ internal static partial class BBDownTSelfUpdater
             || asset.GetProperty("browser_download_url").GetString() != expectedUrl)
             throw new InvalidDataException("更新包的地址、大小或 SHA-256 校验信息无效");
         return new ReleaseAsset(latest, assetName, new Uri(expectedUrl), size, digest[7..]);
+    }
+
+    internal static FileStream AcquireUpdateLock(string lockPath)
+    {
+        try
+        {
+            return OpenLock(FileMode.CreateNew);
+        }
+        catch (IOException) when (File.Exists(lockPath) && DateTime.UtcNow - File.GetLastWriteTimeUtc(lockPath) > UpdateTimeout)
+        {
+            return OpenLock(FileMode.OpenOrCreate);
+        }
+
+        FileStream OpenLock(FileMode mode) => new(lockPath, mode, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
     }
 
     // The injected client and version probe allow offline verification without
@@ -184,7 +203,7 @@ internal static partial class BBDownTSelfUpdater
         executable = Path.GetFullPath(executable);
         if (!File.Exists(executable)) throw new FileNotFoundException("当前可执行文件不存在", executable);
         string lockPath = executable + ".update.lock";
-        using var updateLock = new FileStream(lockPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
+        using var updateLock = AcquireUpdateLock(lockPath);
         string suffix = Guid.NewGuid().ToString("N");
         string staged = executable + ".update-" + suffix + (windows ? ".exe" : ".tmp");
         string backup = executable + ".backup-" + current + "-" + suffix;

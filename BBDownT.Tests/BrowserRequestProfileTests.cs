@@ -144,8 +144,10 @@ public class BrowserRequestProfileTests
             var first = AuthenticatedWebProfileStore.LoadOrCreate(directory);
             var second = AuthenticatedWebProfileStore.LoadOrCreate(directory);
 
-            Assert.True(File.Exists(path));
+            Assert.Equal(new[] { path }, Directory.GetFiles(directory));
             Assert.Equal(first, second);
+            if (!OperatingSystem.IsWindows())
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
         }
         finally
         {

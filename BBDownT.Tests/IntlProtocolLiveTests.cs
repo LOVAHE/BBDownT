@@ -23,7 +23,7 @@ public class IntlProtocolLiveTests
             Config.COOKIE = "";
             Config.COOKIE_IS_INTL = true;
             var result = await Parser.ExtractTracksAsync("intl:2309571:26222855", "", "", "26222855",
-                false, true, true, "");
+                false, true, true, "", "0", null, "2309571");
             Assert.NotEmpty(result.VideoTracks);
             Assert.NotEmpty(result.AudioTracks);
             Assert.Contains(result.VideoTracks, video => video.id == "16");
@@ -52,8 +52,8 @@ public class IntlProtocolLiveTests
             Config.COOKIE = "";
             Config.COOKIE_IS_INTL = true;
             var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksAsync(
-                "intl:2309571:26223058", "", "", "26223058", false, true, false, ""));
-            Assert.Equal(10015002, error.ApiCode);
+                "intl:2309571:26223058", "", "", "26223058", false, true, false, "", "0", null, "2309571"));
+            Assert.Contains("错误码 10015002", error.Message);
             Assert.Contains("权限不足", ErrorText.Describe(error));
         }
         finally
@@ -100,7 +100,7 @@ public class IntlProtocolLiveTests
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Dart/3.8 (dart:io)");
         var resources = await SubUtil.GetIntlSubtitlesAsync("intl_13287667", "", "13287667",
             url => client.GetStringAsync(url));
-        var selected = SubtitleSelection.Filter(resources, new MyOption { UseIntlApi = true });
+        var selected = SubtitleSelection.Choose(resources, new MyOption { UseIntlApi = true }, TextReader.Null, TextWriter.Null);
 
         Assert.Equal(4, resources.Count);
         Assert.Equal(2, selected.Count);

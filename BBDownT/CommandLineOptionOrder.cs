@@ -17,10 +17,12 @@ internal static class CommandLineOptionOrder
         return optionResults.OrderBy(result => FindFirst(arguments, result.Option.Aliases));
     }
 
-    internal static bool ContainsOption(IEnumerable<string> arguments, IEnumerable<string> aliases)
+    internal static string[] Arguments(OptionResult result)
     {
-        var aliasArray = aliases.ToArray();
-        return arguments.Any(argument => MatchesAnyAlias(argument, aliasArray));
+        var name = "--" + result.Option.Name;
+        return result.Tokens is [{ Value.Length: > 0 } single]
+            ? [$"{name}={single.Value}"]
+            : [name, .. result.Tokens.Select(token => token.Value)];
     }
 
     internal static bool EncodingPrecedesQuality(IEnumerable<string> arguments)

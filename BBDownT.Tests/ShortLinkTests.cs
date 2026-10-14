@@ -98,6 +98,16 @@ public class ShortLinkTests
     }
 
     [Fact]
+    public async Task ShortLinkResolution_KeepsTheTargetQuery()
+    {
+        const string location = "https://www.bilibili.com/video/BV1xx411c7mD?p=37&share_source=copy";
+
+        Assert.Equal(location, await BBDownTUtil.ResolveShortLinkAsync("https://b23.tv/share", _ => Task.FromResult(location)));
+        Assert.Equal(location, await BBDownTUtil.ResolveShortLinkAsync(location,
+            _ => throw new InvalidOperationException("A long link must not be fetched")));
+    }
+
+    [Fact]
     public async Task FailedShortLinkRequest_PropagatesOriginalError()
     {
         var failure = new HttpRequestException("Redirect failed.");
@@ -109,18 +119,11 @@ public class ShortLinkTests
     }
 
     [Fact]
-    public void LocationClient_UsesInternationalCookieFreeRedirectClientAndPreservesApiClient()
-    {
-        Assert.Same(HTTPUtil.IntlMediaHttpClient, HTTPUtil.GetWebLocationHttpClient(international: true));
-        Assert.Same(HTTPUtil.AppHttpClient, HTTPUtil.GetWebLocationHttpClient(international: false));
-    }
-
-    [Fact]
     public async Task HeadResolution_PreservesFullFinalLocationAndSendsNoCredentials()
     {
         const string location = "https://www.bilibili.tv/en/play/1034193?episode_id=13287667&from=COPY";
         var requests = 0;
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             requests++;
             Assert.Equal(HttpMethod.Head, request.Method);
@@ -146,7 +149,7 @@ public class ShortLinkTests
     public async Task HeadAccessDenial_DoesNotFallBackToGet(HttpStatusCode status)
     {
         var requests = 0;
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             requests++;
             var response = new HttpResponseMessage(status) { RequestMessage = request };
@@ -171,7 +174,7 @@ public class ShortLinkTests
         var methods = new List<HttpMethod>();
         using var finalRequest = new HttpRequestMessage(HttpMethod.Get, location);
         var content = new MustNotReadContent();
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             methods.Add(request.Method);
             Assert.Equal(input, request.RequestUri!.AbsoluteUri);
@@ -198,7 +201,7 @@ public class ShortLinkTests
         var methods = new List<HttpMethod>();
         var waits = 0;
         using var finalRequest = new HttpRequestMessage(HttpMethod.Get, location);
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             methods.Add(request.Method);
             var status = methods.Count switch
@@ -222,7 +225,7 @@ public class ShortLinkTests
     public async Task FallbackGetAccessDenial_PropagatesWithoutFurtherFallback()
     {
         var methods = new List<HttpMethod>();
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             methods.Add(request.Method);
             return new HttpResponseMessage(request.Method == HttpMethod.Head
@@ -250,11 +253,5 @@ public class ShortLinkTests
 
         protected override bool TryComputeLength(out long length) { length = 0; return false; }
         protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
-    }
-
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(respond(request));
     }
 }

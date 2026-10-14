@@ -20,26 +20,16 @@ public class SpaceVideoFetcher : IFetcher
         // using the live API can bypass w_rid
         string userInfoApi = $"https://api.live.bilibili.com/live_user/v1/Master/info?uid={id}";
         using var userInfo = JsonDocument.Parse(await fetch(userInfoApi));
-        string userName = GetValidFileName(BilibiliApi.ReadPayload(userInfo.RootElement, "获取UP主信息").GetProperty("info").GetProperty("uname").ToString(), ".", true);
-        List<string> urls = new();
+        string userName = SanitizeUploaderName(BilibiliApi.ReadPayload(userInfo.RootElement, "获取UP主信息").GetProperty("info").GetProperty("uname").ToString());
         int pageSize = 50;
         int pageNumber = 1;
-        var api = Parser.WbiSign($"mid={id}&order=pubdate&pn={pageNumber}&ps={pageSize}&tid=0&wts={DateTimeOffset.Now.ToUnixTimeSeconds().ToString()}");
-        api = $"https://api.bilibili.com/x/space/wbi/arc/search?{api}";
-        string json = await fetch(api);
-        using var infoJson = JsonDocument.Parse(json);
-        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取UP主投稿列表");
-        var pages = data.GetProperty("list").GetProperty("vlist").EnumerateArray();
-        foreach (var page in pages)
-        {
-            urls.Add($"https://www.bilibili.com/video/av{page.GetProperty("aid")}");
-        }
-        int totalCount = data.GetProperty("page").GetProperty("count").GetInt32();
+        await WbiKey.EnsureAsync(fetch);
+        var (urls, totalCount) = await GetVideosByPageAsync(pageNumber, pageSize, id, fetch);
         int totalPage = (int)Math.Ceiling((double)totalCount / pageSize);
         while (pageNumber < totalPage)
         {
             pageNumber++;
-            urls.AddRange(await GetVideosByPageAsync(pageNumber, pageSize, id, fetch));
+            urls.AddRange((await GetVideosByPageAsync(pageNumber, pageSize, id, fetch)).Urls);
         }
         var path = Path.GetFullPath($"{userName}的投稿视频.txt");
         // Return only after every page and the complete file write succeed.
@@ -55,35 +45,28 @@ public class SpaceVideoFetcher : IFetcher
         };
     }
 
-    private static async Task<List<string>> GetVideosByPageAsync(
+    private static async Task<(List<string> Urls, int Count)> GetVideosByPageAsync(
         int pageNumber, int pageSize, string mid, Func<string, Task<string>> fetch)
     {
         List<string> urls = new();
-        var api = Parser.WbiSign($"mid={mid}&order=pubdate&pn={pageNumber}&ps={pageSize}&tid=0&wts={DateTimeOffset.Now.ToUnixTimeSeconds().ToString()}");
+        var api = Parser.WbiSign($"mid={mid}&order=pubdate&pn={pageNumber}&ps={pageSize}&tid=0&wts={AppKeys.UnixSeconds()}");
         api = $"https://api.bilibili.com/x/space/wbi/arc/search?{api}";
         string json = await fetch(api);
         using var infoJson = JsonDocument.Parse(json);
-        var pages = BilibiliApi.ReadPayload(infoJson.RootElement, "获取UP主投稿列表")
-            .GetProperty("list").GetProperty("vlist").EnumerateArray();
-        foreach (var page in pages)
+        var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取UP主投稿列表");
+        foreach (var page in data.GetProperty("list").GetProperty("vlist").EnumerateArray())
         {
             urls.Add($"https://www.bilibili.com/video/av{page.GetProperty("aid")}");
         }
-        return urls;
+        return (urls, pageNumber == 1 ? data.GetProperty("page").GetProperty("count").GetInt32() : 0);
     }
 
-    private static string GetValidFileName(string input, string re = ".", bool filterSlash = false)
+    private static string SanitizeUploaderName(string name)
     {
-        string title = input;
         foreach (char invalidChar in Path.GetInvalidFileNameChars())
         {
-            title = title.Replace(invalidChar.ToString(), re);
+            name = name.Replace(invalidChar.ToString(), ".");
         }
-        if (filterSlash)
-        {
-            title = title.Replace("/", re);
-            title = title.Replace("\\", re);
-        }
-        return title;
+        return name.Replace("/", ".").Replace("\\", ".");
     }
 }

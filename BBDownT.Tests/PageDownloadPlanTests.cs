@@ -32,6 +32,7 @@ public class PageDownloadPlanTests
 
         Assert.Single(plan.Pages);
         Assert.Equal(expected, plan.SavePathFormat);
+        Assert.Equal(expected == "multi", plan.IsMultiPage);
     }
 
     [Theory]
@@ -56,6 +57,6 @@ public class PageDownloadPlanTests
     {
         Title = "Video", Desc = "", Pic = "", PubTime = 0,
         PagesInfo = Enumerable.Range(1, count)
-            .Select(index => new Page(index, "10", index.ToString(), "", "Page", 1, "", 0)).ToList()
+            .Select(index => new Page(index, "10", index.ToString(), "", "Page", 1, 0)).ToList()
     };
 }

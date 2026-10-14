@@ -94,19 +94,20 @@ public class DownloadTaskStoreTests
     [Fact]
     public void Complete_EnforcesFinishedCountAndRetention()
     {
-        var store = new DownloadTaskStore(() => 100);
+        var store = new DownloadTaskStore(() => 100,
+            new BBDownTServerOptions { MaxFinishedTasks = 2, FinishedTaskRetentionSeconds = 1000 });
         var oldTask = Start(store, new DownloadTask("old", "old", 1));
-        store.Complete(oldTask, 10, true, maxFinishedTasks: 2, retentionSeconds: 1000);
+        store.Complete(oldTask, 10, true);
 
         var middleTask = Start(store, new DownloadTask("middle", "middle", 2));
-        store.Complete(middleTask, 20, true, maxFinishedTasks: 2, retentionSeconds: 1000);
+        store.Complete(middleTask, 20, true);
         var latestTask = Start(store, new DownloadTask("latest", "latest", 3));
-        store.Complete(latestTask, 30, true, maxFinishedTasks: 2, retentionSeconds: 1000);
+        store.Complete(latestTask, 30, true);
 
         Assert.Equal(new[] { "middle", "latest" }, store.GetFinishedSnapshot().Select(task => task.Aid));
 
         var futureTask = Start(store, new DownloadTask("future", "future", 4));
-        store.Complete(futureTask, 2000, true, maxFinishedTasks: 2, retentionSeconds: 10);
+        store.Complete(futureTask, 2000, true);
 
         var remaining = Assert.Single(store.GetFinishedSnapshot());
         Assert.Equal("future", remaining.Aid);
@@ -116,14 +117,30 @@ public class DownloadTaskStoreTests
     public void FinishedSnapshot_PrunesExpiredTasksWithoutAnotherCompletion()
     {
         long now = 10;
-        var store = new DownloadTaskStore(() => now);
+        var store = new DownloadTaskStore(() => now, new BBDownTServerOptions { FinishedTaskRetentionSeconds = 5 });
         var task = Start(store, new DownloadTask("old", "old", 1));
-        store.Complete(task, 10, true, retentionSeconds: 5);
+        store.Complete(task, 10, true);
 
         now = 16;
 
         Assert.Empty(store.GetFinishedSnapshot());
         Assert.Null(store.FindSnapshot(task.TaskId));
+    }
+
+    [Fact]
+    public void AverageSpeed_ExcludesTimeWaitingInQueue()
+    {
+        long now = 0;
+        var store = new DownloadTaskStore(() => now);
+        var task = new DownloadTask("queued", "queued", now);
+        Assert.True(store.TryAddPending(task, 1));
+
+        now = 600;
+        store.Start(task);
+        task.ReportDownloadedBytes(100, 100);
+        store.Complete(task, 700, true);
+
+        Assert.Equal(1, Assert.Single(store.GetFinishedSnapshot()).DownloadSpeed);
     }
 
     private static DownloadTask Start(DownloadTaskStore store, DownloadTask task)

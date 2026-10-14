@@ -86,26 +86,25 @@ internal static class BBDownTLoginUtil
         PrintQrCode(data);
     }
 
-    internal static async Task SaveLoginDataAsync(string directory, string fileName, string content,
+    internal static async Task SaveLoginDataAsync(string path, string content,
         Func<string, string, Task>? write = null)
     {
-        var path = Path.Combine(directory, fileName);
         if (write is not null) { await write(path, content); return; }
+        WritePrivateFile(path, Encoding.UTF8.GetBytes(content));
+    }
+
+    internal static void WritePrivateFile(string path, ReadOnlySpan<byte> content)
+    {
         var temporary = path + $".writing-{Guid.NewGuid():N}";
-        var options = new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None,
-            Options = FileOptions.Asynchronous
-        };
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         var created = false;
         try
         {
-            await using (var stream = new FileStream(temporary, options))
+            using (var stream = new FileStream(temporary, options))
             {
                 created = true;
-                await stream.WriteAsync(Encoding.UTF8.GetBytes(content));
-                await stream.FlushAsync();
+                stream.Write(content);
             }
             File.Move(temporary, path, overwrite: true);
         }
@@ -131,8 +130,9 @@ internal static class BBDownTLoginUtil
         return new LoginStatusResult(responseBody, setCookieHeaders);
     }
 
-    public static async Task LoginWEB()
+    public static async Task<int> LoginWEB()
     {
+        var qrCodeWritten = false;
         try
         {
             AuthenticatedWebProfileStore.Configure(Program.APP_DIR);
@@ -143,20 +143,14 @@ internal static class BBDownTLoginUtil
             string qrcodeKey = GetQueryString("qrcode_key", url);
             Log("生成二维码...");
             await ShowQrCodeAsync(url);
+            qrCodeWritten = true;
             LoginStatusResult loginStatus = default;
             var status = await WaitForQrLoginAsync(async () =>
             {
                 loginStatus = await GetLoginStatusAsync(qrcodeKey);
-                using var document = JsonDocument.Parse(loginStatus.ResponseBody);
-                return BilibiliApi.ReadPayload(document.RootElement, "查询扫码状态").GetProperty("code").GetInt32() switch
-                {
-                    86038 => QrLoginStatus.Expired,
-                    86101 => QrLoginStatus.Waiting,
-                    86090 => QrLoginStatus.Scanned,
-                    _ => QrLoginStatus.Success
-                };
+                return ReadWebQrStatus(loginStatus.ResponseBody);
             }, Task.Delay, TimeSpan.FromSeconds(1), () => Log("扫码成功, 请确认..."));
-            if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return; }
+            if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return 1; }
             using var loginDoc = JsonDocument.Parse(loginStatus.ResponseBody);
             var loginData = BilibiliApi.ReadPayload(loginDoc.RootElement, "完成登录");
             string cc = loginData.GetProperty("url").ToString();
@@ -165,15 +159,17 @@ internal static class BBDownTLoginUtil
             var cookie = BBDownTCookieRefreshUtil.NormalizeLoginCookie(cc, refreshToken, loginStatus.SetCookieHeaders);
             if (!BBDownTCookieRefreshUtil.HasRequiredLoginCookies(cookie))
                 throw new InvalidOperationException("登录响应缺少SESSDATA或bili_jct，未覆盖现有Cookie文件。");
-            await SaveLoginDataAsync(Program.APP_DIR, "BBDownT.data", cookie);
+            await SaveLoginDataAsync(Path.Combine(Program.APP_DIR, "BBDownT.data"), cookie);
             Log("登录成功");
-            File.Delete("qrcode.png");
+            return 0;
         }
-        catch (Exception e) { LogError(ErrorText.Describe(e)); }
+        catch (Exception e) { LogError(ErrorText.Describe(e)); return 1; }
+        finally { if (qrCodeWritten) DeleteQrCode(); }
     }
 
-    public static async Task LoginTV()
+    public static async Task<int> LoginTV()
     {
+        var qrCodeWritten = false;
         try
         {
             string loginUrl = "https://passport.snm0516.aisee.tv/x/passport-tv-login/qrcode/auth_code";
@@ -188,30 +184,61 @@ internal static class BBDownTLoginUtil
             string authCode = qrData.GetProperty("auth_code").ToString();
             Log("生成二维码...");
             await ShowQrCodeAsync(url);
+            qrCodeWritten = true;
             parms.Set("auth_code", authCode);
-            parms.Set("ts", GetTimeStamp(true));
+            parms.Set("ts", AppKeys.UnixSeconds());
             parms.Remove("sign");
-            parms.Add("sign", GetSign(ToQueryString(parms)));
+            parms.Add("sign", AppKeys.TvAndroid.Sign(ToQueryString(parms)));
             var status = await WaitForQrLoginAsync(async () =>
             {
                 responseArray = await (await HTTPUtil.AppHttpClient.PostAsync(pollUrl, new FormUrlEncodedContent(parms.ToDictionary()))).Content.ReadAsByteArrayAsync();
                 web = Encoding.UTF8.GetString(responseArray);
-                using var document = JsonDocument.Parse(web);
-                return document.RootElement.GetProperty("code").ToString() switch
-                {
-                    "86038" => QrLoginStatus.Expired,
-                    "86039" => QrLoginStatus.Waiting,
-                    _ => QrLoginStatus.Success
-                };
+                return ReadTvQrStatus(web);
             }, Task.Delay, TimeSpan.FromSeconds(1), () => Log("扫码成功, 请确认..."));
-            if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return; }
+            if (status == QrLoginStatus.Expired) { LogColor("二维码已过期, 请重新执行登录指令."); return 1; }
             using var loginDoc = JsonDocument.Parse(web);
             string cc = BilibiliApi.ReadPayload(loginDoc.RootElement, "完成登录").GetProperty("access_token").ToString();
-            await SaveLoginDataAsync(Program.APP_DIR, "BBDownTTV.data", "access_token=" + cc);
+            await SaveLoginDataAsync(Path.Combine(Program.APP_DIR, "BBDownTTV.data"), "access_token=" + cc);
             Log("登录成功");
-            File.Delete("qrcode.png");
+            return 0;
         }
-        catch (Exception e) { LogError(ErrorText.Describe(e)); }
+        catch (Exception e) { LogError(ErrorText.Describe(e)); return 1; }
+        finally { if (qrCodeWritten) DeleteQrCode(); }
+    }
+
+    internal static QrLoginStatus ReadWebQrStatus(string responseBody)
+    {
+        using var document = JsonDocument.Parse(responseBody);
+        return ReadQrStatus(BilibiliApi.ReadPayload(document.RootElement, "查询扫码状态"), "86101");
+    }
+
+    internal static QrLoginStatus ReadTvQrStatus(string responseBody)
+    {
+        using var document = JsonDocument.Parse(responseBody);
+        return ReadQrStatus(document.RootElement, "86039");
+    }
+
+    private static QrLoginStatus ReadQrStatus(JsonElement status, string waitingCode)
+    {
+        var code = status.GetProperty("code").ToString();
+        if (code == waitingCode) return QrLoginStatus.Waiting;
+        return code switch
+        {
+            "0" => QrLoginStatus.Success,
+            "86090" => QrLoginStatus.Scanned,
+            "86038" => QrLoginStatus.Expired,
+            _ => throw BilibiliApi.GetError(status, "查询扫码状态")
+                ?? new InvalidOperationException("登录接口返回了未知扫码状态")
+        };
+    }
+
+    private static void DeleteQrCode()
+    {
+        try { File.Delete("qrcode.png"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            LogWarn($"删除qrcode.png失败：{ErrorText.Describe(e)}");
+        }
     }
 
     private readonly record struct LoginStatusResult(string ResponseBody, string[] SetCookieHeaders);

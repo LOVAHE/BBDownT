@@ -13,10 +13,6 @@ internal sealed class OutputOwnership(string indexPath)
 
     internal static OutputOwnership Default { get; } = new(Path.Combine(Program.APP_DIR, FileName));
 
-    private static readonly StringComparer PathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
-
     private readonly object gate = new();
     private Func<string, bool>? artifactExistsOverride;
     private Func<string, string?>? ownerLookupOverride;
@@ -42,6 +38,9 @@ internal sealed class OutputOwnership(string indexPath)
             var suffix = multiPage ? $" [{label} P{page.index}]" : $" [{label}]";
             var fileName = Path.GetFileName(savePath);
             var stem = Path.GetFileNameWithoutExtension(fileName);
+            var marker = stem.EndsWith(AudioLanguageSelection.VideoOnlyMarker, StringComparison.Ordinal)
+                ? AudioLanguageSelection.VideoOnlyMarker : "";
+            stem = stem[..^marker.Length];
             var language = Path.GetExtension(stem);
             if (!language.StartsWith(AudioLanguageSelection.LanguageSuffixPrefix, StringComparison.Ordinal)) language = "";
             var titleStem = stem[..^language.Length];
@@ -50,7 +49,7 @@ internal sealed class OutputOwnership(string indexPath)
             for (var sequence = 1; ; sequence++)
             {
                 var disambiguator = sequence == 1 ? suffix : $"{suffix} ({sequence})";
-                var ending = disambiguator + language + extension;
+                var ending = disambiguator + language + marker + extension;
                 var title = OutputNameLimit.Shorten(titleStem,
                     OutputNameLimit.MaxFileNameBytes - Encoding.UTF8.GetByteCount(ending));
                 var alternative = directory + title + ending;
@@ -61,6 +60,15 @@ internal sealed class OutputOwnership(string indexPath)
                     return alternative;
                 }
             }
+        }
+    }
+
+    internal bool IsOwnedByAnother(string path, Page page)
+    {
+        lock (gate)
+        {
+            var owner = OwnerOf(path);
+            return owner is not null && owner != Identity(page);
         }
     }
 
@@ -85,9 +93,15 @@ internal sealed class OutputOwnership(string indexPath)
             if (current.TryGetValue(path, out var owner) && owner == identity) return;
             try
             {
-                File.AppendAllText(indexPath, $"{identity}\t{path}\n");
-                current[path] = identity;
-                loadedLength = IndexLength();
+                var line = $"{identity}\t{path}\n";
+                var expectedLength = loadedLength + Encoding.UTF8.GetByteCount(line);
+                File.AppendAllText(indexPath, line);
+                if (ReferenceEquals(current, owners) && IndexLength() == expectedLength)
+                {
+                    current[path] = identity;
+                    loadedLength = expectedLength;
+                }
+                else owners = null;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -100,7 +114,7 @@ internal sealed class OutputOwnership(string indexPath)
     {
         var length = IndexLength();
         if (owners is not null && length == loadedLength) return owners;
-        var loaded = new Dictionary<string, string>(PathComparer);
+        var loaded = new Dictionary<string, string>(OutputPathPolicy.PathComparer);
         if (length > 0)
         {
             try
@@ -114,6 +128,7 @@ internal sealed class OutputOwnership(string indexPath)
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 LogDebug("读取{0}失败: {1}", FileName, ex.Message);
+                return loaded;
             }
         }
         owners = loaded;

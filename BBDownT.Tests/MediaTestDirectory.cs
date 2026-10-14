@@ -38,7 +38,14 @@ internal sealed class MediaTestDirectory : IDisposable
     public void Dispose()
     {
         foreach (var file in files) File.Delete(file);
-        for (var i = directories.Count - 1; i >= 0; i--)
-            if (Directory.Exists(directories[i])) Directory.Delete(directories[i]);
+        if (!Directory.Exists(Root)) return;
+        var unregistered = Directory.EnumerateFileSystemEntries(Root, "*", SearchOption.AllDirectories)
+            .Where(entry => !directories.Contains(entry))
+            .Select(entry => Path.GetRelativePath(Root, entry))
+            .Order()
+            .ToList();
+        Directory.Delete(Root, recursive: true);
+        if (unregistered.Count > 0)
+            throw new IOException("Unregistered test artifacts: " + string.Join(", ", unregistered));
     }
 }

@@ -41,6 +41,7 @@ public class BangumiInfoFetcher : IFetcher
         }
 
         var (pagesInfo, index) = BangumiPageMapper.Map(pages, id, allowMissingPublicationTime: false);
+        if (pagesInfo.Count == 0) throw new InvalidDataException("该番剧没有可下载的分集");
         var info = new VInfo
         {
             Title = title.Trim(),

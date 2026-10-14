@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Web;
@@ -22,7 +23,7 @@ public class IntlAppPlaybackTests
                 requests.Add(uri);
                 return Task.FromResult(uri.AbsolutePath.Contains("/web/")
                     ? "{\"code\":10023014,\"message\":\"App only\"}" : app);
-            });
+            }, intlSeasonId: "2309571");
 
         Assert.Equal(app, response);
         Assert.Equal(2, requests.Count);
@@ -45,16 +46,15 @@ public class IntlAppPlaybackTests
                 Assert.Equal("/intl/gateway/v2/app/playurl/player", new Uri(url).AbsolutePath);
                 Assert.Equal("26222855", HttpUtility.ParseQueryString(new Uri(url).Query)["ep_id"]);
                 return Task.FromResult(AppResponse().ToJsonString());
-            });
+            }, intlSeasonId: "2309571");
         Assert.Equal(1, calls);
     }
 
-    [Theory]
-    [InlineData(10015002)]
-    public async Task OtherWebErrorsDoNotTriggerAnAppFallback(int code)
+    [Fact]
+    public async Task OtherWebErrorsDoNotTriggerAnAppFallback()
     {
         var calls = 0;
-        var expected = $"{{\"code\":{code}}}";
+        const string expected = "{\"code\":10015002}";
         Assert.Equal(expected, await Parser.GetPlayJsonAsync("", "intl:2309571", "", "", "26223058",
             false, true, false, fetchWeb: url =>
             {
@@ -69,7 +69,7 @@ public class IntlAppPlaybackTests
     public async Task AppResponseReusesIntlMapperAndDoesNotExposeUngrantableQualityTiers()
     {
         var requests = new List<string>();
-        var result = await Parser.ExtractTracksWithFetcherAsync("intl:2309571", "", "", "26222855",
+        var result = await Parser.ExtractTracksWithFetcherAsync("intl:2309571", "", "",
             false, true, true, "0", _ => Task.FromResult(AppResponse().ToJsonString()),
             (quality, codec) =>
             {
@@ -90,11 +90,10 @@ public class IntlAppPlaybackTests
     public async Task PermissionFailurePreservesConciseReasonAndDoesNotRequestCodecVariants()
     {
         var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksWithFetcherAsync(
-            "intl:2309571", "", "", "26223058", false, true, true, "0",
+            "intl:2309571", "", "", false, true, true, "0",
             _ => Task.FromResult("{\"code\":10015002,\"message\":\"raw secret access_key=private\"}"),
             (_, _) => throw new Exception("Permission failures must not fetch codec variants")));
 
-        Assert.Equal(10015002, error.ApiCode);
         Assert.Equal("国际站请求失败：访问权限不足（错误码 10015002）", error.Message);
         Assert.DoesNotContain("private", error.Message);
         Assert.Equal(error.Message, ErrorText.Describe(new IOException("wrapped", error)));
@@ -106,11 +105,11 @@ public class IntlAppPlaybackTests
     {
         const string response = "{\"code\":0,\"data\":{\"video_info\":null,\"dialog\":{\"action\":2,\"type\":3,\"title\":\"raw signed URL\"}}}";
         var error = await Assert.ThrowsAsync<IntlApiException>(() => Parser.ExtractTracksWithFetcherAsync(
-            "intl:34613", "", "", "341736", false, true, true, "0",
+            "intl:34613", "", "", false, true, true, "0",
             _ => Task.FromResult(response), (_, _) => throw new Exception("No variant for region errors")));
 
         Assert.Contains("地区限制", error.Message);
-        Assert.Null(error.ApiCode);
+        Assert.DoesNotContain("错误码", error.Message);
         Assert.DoesNotContain("raw signed", ErrorText.Describe(error));
     }
 
@@ -124,12 +123,15 @@ public class IntlAppPlaybackTests
     [Fact]
     public void SafeInternationalReasonSurvivesThePageBatchSummary()
     {
-        var original = IntlApiException.FromCode(10004001);
-        var batch = new PageDownloadBatchException([(1, original)]);
+        var original = IntlApiException.FromCode(10004001, IntlBangumiWebApi.ErrorDescription(10004001)!);
+        var batch = new PageDownloadBatchException([(1, original), (2, new HttpRequestException("bad gateway", null, HttpStatusCode.BadGateway))]);
         Assert.Contains("地区限制", batch.Message);
         Assert.Contains("10004001", batch.Message);
         Assert.Same(original, batch.InnerExceptions[0].InnerException);
-        Assert.Equal(nameof(IntlApiException), ErrorText.Describe(new IntlApiException("secret cookie-value")));
+        var description = ErrorText.Describe(batch);
+        Assert.StartsWith("本批次有 2 个分P下载失败：P1、P2", description);
+        Assert.Contains("P1：国际站版权地区限制", description);
+        Assert.Contains("P2：服务器返回 HTTP 502", description);
     }
 
     [Fact]
@@ -159,7 +161,7 @@ public class IntlAppPlaybackTests
             response["data"]!["video_info"]!["stream_list"]![1]!["dash_video"]!["base_url"] =
                 "https://cdn.test/video.m4s?signature=synthetic-private-media-signature";
             var json = response.ToJsonString();
-            await Parser.ExtractTracksWithFetcherAsync("intl:2309571", "", "", "26222855",
+            await Parser.ExtractTracksWithFetcherAsync("intl:2309571", "", "",
                 false, true, true, "0", _ => Task.FromResult(json), (_, _) => Task.FromResult(json));
             Assert.Contains("国际站播放响应已接收", output.ToString());
             Assert.DoesNotContain("synthetic-private-media-signature", output.ToString());

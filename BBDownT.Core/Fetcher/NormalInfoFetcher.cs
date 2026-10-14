@@ -41,7 +41,6 @@ public partial class NormalInfoFetcher : IFetcher
                 "", //epid
                 page.GetProperty("part").ToString().Trim(),
                 page.GetProperty("duration").GetInt32(),
-                page.GetProperty("dimension").GetProperty("width").ToString() + "x" + page.GetProperty("dimension").GetProperty("height").ToString(),
                 pubTime, //分p视频没有发布时间
                 "",
                 "",
@@ -83,7 +82,6 @@ public partial class NormalInfoFetcher : IFetcher
                             "", //epid
                             page.GetProperty("option").ToString().Trim(),
                             0,
-                            "",
                             pubTime, //分p视频没有发布时间
                             "",
                             "",
@@ -100,20 +98,17 @@ public partial class NormalInfoFetcher : IFetcher
             }
         }
 
-        try
+        if (data.TryGetProperty("redirect_url", out var redirect) && redirect.ValueKind == JsonValueKind.String
+            && redirect.GetString() is { } redirectUrl && redirectUrl.Contains("bangumi"))
         {
-            if (data.GetProperty("redirect_url").ToString().Contains("bangumi"))
+            bangumi = true;
+            string epId = EpIdRegex().Match(redirectUrl).Groups[1].Value;
+            //番剧内容通常不会有分P，如果有分P则不需要epId参数
+            if (pages.Count == 1)
             {
-                bangumi = true;
-                string epId = EpIdRegex().Match(data.GetProperty("redirect_url").ToString()).Groups[1].Value;
-                //番剧内容通常不会有分P，如果有分P则不需要epId参数
-                if (pages.Count == 1)
-                {
-                    pagesInfo.ForEach(p => p.epid = epId);
-                }
+                pagesInfo.ForEach(p => p.epid = epId);
             }
         }
-        catch { }
 
         var info = new VInfo
         {

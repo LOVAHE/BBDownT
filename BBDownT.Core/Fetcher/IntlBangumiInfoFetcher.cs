@@ -17,9 +17,7 @@ public class IntlBangumiInfoFetcher : IFetcher
             return await IntlBangumiWebApi.FetchInfoAsync(parts[1], parts.Length > 2 ? parts[2] : null, fetch);
         }
         id = id[3..];
-        string api = "https://" + (Config.HOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.HOST) +
-                     $"/intl/gateway/v2/ogv/view/app/season?ep_id={id}&platform=android&s_locale=zh_SG&mobi_app=bstar_a" + (Config.TOKEN != "" ? $"&access_key={Config.TOKEN}" : "");
-        string json = (await fetch(api)).Replace("\\/", "/");
+        string json = (await fetch(IntlGateway.LegacySeasonUrl(id, withMobiApp: true))).Replace("\\/", "/");
         using var infoJson = JsonDocument.Parse(json);
         IntlBangumiWebApi.EnsureSuccess(infoJson.RootElement);
         var result = infoJson.RootElement.GetProperty("result");
@@ -54,8 +52,10 @@ public class IntlBangumiInfoFetcher : IFetcher
             if (seasonId.Length > 0) return await IntlBangumiWebApi.FetchInfoAsync(seasonId, id, fetch);
             throw new InvalidOperationException($"国际站无法获取分集：{content}");
         }
+        if (pagesInfo.Count == 0) throw new InvalidDataException("国际站没有可用分集");
         var info = new VInfo
         {
+            IntlSeasonId = seasonId,
             Title = title.Trim(),
             Desc = desc.Trim(),
             Pic = cover,

@@ -1,3 +1,5 @@
+using BBDownT.Core.Util;
+
 namespace BBDownT.Tests;
 
 public class QrLoginFlowTests
@@ -58,20 +60,64 @@ public class QrLoginFlowTests
     }
 
     [Theory]
-    [InlineData("BBDownT.data")]
-    public async Task SharedSaving_UsesPlatformFileAndPreservesContent(string fileName)
+    [InlineData("""{"code":0,"data":{"code":86101,"message":"未扫码"}}""", "Waiting")]
+    [InlineData("""{"code":0,"data":{"code":86090,"message":"二维码已扫码未确认"}}""", "Scanned")]
+    [InlineData("""{"code":0,"data":{"code":86038,"message":"二维码已失效"}}""", "Expired")]
+    [InlineData("""{"code":0,"data":{"code":0,"message":"","url":"https://example.invalid/"}}""", "Success")]
+    public void WebPolling_MapsDocumentedStatuses(string response, string expected)
     {
-        string? savedPath = null;
-        string? savedContent = null;
-        await BBDownTLoginUtil.SaveLoginDataAsync("/in-memory", fileName, "synthetic-credential",
-            (path, content) =>
-            {
-                savedPath = path;
-                savedContent = content;
-                return Task.CompletedTask;
-            });
+        Assert.Equal(expected, BBDownTLoginUtil.ReadWebQrStatus(response).ToString());
+    }
 
-        Assert.Equal(Path.Combine("/in-memory", fileName), savedPath);
-        Assert.Equal("synthetic-credential", savedContent);
+    [Theory]
+    [InlineData("""{"code":86039,"message":"二维码尚未确认"}""", "Waiting")]
+    [InlineData("""{"code":86090,"message":"二维码已扫码未确认"}""", "Scanned")]
+    [InlineData("""{"code":86038,"message":"二维码已失效"}""", "Expired")]
+    [InlineData("""{"code":0,"message":"0","data":{"access_token":"synthetic"}}""", "Success")]
+    public void TvPolling_MapsDocumentedStatuses(string response, string expected)
+    {
+        Assert.Equal(expected, BBDownTLoginUtil.ReadTvQrStatus(response).ToString());
+    }
+
+    [Fact]
+    public void Polling_UnknownStatusIsAnErrorRatherThanSuccess()
+    {
+        var web = Assert.Throws<BilibiliApiException>(() => BBDownTLoginUtil.ReadWebQrStatus(
+            """{"code":0,"data":{"code":86099,"message":"未知状态"}}"""));
+        var tv = Assert.Throws<BilibiliApiException>(() => BBDownTLoginUtil.ReadTvQrStatus(
+            """{"code":-3,"message":"API校验密匙错误"}"""));
+
+        Assert.Equal(86099, web.Code);
+        Assert.Equal("查询扫码状态失败：未知状态（错误码 86099）", web.Message);
+        Assert.Equal(-3, tv.Code);
+        Assert.Equal("查询扫码状态失败：API校验密匙错误（错误码 -3）", tv.Message);
+        Assert.Throws<InvalidOperationException>(() => BBDownTLoginUtil.ReadTvQrStatus("""{"code":"pending"}"""));
+    }
+
+    [Fact]
+    public async Task SharedSaving_ReplacesTheFileWithOwnerOnlyPermissions()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"bbd-login-data-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, "BBDownT.data");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, "old-credential");
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite
+                    | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+
+            await BBDownTLoginUtil.SaveLoginDataAsync(path, "synthetic-credential");
+
+            Assert.Equal("synthetic-credential", File.ReadAllText(path));
+            Assert.Equal(new[] { path }, Directory.GetFiles(directory));
+            if (!OperatingSystem.IsWindows())
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+        }
+        finally
+        {
+            File.Delete(path);
+            Directory.Delete(directory);
+        }
     }
 }

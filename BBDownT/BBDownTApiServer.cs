@@ -13,7 +13,6 @@ using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using BBDownT.Core;
-using BBDownT.Core.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,18 +21,27 @@ namespace BBDownT;
 public class BBDownTApiServer
 {
     private WebApplication? app;
-    private readonly DownloadTaskStore taskStore = new();
+    private readonly DownloadTaskStore taskStore;
     private readonly ConcurrentQueue<QueuedDownloadTask> pendingTasks = new();
     private readonly SemaphoreSlim pendingTaskSignal = new(0);
     private int workerStarted;
-    private BBDownTServerOptions serverOptions = new();
+    private readonly BBDownTServerOptions serverOptions;
     private string apiToken = "";
     private bool requireApiToken;
 
-    public void SetUpServer(BBDownTServerOptions? options = null)
+    public BBDownTApiServer(BBDownTServerOptions? options = null)
+    {
+        var configured = options ?? new BBDownTServerOptions();
+        serverOptions = configured with
+        {
+            DownloadRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured.DownloadRoot))
+        };
+        taskStore = new DownloadTaskStore(options: serverOptions);
+    }
+
+    public void SetUpServer()
     {
         if (app is not null) return;
-        serverOptions = options ?? new BBDownTServerOptions();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Services.ConfigureHttpJsonOptions((options) =>
         {
@@ -86,7 +94,6 @@ public class BBDownTApiServer
         {
             if (!bindingResult.IsValid)
             {
-                //var exception = bindingResult.Exception;
                 return Results.BadRequest("输入有误");
             }
             var req = bindingResult.Result!;
@@ -100,7 +107,7 @@ public class BBDownTApiServer
             {
                 return Results.Text("任务队列已满", statusCode: StatusCodes.Status429TooManyRequests);
             }
-            return Results.Accepted(value: new TaskSubmissionResult(task.TaskId));
+            return SubmissionAccepted(task.TaskId);
         });
         var finishedRemovalApi = app.MapGroup("remove-finished");
         finishedRemovalApi.MapDelete("/", () => { taskStore.RemoveFinished(_ => true); return Results.Ok(); });
@@ -235,14 +242,8 @@ public class BBDownTApiServer
             return "服务器任务不支持旧版兼容参数Aria2cProxy、OnlyHevc、OnlyAvc、OnlyAv1、AddDfnSubfix、NoPaddingPageNum、BandwithAscending，请改用对应的新参数";
         }
 
-        var batchValidation = SpaceBatchDownload.ValidateOptions(req);
-        if (batchValidation is not null) return batchValidation;
-        var subtitleValidation = SubtitleSelection.ValidateOptions(req);
-        if (subtitleValidation is not null) return subtitleValidation;
-        var coverValidation = Program.ValidateCoverOptions(req);
-        if (coverValidation is not null) return coverValidation;
-        var audioValidation = AudioLanguageSelection.ValidateOptions(req);
-        if (audioValidation is not null) return audioValidation;
+        var optionValidation = Program.ValidateWorkOptions(req);
+        if (optionValidation is not null) return optionValidation;
         if (req.Interactive && !req.OnlyShowInfo)
             return "服务器任务不支持交互选择，请使用语言、AI策略及音视频筛选参数。";
 
@@ -274,6 +275,19 @@ public class BBDownTApiServer
 
         if (serverOptions.AllowCustomOutput)
         {
+            if (string.IsNullOrWhiteSpace(req.WorkDir))
+            {
+                req.WorkDir = serverOptions.DownloadRoot;
+                return null;
+            }
+            try
+            {
+                req.WorkDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(req.WorkDir), serverOptions.DownloadRoot);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return "WorkDir不是有效路径";
+            }
             return null;
         }
 
@@ -287,10 +301,14 @@ public class BBDownTApiServer
             return "服务器默认只允许相对输出路径，且不能包含上级目录";
         }
 
-        req.WorkDir = Path.GetFullPath(serverOptions.DownloadRoot);
+        req.WorkDir = serverOptions.DownloadRoot;
         req.RestrictedOutputRoot = req.WorkDir;
         return null;
     }
+
+    internal static IResult SubmissionAccepted(string taskId)
+        => Results.Json(new TaskSubmissionResult(taskId), AppJsonSerializerContext.Default.TaskSubmissionResult,
+            statusCode: StatusCodes.Status202Accepted);
 
     internal static HttpClient CreatePinnedCallbackHttpClient(IPAddress address)
     {
@@ -305,6 +323,7 @@ public class BBDownTApiServer
         return new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
+            UseProxy = false,
             ConnectCallback = async (context, cancellationToken) =>
             {
                 var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -494,35 +513,18 @@ public class BBDownTApiServer
 
     private async Task<DownloadTask> AddDownloadTaskAsync(QueuedDownloadTask queuedTask)
     {
-        var option = queuedTask.Request;
         var task = queuedTask.Task;
         var succeeded = false;
         try
         {
-            HTTPUtil.UserAgent = option.UserAgent;
-            var aid = await BBDownTUtil.GetAvIdAsync(option.Url);
-            task.SetAid(aid);
-            await Program.ExecuteWorkAsync(option, task);
+            await Program.ExecuteWorkAsync(queuedTask.Request, task);
             succeeded = true;
         }
         catch (Exception e)
         {
-            Console.BackgroundColor = ConsoleColor.Red;
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"{(string.IsNullOrEmpty(task.Aid) ? task.TaskId : task.Aid)}下载失败");
-            var description = ErrorText.Describe(e);
-            task.SetError(description);
-            Console.Write($"{(Config.DEBUG_LOG ? Logger.RedactSensitiveText(e.ToString()) : description)}{Environment.NewLine}");
-            if (ErrorText.SuggestsUpdate(e)) Console.Write("请尝试升级到最新版本后重试!");
-            Console.ResetColor();
-            Console.WriteLine();
+            task.SetError(Program.PrintFailure(e, $"{(string.IsNullOrEmpty(task.Aid) ? task.TaskId : task.Aid)}下载失败"));
         }
-        taskStore.Complete(
-            task,
-            DateTimeOffset.Now.ToUnixTimeSeconds(),
-            succeeded,
-            serverOptions.MaxFinishedTasks,
-            serverOptions.FinishedTaskRetentionSeconds);
+        taskStore.Complete(task, DateTimeOffset.Now.ToUnixTimeSeconds(), succeeded);
         return task;
     }
 }

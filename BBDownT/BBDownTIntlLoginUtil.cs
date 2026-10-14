@@ -2,13 +2,14 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using QRCoder;
 using BBDownT.Core;
 
 namespace BBDownT;
 
 internal static class BBDownTIntlLoginUtil
 {
+    private const string CookieTooLong = "国际站 Cookie 过长";
+
     public static async Task<int> RunAsync(bool importCookie)
     {
         try
@@ -85,6 +86,11 @@ internal static class BBDownTIntlLoginUtil
             // Responses and exception details may contain tickets or cookies.
             var failedStage = stage == IntlLoginStage.Sync && client is not null ? client.CurrentStage : stage;
             diagnostic($"国际站登录 stage={failedStage} exception={IntlLoginClient.ExceptionCategory(error)}");
+            if (failedStage == IntlLoginStage.Import && error is ArgumentException)
+            {
+                write(error.Message);
+                return 1;
+            }
             var description = failedStage switch
             {
                 IntlLoginStage.Import => "导入 Cookie",
@@ -95,13 +101,11 @@ internal static class BBDownTIntlLoginUtil
                 IntlLoginStage.Save => "保存登录文件",
                 _ => "初始化登录"
             };
-            write($"国际站{description}失败，现有登录文件未被替换，请重试或手动导入 Cookie");
+            var advice = importCookie ? "请重试" : "请重试或手动导入 Cookie";
+            write($"国际站{description}失败，现有登录文件未被替换，{advice}");
             return 1;
         }
     }
-
-    internal static string[] CreateQrRows(QRCodeData data)
-        => BBDownTLoginUtil.CreateQrRows(data);
 
     private static string? ReadHiddenCookie()
     {
@@ -130,7 +134,7 @@ internal static class BBDownTIntlLoginUtil
             if (key.Key == ConsoleKey.Backspace) { if (input.Length > 0) input.Length--; continue; }
             if (!char.IsControl(key.KeyChar))
             {
-                if (input.Length >= 16384) return null;
+                if (input.Length >= 16384) throw new ArgumentException(CookieTooLong);
                 input.Append(key.KeyChar);
             }
         }
@@ -144,7 +148,7 @@ internal static class BBDownTIntlLoginUtil
             var next = reader.Read();
             if (next == -1) break;
             if (next == '\n') return input.ToString().TrimEnd('\r');
-            if (input.Length >= 16384) return null;
+            if (input.Length >= 16384) throw new ArgumentException(CookieTooLong);
             input.Append((char)next);
         }
         return input.Length == 0 ? null : input.ToString().TrimEnd('\r');

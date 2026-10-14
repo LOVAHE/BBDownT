@@ -93,6 +93,7 @@ internal static class AudioLanguageSelection
     }
 
     internal const string LanguageSuffixPrefix = ".audio-";
+    internal const string VideoOnlyMarker = ".video";
 
     internal static string WithLanguageSuffix(string path, string? language)
     {
@@ -103,12 +104,13 @@ internal static class AudioLanguageSelection
         return path[..(path.Length - extension.Length)] + LanguageSuffixPrefix + code.ToLowerInvariant() + extension;
     }
 
-    internal static string OutputPath(string path, string? language, bool audioOnly)
+    internal static string OutputPath(string path, string? language, bool audioOnly, bool videoOnly = false)
     {
         var output = WithLanguageSuffix(path, language);
         // Resolve an audio-only download's final extension before the existing-output
         // check: an MP4 of the same name is not the requested M4A.
-        return audioOnly ? Path.ChangeExtension(output, ".m4a") : output;
+        if (audioOnly) return Path.ChangeExtension(output, ".m4a");
+        return videoOnly ? Path.ChangeExtension(output, VideoOnlyMarker + Path.GetExtension(output)) : output;
     }
 
     // Default-audio archives (legacy AIDs and page keys) cannot distinguish dubs.

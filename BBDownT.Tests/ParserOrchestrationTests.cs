@@ -1,4 +1,5 @@
 using BBDownT.Core;
+using BBDownT.Core.Util;
 using System.Text.Json.Nodes;
 
 namespace BBDownT.Tests;
@@ -17,7 +18,7 @@ public class ParserOrchestrationTests
             : [DashFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s"), preview.ToJsonString()];
         var responses = new Queue<string>(bodies);
 
-        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", false, false, false, "0",
             _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
 
         Assert.True(result.IsPreviewOnly);
@@ -32,7 +33,7 @@ public class ParserOrchestrationTests
         initial["data"]!["is_preview"] = true;
         var response = new JsonObject { ["result"] = new JsonObject { ["video_info"] = initial["data"]!.DeepClone() } }.ToJsonString();
 
-        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", false, false, false, "0",
             _ => Task.FromResult(response), (_, _) => throw new Exception("No intl requests"));
 
         Assert.True(result.IsPreviewOnly);
@@ -51,7 +52,7 @@ public class ParserOrchestrationTests
             """;
         var responses = new Queue<string>([Response(initialPreview), Response(finalPreview)]);
 
-        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, false, false, "0",
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", false, false, false, "0",
             _ => Task.FromResult(responses.Dequeue()), (_, _) => throw new Exception("No intl requests"));
 
         Assert.Equal(finalPreview, result.IsPreviewOnly);
@@ -68,7 +69,7 @@ public class ParserOrchestrationTests
         var final = JsonNode.Parse(IntlFixture("https://cdn.test/full-v.m4s", "https://cdn.test/full-a.m4s", 80))!;
         final["data"]!["video_info"]!["is_preview"] = finalPreview;
 
-        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", "4", false, true, false, "0",
+        var result = await Parser.ExtractTracksWithFetcherAsync("ep:1", "2", "3", false, true, false, "0",
             _ => Task.FromResult(initial.ToJsonString()),
             (_, _) => Task.FromResult(final.ToJsonString()));
 
@@ -94,7 +95,7 @@ public class ParserOrchestrationTests
         ]);
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "2", "3", "", false, false, false, "0",
+            "BV", "2", "3", false, false, false, "0",
             qn =>
             {
                 requestedQns.Add(qn);
@@ -150,13 +151,13 @@ public class ParserOrchestrationTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    public async Task HdrVivid_MapsReturnedTrackAndRequestsNewMaximum(bool tvApi, bool appApi)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HdrVivid_MapsReturnedTrackAndRequestsNewMaximum(bool tvApi)
     {
         var requestedQns = new List<string>();
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "2", "3", "", tvApi, false, appApi, "0",
+            "BV", "2", "3", tvApi, false, false, "0",
             qn =>
             {
                 requestedQns.Add(qn);
@@ -167,7 +168,7 @@ public class ParserOrchestrationTests
             },
             (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
 
-        Assert.Equal(appApi ? new[] { "0" } : new[] { "0", "129" }, requestedQns);
+        Assert.Equal(new[] { "0", "129" }, requestedQns);
         var video = Assert.Single(result.VideoTracks);
         Assert.Equal("129", video.id);
         Assert.Equal("HDR Vivid", video.dfn);
@@ -182,7 +183,7 @@ public class ParserOrchestrationTests
         var variants = new List<(string Qn, string Code)>();
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "ep:1", "2", "3", "4", false, true, false, "0",
+            "ep:1", "2", "3", false, true, false, "0",
             qn =>
             {
                 primaryQns.Add(qn);
@@ -214,7 +215,7 @@ public class ParserOrchestrationTests
         ]);
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "ep:1", "2", "3", "4", false, false, false, "0",
+            "ep:1", "2", "3", false, false, false, "0",
             qn =>
             {
                 requestedQns.Add(qn);
@@ -237,7 +238,7 @@ public class ParserOrchestrationTests
         ]);
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "2", "3", "4", false, false, false, "0",
+            "BV", "2", "3", false, false, false, "0",
             _ => Task.FromResult(responses.Dequeue()),
             (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
 
@@ -251,7 +252,7 @@ public class ParserOrchestrationTests
         var requestCount = 0;
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "2", "3", "4", false, false, true, "64",
+            "BV", "2", "3", false, false, true, "64",
             qn =>
             {
                 requestCount++;
@@ -289,7 +290,7 @@ public class ParserOrchestrationTests
         ]);
 
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "BV", "2", "3", "4", false, false, false, "0",
+            "BV", "2", "3", false, false, false, "0",
             qn =>
             {
                 requestedQns.Add(qn);
@@ -300,6 +301,79 @@ public class ParserOrchestrationTests
         Assert.Equal(new[] { "0", Config.qualitys.Keys.First() }, requestedQns);
         Assert.Equal(new[] { "https://cdn.test/final.flv" }, result.Clips);
     }
+
+    [Fact]
+    public async Task Durl_ExplicitQualityMapsRequestedResponseWithoutRefetch()
+    {
+        var requestedQns = new List<string>();
+
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "BV", "2", "3", false, false, false, "32",
+            qn =>
+            {
+                requestedQns.Add(qn);
+                return Task.FromResult(DurlFixture("https://cdn.test/480p.flv", 32));
+            },
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
+
+        Assert.Equal(new[] { "32" }, requestedQns);
+        Assert.Equal(new[] { "https://cdn.test/480p.flv" }, result.Clips);
+        Assert.Equal("32", Assert.Single(result.VideoTracks).id);
+    }
+
+    [Fact]
+    public async Task Durl_InvalidMaximumRefetchKeepsInitialResponse()
+    {
+        var responses = new Queue<string>([DurlFixture("https://cdn.test/first.flv", 64), "{\"code\":-1}"]);
+
+        var result = await Parser.ExtractTracksWithFetcherAsync(
+            "BV", "2", "3", false, false, false, "0",
+            _ => Task.FromResult(responses.Dequeue()),
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"));
+
+        Assert.Empty(responses);
+        Assert.Equal(new[] { "https://cdn.test/first.flv" }, result.Clips);
+        Assert.Equal("64", Assert.Single(result.VideoTracks).id);
+    }
+
+    [Theory]
+    [InlineData("{\"code\":-352,\"message\":\"风控校验失败\"}", -352)]
+    [InlineData("{\"code\":-10403,\"message\":\"抱歉您所在地区不可观看！\",\"result\":null}", -10403)]
+    public async Task PlayApiRefusal_IsRaisedInsteadOfAnEmptyResult(string response, int code)
+    {
+        var requests = 0;
+
+        var error = await Assert.ThrowsAsync<BilibiliApiException>(() => Parser.ExtractTracksWithFetcherAsync(
+            "ep:1", "2", "3", false, false, false, "0",
+            _ =>
+            {
+                requests++;
+                return Task.FromResult(response);
+            },
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run")));
+
+        Assert.Equal(code, error.Code);
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
+    public async Task RiskControlVoucher_AfterBoundedRetriesIsReportedAsRateLimited()
+    {
+        var error = await Assert.ThrowsAsync<BilibiliApiException>(() => Parser.ExtractTracksWithFetcherAsync(
+            "BV", "2", "3", false, false, false, "0",
+            _ => Task.FromResult(RiskControlVoucher),
+            (_, _) => throw new InvalidOperationException("Intl fetch should not run"),
+            riskControlDelay: _ => Task.CompletedTask,
+            rotateUserAgent: () => true));
+
+        Assert.Equal(-352, error.Code);
+        Assert.True(new PageDownloadRetry().TryGetDelay(error, out _));
+    }
+
+    private static string DurlFixture(string url, int quality) => $$$"""
+        {"data":{"quality":{{{quality}}},"video_codecid":7,"accept_quality":[80,64,32],
+          "durl":[{"url":"{{{url}}}","size":100,"length":1000}]}}
+        """;
 
     private static string IntlFixture(string videoUrl, string audioUrl, int quality = 64)
     {

@@ -13,6 +13,7 @@ internal static class MediaOutput
         var directory = Path.GetDirectoryName(destination)!;
         Directory.CreateDirectory(directory);
         var staged = StagedPath(destination);
+        using var writeLock = AcquireWriteLock(staged, destination);
         try
         {
             File.Delete(staged);
@@ -34,11 +35,36 @@ internal static class MediaOutput
         return Path.Combine(Path.GetDirectoryName(destination)!, $".bbdownt-{key}.partial{Path.GetExtension(destination)}");
     }
 
+    private static FileStream AcquireWriteLock(string staged, string destination)
+    {
+        try
+        {
+            return new FileStream(staged + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1,
+                FileOptions.DeleteOnClose);
+        }
+        catch (IOException ex) when (IsLockConflict(ex))
+        {
+            throw new IOException($"另一个BBDownT进程正在写入{destination}", ex);
+        }
+    }
+
+    internal static bool IsLockConflict(Exception error)
+    {
+        for (var cause = error; cause is not null; cause = cause.InnerException)
+        {
+            if (cause.GetType() != typeof(IOException)) continue;
+            var code = cause.HResult;
+            if (OperatingSystem.IsWindows() ? code is unchecked((int)0x80070020) or unchecked((int)0x80070021)
+                : code == (OperatingSystem.IsLinux() ? 11 : 35))
+                return true;
+        }
+        return false;
+    }
+
     internal static void DeleteInput(string input, string destination, Action<string>? delete = null)
     {
         if (string.IsNullOrEmpty(input)) return;
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!string.Equals(Path.GetFullPath(input), Path.GetFullPath(destination), comparison))
+        if (!string.Equals(Path.GetFullPath(input), Path.GetFullPath(destination), OutputPathPolicy.PathComparison))
         {
             var remove = delete ?? File.Delete;
             remove(input);

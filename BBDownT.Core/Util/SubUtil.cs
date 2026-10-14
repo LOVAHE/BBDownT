@@ -1,4 +1,5 @@
-﻿using BBDownT.Core.Protobuf;
+﻿using BBDownT.Core.Fetcher;
+using BBDownT.Core.Protobuf;
 using Google.Protobuf;
 using System.Text;
 using static BBDownT.Core.Entity.Entity;
@@ -6,17 +7,13 @@ using static BBDownT.Core.Util.HTTPUtil;
 using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using static BBDownT.Core.Logger;
 
 namespace BBDownT.Core.Util;
 
 public static partial class SubUtil
 {
-    internal static bool HaveValidUrls(IEnumerable<Subtitle> subtitles)
-    {
-        return subtitles.All(subtitle => !string.IsNullOrEmpty(subtitle.url));
-    }
-
     //https://i0.hdslb.com/bfs/subtitle/subtitle_lan.json
     public static (string, string) GetSubtitleCode(string key)
     {
@@ -222,25 +219,26 @@ public static partial class SubUtil
             "zu"                => ("zul", "isiZulu"),
             "he"                => ("heb", "עברית"),
             "nb"                => ("nor", "Norsk bokmål"),
-            _ => ("und", string.IsNullOrWhiteSpace(original) ? "Undetermined" : original)
+            _ => UnknownSubtitleCode(original)
         };
+    }
+
+    private static (string, string) UnknownSubtitleCode(string original)
+    {
+        if (original.StartsWith("ai-", StringComparison.OrdinalIgnoreCase))
+        {
+            var (language, name) = GetSubtitleCode(original[3..]);
+            if (language != "und") return (language, $"{name} (AI)");
+        }
+        return ("und", string.IsNullOrWhiteSpace(original) ? "Undetermined" : original);
     }
 
     #region 字幕接口
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string aid, string cid, string epId, Func<string, Task<string>> fetch)
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi1Async(string epId, Func<string, Task<string>> fetch)
     {
-        try
-        {
-            string api = "https://" + (Config.EPHOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.EPHOST) + $"/intl/gateway/web/v2/subtitle?episode_id={epId}&platform=web&s_locale=en_US";
-            string json = await fetch(api);
-            return ParseIntlSubtitleResponse(json);
-        }
-        catch (Exception ex) when (ex is not IntlApiException)
-        {
-            LogDebug("国际字幕接口1失败: {0}", ex.Message);
-            return null;
-        }
+        string api = "https://" + (Config.EPHOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.EPHOST) + $"/intl/gateway/web/v2/subtitle?episode_id={epId}&platform=web&s_locale=en_US";
+        return ParseIntlSubtitleResponse(await fetch(api));
     }
 
     internal static List<Subtitle> ParseIntlSubtitleResponse(string json)
@@ -290,48 +288,30 @@ public static partial class SubUtil
 
     private static string NormalizeIntlVariantAnchor(string url)
     {
-        try { return NormalizeSubtitleUrl(url); }
+        try { return SubtitleUrlResolver.Normalize(url); }
         catch (FormatException) { return url; } // The existing merge path rejects unusable URLs.
     }
 
-    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string aid, string cid, string epId, Func<string, Task<string>> fetch)
+    private static async Task<List<Subtitle>?> GetIntlSubtitlesFromApi2Async(string epId, Func<string, Task<string>> fetch)
     {
-        try
+        string json = await fetch(IntlGateway.LegacySeasonUrl(epId, withMobiApp: false));
+        using var infoJson = JsonDocument.Parse(json);
+        IntlBangumiWebApi.EnsureSuccess(infoJson.RootElement);
+        foreach (var module in infoJson.RootElement.GetProperty("result").GetProperty("modules").EnumerateArray())
         {
-            List<Subtitle> subtitles = new();
-            string api = "https://" + (Config.HOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.HOST) +
-                         $"/intl/gateway/v2/ogv/view/app/season?ep_id={epId}&platform=android&s_locale=zh_SG" + (Config.TOKEN != "" ? $"&access_key={Config.TOKEN}" : "");
-            string json = await fetch(api);
-            using var infoJson = JsonDocument.Parse(json);
-            IntlBangumiWebApi.EnsureSuccess(infoJson.RootElement);
-            var episode = infoJson.RootElement.GetProperty("result").GetProperty("modules").EnumerateArray()
-                .SelectMany(module => module.TryGetProperty("data", out var data)
-                    && data.TryGetProperty("episodes", out var episodes) && episodes.ValueKind == JsonValueKind.Array
-                        ? episodes.EnumerateArray() : [])
-                .FirstOrDefault(item => item.TryGetProperty("id", out var id) && id.ToString() == epId);
-            if (episode.ValueKind == JsonValueKind.Undefined) return null;
-            var subs = episode.GetProperty("subtitles").EnumerateArray();
-            foreach (var sub in subs)
+            if (!module.TryGetProperty("data", out var data) || !data.TryGetProperty("episodes", out var episodes)
+                || !BangumiPageMapper.TryFindEpisode(episodes, epId, out var episode))
+                continue;
+            List<Subtitle> subtitles = [];
+            foreach (var sub in episode.GetProperty("subtitles").EnumerateArray())
             {
                 var lan = sub.GetProperty("key").ToString();
-                var url = sub.GetProperty("url").ToString().Replace("\\\\/", "/");
-                Subtitle subtitle = new()
-                {
-                    url = url,
-                    lan = lan,
-                    path = $"{PathSegmentSanitizer.Sanitize(aid)}/{PathSegmentSanitizer.Sanitize(aid)}.{PathSegmentSanitizer.Sanitize(cid)}.{PathSegmentSanitizer.Sanitize(lan)}{(url.Contains(".json") ? ".srt" : ".ass")}"
-                };
-
-                subtitles.Add(subtitle);
-
+                var url = sub.GetProperty("url").ToString();
+                subtitles.Add(new Subtitle { url = url, lan = lan, path = url.Contains(".json") ? "subtitle.srt" : "subtitle.ass" });
             }
             return subtitles;
         }
-        catch (Exception ex) when (ex is not IntlApiException)
-        {
-            LogDebug("国际字幕接口2失败: {0}", ex.Message);
-            return null;
-        }
+        return null;
     }
 
     private static Task<List<Subtitle>> GetSubtitlesFromWebApiAsync(string aid, string cid, HttpClient client,
@@ -357,31 +337,29 @@ public static partial class SubUtil
 
     private static Task<string> GetSubtitleWebTextAsync(string api)
     {
-        var client = !Config.COOKIE_IS_INTL ? AppHttpClient
-            : ShouldSendCookie(api) ? GetWebHttpClient(true) : GetMediaHttpClient(true);
+        var client = Config.COOKIE_IS_INTL && ShouldSendCookie(api) ? GetWebHttpClient(true) : AppHttpClient;
         return GetWebTextAsync(client, api, "application/json");
     }
 
     private const int SubtitleRounds = 3;
 
     internal static async Task<T> WithIdentityRotationAsync<T>(string url, Func<Task<T>> fetch,
-        Func<TimeSpan, Task>? delay = null, Action? rotate = null)
+        Func<TimeSpan, Task>? delay = null)
     {
         delay ??= wait => Task.Delay(wait);
-        rotate ??= () => RotateRequestIdentity(url);
         for (var round = 1; ; round++)
         {
             try
             {
                 return await fetch();
             }
-            catch (Exception error) when (error is not OperationCanceledException || NetworkRetry.IsTransient(error))
+            catch (Exception error) when (error is not OperationCanceledException && !NetworkRetry.IsTransient(error))
             {
                 if (round >= SubtitleRounds)
                     throw new SubtitleUnavailableException(
                         $"获取字幕失败，已更换请求身份重试 {SubtitleRounds} 轮：{ErrorText.Describe(error)}", error);
                 LogWarn($"获取字幕失败（第 {round}/{SubtitleRounds} 轮）：{ErrorText.Describe(error)}，更换请求身份后重试...");
-                rotate();
+                RotateRequestIdentity(url);
                 await delay(TimeSpan.FromSeconds(2 * round));
             }
         }
@@ -406,7 +384,7 @@ public static partial class SubUtil
             {
                 try
                 {
-                    subtitle.url = NormalizeSubtitleUrl(subtitle.url);
+                    subtitle.url = SubtitleUrlResolver.Normalize(subtitle.url);
                 }
                 catch (FormatException ex)
                 {
@@ -447,18 +425,13 @@ public static partial class SubUtil
         }).ToList();
     }
 
-    private static string NormalizeSubtitleUrl(string url)
-    {
-        return SubtitleUrlResolver.Normalize(url);
-    }
-
     private static bool HasUsableSubtitle(IEnumerable<Subtitle>? subtitles)
     {
         return subtitles?.Any(IsUsableSubtitle) == true;
     }
 
     private static bool IsUsableSubtitle(Subtitle subtitle) => !string.IsNullOrWhiteSpace(subtitle.lan)
-        && Uri.TryCreate(NormalizeSubtitleUrl(subtitle.url), UriKind.Absolute, out var uri)
+        && Uri.TryCreate(SubtitleUrlResolver.Normalize(subtitle.url), UriKind.Absolute, out var uri)
         && uri.Scheme is "http" or "https";
 
     private static void AssignSubtitlePaths(IList<Subtitle> subtitles, string aid, string cid)
@@ -497,10 +470,32 @@ public static partial class SubUtil
 
     internal static async Task<List<Subtitle>> GetIntlSubtitlesAsync(string aid, string cid, string epId, Func<string, Task<string>> fetch)
     {
-        var first = await GetIntlSubtitlesFromApi1Async(aid, cid, epId, fetch);
-        List<List<Subtitle>?> sources = [first];
-        if (!HasUsableSubtitle(first)) sources.Add(await GetIntlSubtitlesFromApi2Async(aid, cid, epId, fetch));
-        return MergeSubtitleSources(sources, aid, cid);
+        var (first, firstError) = await TryGetIntlSubtitlesAsync(() => GetIntlSubtitlesFromApi1Async(epId, fetch), 1);
+        if (HasUsableSubtitle(first)) return MergeSubtitleSources([first], aid, cid);
+        var (second, secondError) = await TryGetIntlSubtitlesAsync(() => GetIntlSubtitlesFromApi2Async(epId, fetch), 2);
+        if (firstError is not null && second is null)
+        {
+            if (NetworkRetry.IsTransient(firstError)) ExceptionDispatchInfo.Throw(firstError);
+            if (secondError is not null && NetworkRetry.IsTransient(secondError)) ExceptionDispatchInfo.Throw(secondError);
+            throw new SubtitleUnavailableException($"获取国际站字幕列表失败：{ErrorText.Describe(firstError)}", firstError);
+        }
+        if (secondError is not null)
+            LogWarn($"国际站备用字幕接口请求失败：{ErrorText.Describe(secondError)}");
+        return MergeSubtitleSources([first, second], aid, cid);
+    }
+
+    private static async Task<(List<Subtitle>? Subtitles, Exception? Error)> TryGetIntlSubtitlesAsync(
+        Func<Task<List<Subtitle>?>> fetch, int api)
+    {
+        try
+        {
+            return (await fetch(), null);
+        }
+        catch (Exception error) when (error is not IntlApiException)
+        {
+            LogDebug("国际字幕接口{0}失败: {1}", api, error.Message);
+            return (null, error);
+        }
     }
 
     // Domestic subtitles use the current web endpoint exclusively. Do not fall back
@@ -517,11 +512,18 @@ public static partial class SubUtil
 
     public static async Task SaveSubtitleAsync(string url, string path)
     {
-        var content = await WithIdentityRotationAsync(url, async () =>
+        var content = await WithIdentityRotationAsync(url, () => GetSubtitleWebTextAsync(url));
+        if (path.EndsWith(".srt"))
         {
-            var text = await GetSubtitleWebTextAsync(url);
-            return path.EndsWith(".srt") ? ConvertSubFromJson(text) : text;
-        });
+            try
+            {
+                content = ConvertSubFromJson(content);
+            }
+            catch (Exception error)
+            {
+                throw new SubtitleUnavailableException($"解析字幕失败：{ErrorText.Describe(error)}", error);
+            }
+        }
         await File.WriteAllTextAsync(path, content, Encoding.UTF8);
     }
 

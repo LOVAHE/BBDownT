@@ -55,7 +55,7 @@ public class ChapterMetadataTests
     }
 
     // Supply an empty directory in BBDOWN_CHAPTER_TEST_DIR. The caller owns
-    // cleanup of audio.m4a, output.m4a and chapters after inspecting the result.
+    // cleanup of audio.m4a and output.m4a after inspecting the result.
     [ChapterMuxFact]
     public void FFmpegMux_PreservesChapterTitlesWithoutInheritingInputMetadata()
     {
@@ -84,8 +84,9 @@ public class ChapterMetadataTests
         try
         {
             BBDownTMuxer.FFMPEG = ffmpeg;
-            Assert.Equal(0, BBDownTMuxer.MuxAV(false, "chapter-test", "", audio, [], output,
+            Assert.Equal(0, BBDownTMuxer.MuxAV(false, "", audio, [], output,
                 title: "selected title", lang: "eng", audioOnly: true, points: points));
+            Assert.False(File.Exists(Path.Combine(root, "chapters")));
         }
         finally
         {

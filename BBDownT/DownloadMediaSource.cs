@@ -10,20 +10,19 @@ namespace BBDownT;
 internal static class DownloadMediaSource
 {
     // A provider-scoped object key, not a digest of the downloaded content.
-    internal static string? CreateObjectHash(string url, bool allowCustomHost = false)
+    internal static string? CreateObjectHash(string url)
     {
-        try { return CreateObjectHashCore(url, allowCustomHost); }
+        try { return CreateObjectHashCore(url); }
         catch (UriFormatException) { return null; }
         catch (ArgumentException) { return null; }
     }
 
-    private static string? CreateObjectHashCore(string url, bool allowCustomHost)
+    private static string? CreateObjectHashCore(string url)
     {
         if (string.IsNullOrEmpty(url) || !HasValidEncoding(url)
             || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
-            || !string.IsNullOrEmpty(uri.UserInfo)
-            || (!allowCustomHost && !IsKnownMediaHost(uri.IdnHost))) return null;
+            || !string.IsNullOrEmpty(uri.UserInfo)) return null;
 
         var authorityStart = url.IndexOf("://", StringComparison.Ordinal);
         if (authorityStart < 0) return null;
@@ -77,21 +76,6 @@ internal static class DownloadMediaSource
             Append(canonical, field.Value);
         }
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
-    }
-
-    private static bool IsKnownMediaHost(string host)
-    {
-        if (host.Equals("upos-bstar1-mirrorakam.akamaized.net", StringComparison.OrdinalIgnoreCase)
-            || host.Equals("upos-hz-mirrorakam.akamaized.net", StringComparison.OrdinalIgnoreCase)) return true;
-        foreach (var suffix in new[] { ".bilivideo.com", ".bilivideo.cn" })
-        {
-            if (!host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
-            var label = host[..^suffix.Length];
-            return label.Length > 5 && label.All(c => c is >= 'a' and <= 'z' or >= 'A' and <= 'Z'
-                or >= '0' and <= '9' or '-') && (label.StartsWith("upos-", StringComparison.OrdinalIgnoreCase)
-                || label.StartsWith("cn-", StringComparison.OrdinalIgnoreCase));
-        }
-        return false;
     }
 
     private static bool IsMediaPath(string path)

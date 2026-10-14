@@ -10,7 +10,7 @@ public class DeviceCookieHandlerTests
     {
         DeviceCookieHandler.Clear();
         var sent = new List<(string Host, string? Cookie)>();
-        var transport = new StubTransport(request =>
+        var transport = new DelegateHandler(request =>
         {
             sent.Add((request.RequestUri!.Host,
                 request.Headers.TryGetValues("Cookie", out var values) ? string.Join("; ", values) : null));
@@ -32,21 +32,17 @@ public class DeviceCookieHandlerTests
             withCookie.Headers.TryAddWithoutValidation("Cookie", "SESSDATA=user; buvid3=user-device");
             await client.SendAsync(withCookie);
             await client.GetAsync("https://cdn.example.test/media.m4s");
+            await client.GetAsync("https://api.bilibili.tv/intl/gateway/web/v2/subtitle");
 
             Assert.Null(sent[0].Cookie);
             Assert.Equal("buvid3=device-1", sent[1].Cookie);
             Assert.Equal("SESSDATA=user; buvid3=user-device", sent[2].Cookie);
             Assert.Null(sent[3].Cookie);
+            Assert.Null(sent[4].Cookie);
         }
         finally
         {
             DeviceCookieHandler.Clear();
         }
-    }
-
-    private sealed class StubTransport(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(respond(request));
     }
 }

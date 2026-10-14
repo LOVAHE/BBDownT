@@ -41,6 +41,22 @@ public class IntlLoginCommandTests
         finally { Config.DEBUG_LOG = previous; }
     }
 
+    [Theory]
+    [InlineData("login")]
+    [InlineData("logintv")]
+    public async Task DomesticLogin_ReturnsTheLoginExitCode(string command)
+    {
+        var calls = new List<string>();
+        var exit = await Program.InvokeCommandLineAsync([command],
+            _ => throw new Exception("Download must not run"),
+            () => throw new Exception("Migration must not run"),
+            login: () => { calls.Add("login"); return Task.FromResult(1); },
+            loginTv: () => { calls.Add("logintv"); return Task.FromResult(1); });
+
+        Assert.Equal(1, exit);
+        Assert.Equal([command], calls);
+    }
+
     [Fact]
     public async Task LoginHelp_DescribesDebugWithoutRunningLogin()
     {

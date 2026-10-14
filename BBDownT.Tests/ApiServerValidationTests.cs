@@ -32,6 +32,75 @@ public class ApiServerValidationTests
         Assert.Equal(Path.GetFullPath(Environment.CurrentDirectory), request.WorkDir);
     }
 
+    [Fact]
+    public void RelativeDownloadRoot_StaysPutWhenAnEarlierTaskChangedTheWorkingDirectory()
+    {
+        using var files = new MediaTestDirectory();
+        var previous = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = files.Root;
+            var expected = Path.Combine(Environment.CurrentDirectory, "downloads");
+            var server = new BBDownTApiServer(new BBDownTServerOptions { DownloadRoot = "downloads" });
+            var first = new ServeRequestOptions { Url = "BV1xx411c7mD" };
+            Assert.Null(server.ValidateAndNormalizeServerRequest(first));
+
+            Environment.CurrentDirectory = files.CreateDirectory("downloads");
+            var second = new ServeRequestOptions { Url = "BV1xx411c7mD" };
+            Assert.Null(server.ValidateAndNormalizeServerRequest(second));
+
+            Assert.All(new[] { first, second }, request =>
+            {
+                Assert.Equal(expected, request.WorkDir);
+                Assert.Equal(expected, request.RestrictedOutputRoot);
+            });
+        }
+        finally
+        {
+            Environment.CurrentDirectory = previous;
+        }
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("  ", "")]
+    [InlineData("sub", "sub")]
+    [InlineData("sub/../other", "other")]
+    public void CustomOutput_ResolvesTaskWorkDirAgainstTheDownloadRoot(string? workDir, string expected)
+    {
+        using var files = new MediaTestDirectory();
+        var server = new BBDownTApiServer(new BBDownTServerOptions { DownloadRoot = files.Root, AllowCustomOutput = true });
+        var request = new ServeRequestOptions { Url = "BV1xx411c7mD", WorkDir = workDir! };
+
+        Assert.Null(server.ValidateAndNormalizeServerRequest(request));
+
+        Assert.Equal(Path.GetFullPath(Path.Combine(files.Root, expected)), request.WorkDir);
+        Assert.Null(request.RestrictedOutputRoot);
+    }
+
+    [Fact]
+    public void CustomOutput_RejectsAnInvalidTaskWorkDir()
+    {
+        using var files = new MediaTestDirectory();
+        var server = new BBDownTApiServer(new BBDownTServerOptions { DownloadRoot = files.Root, AllowCustomOutput = true });
+        var request = new ServeRequestOptions { Url = "BV1xx411c7mD", WorkDir = "a\0b" };
+
+        Assert.Equal("WorkDir不是有效路径", server.ValidateAndNormalizeServerRequest(request));
+    }
+
+    [Fact]
+    public void CustomOutput_KeepsAnAbsoluteTaskWorkDir()
+    {
+        using var files = new MediaTestDirectory();
+        var elsewhere = Path.Combine(Path.GetTempPath(), "bbdownt-elsewhere");
+        var server = new BBDownTApiServer(new BBDownTServerOptions { DownloadRoot = files.Root, AllowCustomOutput = true });
+        var request = new ServeRequestOptions { Url = "BV1xx411c7mD", WorkDir = elsewhere };
+
+        Assert.Null(server.ValidateAndNormalizeServerRequest(request));
+
+        Assert.Equal(elsewhere, request.WorkDir);
+    }
+
     [Theory]
     [InlineData("  https://www.bilibili.com/video/BV1xx411c7mD  ", "https://www.bilibili.com/video/BV1xx411c7mD")]
     [InlineData("\tBV1xx411c7mD\r\n", "BV1xx411c7mD")]
@@ -90,6 +159,7 @@ public class ApiServerValidationTests
         using var handler = BBDownTApiServer.CreatePinnedCallbackHandler(IPAddress.Parse("8.8.8.8"));
 
         Assert.False(handler.AllowAutoRedirect);
+        Assert.False(handler.UseProxy);
         Assert.NotNull(handler.ConnectCallback);
     }
 
@@ -109,6 +179,15 @@ public class ApiServerValidationTests
 
         if (accepted) Assert.Null(validationMessage);
         else Assert.Equal("Url只能是B站链接或av/BV/ep/ss等编号", validationMessage);
+    }
+
+    [Fact]
+    public void ShortLinkWithDownloadAll_IsLeftToTheWorkerAfterResolution()
+    {
+        Assert.Null(new BBDownTApiServer().ValidateAndNormalizeServerRequest(
+            new ServeRequestOptions { Url = "https://b23.tv/share", DownloadAll = true }));
+        Assert.NotNull(new BBDownTApiServer().ValidateAndNormalizeServerRequest(
+            new ServeRequestOptions { Url = "https://www.bilibili.com/video/av1", DownloadAll = true }));
     }
 
     [Theory]

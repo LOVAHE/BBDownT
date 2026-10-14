@@ -22,11 +22,10 @@ internal static class PlayResponseMapper
                 var description = stream.TryGetProperty("stream_info", out var info) && info.ValueKind == JsonValueKind.Object
                     ? ReadText(info, "desc_words") : "";
                 if (quality.Length == 0 && info.ValueKind == JsonValueKind.Object) quality = ReadText(info, "quality");
-                if (description.Length == 0) description = Config.qualitys.GetValueOrDefault(quality, quality);
                 var video = new Video
                 {
                     id = quality,
-                    dfn = description,
+                    dfn = IntlQualityLabel(quality, description),
                     dur = duration,
                     baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
                     bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
@@ -46,7 +45,6 @@ internal static class PlayResponseMapper
                 if (resource.ValueKind != JsonValueKind.Object || ReadText(resource, "url").Length == 0) continue;
                 var id = ReadText(resource, "quality");
                 if (id.Length == 0) id = ReadText(resource, "id");
-                var codec = ReadText(resource, "codecs");
                 var audio = new Audio
                 {
                     id = id,
@@ -54,11 +52,18 @@ internal static class PlayResponseMapper
                     dur = duration,
                     baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
                     bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
-                    codecs = codec switch { "mp4a.40.2" or "mp4a.40.5" => "M4A", "ec-3" => "E-AC-3", "fLaC" => "FLAC", _ => codec }
+                    codecs = NormalizeAudioCodec(ReadText(resource, "codecs"))
                 };
                 if (!result.AudioTracks.Contains(audio)) result.AudioTracks.Add(audio);
             }
         }
+    }
+
+    private static string IntlQualityLabel(string quality, string apiLabel)
+    {
+        if (Config.qualitys.TryGetValue(quality, out var label)) return label;
+        apiLabel = apiLabel.Trim();
+        return apiLabel.Length > 0 ? apiLabel : quality;
     }
 
     private static string ReadText(JsonElement node, string property)
@@ -99,14 +104,11 @@ internal static class PlayResponseMapper
             if (maximumQuality is not null && int.TryParse(videoId, out var quality) && quality > maximumQuality)
                 continue;
             var streamInfo = stream.GetProperty("stream_info");
-            var description = Config.qualitys.GetValueOrDefault(videoId,
-                ReadText(streamInfo, "description").Trim());
-            if (description.Length == 0) description = videoId;
             var video = new Video
             {
                 dur = duration,
                 id = videoId,
-                dfn = description,
+                dfn = IntlQualityLabel(videoId, ReadText(streamInfo, "description")),
                 bandwith = Convert.ToInt64(dashVideo.GetProperty("bandwidth").ToString()) / 1000,
                 baseUrl = SelectPreferredUrl(dashVideo, isExcludedUrl),
                 codecs = GetVideoCodec(dashVideo.GetProperty("codecid").ToString()),
@@ -379,16 +381,6 @@ internal static class PlayResponseMapper
     {
         var audioId = node.GetProperty("id").ToString();
         var codec = node.GetProperty("codecs").ToString();
-        if (normalizeCodec)
-        {
-            codec = codec switch
-            {
-                "mp4a.40.2" or "mp4a.40.5" => "M4A",
-                "ec-3" => "E-AC-3",
-                "fLaC" => "FLAC",
-                _ => codec
-            };
-        }
         return new Audio
         {
             id = audioId,
@@ -396,7 +388,18 @@ internal static class PlayResponseMapper
             dur = duration,
             bandwith = Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000,
             baseUrl = SelectPreferredUrl(node, isExcludedUrl),
-            codecs = codec
+            codecs = normalizeCodec ? NormalizeAudioCodec(codec) : codec
+        };
+    }
+
+    private static string NormalizeAudioCodec(string codec)
+    {
+        return codec switch
+        {
+            "mp4a.40.2" or "mp4a.40.5" => "M4A",
+            "ec-3" => "E-AC-3",
+            "fLaC" => "FLAC",
+            _ => codec
         };
     }
 

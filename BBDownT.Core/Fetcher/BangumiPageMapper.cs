@@ -19,7 +19,6 @@ internal static class BangumiPageMapper
             if (episode.TryGetProperty("badge", out var badge) && badge.ToString() == "预告")
                 continue;
 
-            var resolution = ReadResolution(episode);
             var title = (episode.GetProperty("title").ToString() + " "
                 + episode.GetProperty("long_title").ToString()).Trim();
             Page page = new(
@@ -29,7 +28,6 @@ internal static class BangumiPageMapper
                 episode.GetProperty("id").ToString(),
                 title,
                 0,
-                resolution,
                 allowMissingPublicationTime && !episode.TryGetProperty("pub_time", out _)
                     ? 0
                     : episode.GetProperty("pub_time").GetInt64());
@@ -41,19 +39,20 @@ internal static class BangumiPageMapper
     }
 
     internal static bool ContainsEpisode(JsonElement episodes, string episodeId)
-        => episodes.ValueKind == JsonValueKind.Array && episodes.EnumerateArray().Any(episode =>
-            episode.TryGetProperty("id", out var id) && id.ToString() == episodeId);
+        => TryFindEpisode(episodes, episodeId, out _);
 
-    private static string ReadResolution(JsonElement episode)
+    internal static bool TryFindEpisode(JsonElement episodes, string episodeId, out JsonElement episode)
     {
-        if (episode.TryGetProperty("dimension", out var dimension)
-            && dimension.ValueKind == JsonValueKind.Object
-            && dimension.TryGetProperty("width", out var width)
-            && dimension.TryGetProperty("height", out var height))
+        episode = default;
+        if (episodes.ValueKind != JsonValueKind.Array) return false;
+        foreach (var item in episodes.EnumerateArray())
         {
-            return width.ToString() + "x" + height.ToString();
+            if (item.TryGetProperty("id", out var id) && id.ToString() == episodeId)
+            {
+                episode = item;
+                return true;
+            }
         }
-
-        return "";
+        return false;
     }
 }

@@ -40,7 +40,7 @@ public class AppHelperMessageTests
     [InlineData(true)]
     [InlineData(false)]
     [InlineData(null)]
-    public async Task AppPreviewStatus_SurvivesConversionAndStopsOnlyMediaDownloads(bool? preview)
+    public async Task AppPreviewStatus_SurvivesConversionToParsedResult(bool? preview)
     {
         var fixture = CreatePlaybackReply(preview);
         var reply = PlayViewReply.Parser.ParseFrom(fixture.ToByteArray());
@@ -52,7 +52,7 @@ public class AppHelperMessageTests
 
         var fetchCount = 0;
         var result = await Parser.ExtractTracksWithFetcherAsync(
-            "ep:1", "2", "3", "1", false, false, true, "0",
+            "ep:1", "2", "3", false, false, true, "0",
             _ =>
             {
                 fetchCount++;
@@ -76,20 +76,6 @@ public class AppHelperMessageTests
         Assert.Equal("角色配音", role.title);
         Assert.Equal("配音演员", role.personName);
         Assert.Equal("https://cdn.test/full-role.m4s", Assert.Single(role.audio).baseUrl);
-
-        foreach (var option in new[]
-        {
-            new MyOption(), new MyOption { AudioOnly = true },
-            new MyOption { VideoOnly = true }, new MyOption { SkipMux = true }
-        })
-            Assert.Equal(preview == true, Program.StopPreviewDownload(option, result));
-
-        foreach (var option in new[]
-        {
-            new MyOption { OnlyShowInfo = true }, new MyOption { SubOnly = true },
-            new MyOption { CoverOnly = true }, new MyOption { DanmakuOnly = true }
-        })
-            Assert.False(Program.StopPreviewDownload(option, result));
     }
 
     private static PlayViewReply CreatePlaybackReply(bool? preview)

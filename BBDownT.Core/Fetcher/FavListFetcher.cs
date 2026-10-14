@@ -51,7 +51,6 @@ public class FavListFetcher : IFetcher
         var title = data.GetProperty("info").GetProperty("title").GetString()!;
         var intro = data.GetProperty("info").GetProperty("intro").GetString()!;
         long pubTime = data.GetProperty("info").GetProperty("ctime").GetInt64();
-        var userName = data.GetProperty("info").GetProperty("upper").GetProperty("name").ToString();
         var medias = MediaEntries(data).ToList();
 
         for (int page = 2; page <= totalPage; page++)
@@ -75,30 +74,37 @@ public class FavListFetcher : IFetcher
                 var tmpInfo = await fetchVideo(m.GetProperty("id").ToString());
                 foreach (var item in tmpInfo.PagesInfo)
                 {
-                    Page p = new(index++, item)
+                    Page p = new(index, item)
                     {
                         title = m.GetProperty("title").ToString() + $"_P{item.index}_{item.title}",
                         cover = tmpInfo.Pic,
                         desc = m.GetProperty("intro").ToString()
                     };
-                    if (!pagesInfo.Contains(p)) pagesInfo.Add(p);
+                    if (!pagesInfo.Contains(p))
+                    {
+                        pagesInfo.Add(p);
+                        index++;
+                    }
                 }
             }
             else
             {
-                Page p = new(index++,
+                Page p = new(index,
                     m.GetProperty("id").ToString(),
                     m.GetProperty("ugc").GetProperty("first_cid").ToString(),
                     "", //epid
                     m.GetProperty("title").ToString(),
                     m.GetProperty("duration").GetInt32(),
-                    "",
                     m.GetProperty("pubtime").GetInt64(),
                     m.GetProperty("cover").ToString(),
                     m.GetProperty("intro").ToString(),
                     m.GetProperty("upper").GetProperty("name").ToString(),
                     m.GetProperty("upper").GetProperty("mid").ToString());
-                if (!pagesInfo.Contains(p)) pagesInfo.Add(p);
+                if (!pagesInfo.Contains(p))
+                {
+                    pagesInfo.Add(p);
+                    index++;
+                }
             }
         }
 

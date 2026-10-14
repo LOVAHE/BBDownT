@@ -203,7 +203,5 @@ public class LegacyLocalFileMigrationTests
         }
 
         public void Delete(string path) => files.Remove(path);
-
-        public void Add(string path, string contents) => files.Add(path, contents);
     }
 }

@@ -28,7 +28,7 @@ public class ProgressiveStreamSelectionTests
         Assert.Equal(new[] { "new-1.mp4", "new-2.mp4" }, result.Clips);
         Assert.Equal(new[] { "64" }, result.Dfns);
         Assert.Equal("64", Assert.Single(result.VideoTracks).id);
-        var page = new Page(1, "2", "3", "", "part", 1, "", 0);
+        var page = new Page(1, "2", "3", "", "part", 1, 0);
         Assert.Equal("64.mp4", Program.FormatSavePath("<dfn>", "title",
             result.VideoTracks[0], null, page, 1, "WEB", 0));
         Assert.Equal("old.mp4", Assert.Single(initial.Clips));

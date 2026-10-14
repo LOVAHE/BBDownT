@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace BBDownT;
@@ -16,6 +17,9 @@ internal static class CommandLineLogSanitizer
         "-token",
         "--api-token"
     };
+
+    private static readonly Regex SensitiveTextPattern = new(
+        $"(?i)({string.Join('|', SensitiveOptions.OrderByDescending(option => option.Length).Select(Regex.Escape))})(\\s+|[=:])(?:\"[^\"]*\"|'[^']*'|\\S+)");
 
     public static string Format(IEnumerable<string> arguments)
     {
@@ -55,9 +59,6 @@ internal static class CommandLineLogSanitizer
 
     public static string SanitizeText(string text)
     {
-        return Regex.Replace(
-            text,
-            "(?i)(--cookie|-c|--access-token|-token|--api-token)(\\s+|[=:])(?:\\\"[^\\\"]*\\\"|'[^']*'|\\S+)",
-            "$1$2<redacted>");
+        return SensitiveTextPattern.Replace(text, $"$1$2{RedactedValue}");
     }
 }

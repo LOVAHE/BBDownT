@@ -152,7 +152,7 @@ public class IntlCredentialTransportTests
         using var config = new CredentialConfigScope();
         Config.COOKIE_IS_INTL = false;
         var requests = 0;
-        using var client = new HttpClient(new StubHandler(request =>
+        using var client = new HttpClient(new DelegateHandler(request =>
         {
             requests++;
             Assert.Equal(SignedUrl, request.RequestUri!.OriginalString);
@@ -201,15 +201,11 @@ public class IntlCredentialTransportTests
     }
 
     [Fact]
-    public void ClientSelectors_KeepInternationalApiAndMediaClientsSeparate()
+    public void ClientSelector_UsesTheNoRedirectClientOnlyForInternationalApis()
     {
         Assert.Same(HTTPUtil.IntlApiHttpClient, HTTPUtil.GetWebHttpClient(true));
-        Assert.Same(HTTPUtil.IntlMediaHttpClient, HTTPUtil.GetMediaHttpClient(true));
-        Assert.NotSame(HTTPUtil.GetWebHttpClient(true), HTTPUtil.GetMediaHttpClient(true));
         Assert.NotSame(HTTPUtil.AppHttpClient, HTTPUtil.GetWebHttpClient(true));
-        Assert.NotSame(HTTPUtil.AppHttpClient, HTTPUtil.GetMediaHttpClient(true));
         Assert.Same(HTTPUtil.AppHttpClient, HTTPUtil.GetWebHttpClient(false));
-        Assert.Same(HTTPUtil.AppHttpClient, HTTPUtil.GetMediaHttpClient(false));
     }
 
     [Theory]
@@ -302,11 +298,5 @@ public class IntlCredentialTransportTests
             Config.EPHOST = episodeHost;
             Config.COOKIE_ALLOWED_DOMAINS = allowedDomains;
         }
-    }
-
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(respond(request));
     }
 }

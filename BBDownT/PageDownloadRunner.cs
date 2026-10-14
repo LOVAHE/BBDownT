@@ -30,28 +30,28 @@ internal sealed class PageDownloadRunner(
             ?? new HashSet<string>();
         var failures = new List<(int PageIndex, Exception Error)>();
         var consecutiveNetworkFailures = 0;
+        var startedDownloads = 0;
         for (var position = 0; position < pages.Count; position++)
         {
             var page = pages[position];
             cancellationToken.ThrowIfCancellationRequested();
-            // Preserve the existing wait before every selected page, including
-            // the first page and pages subsequently skipped by the archive check.
-            if (pages.Count > 1 && delaySeconds > 0)
+            var archiveKey = $"{page.DownloadId}:{page.cid}{archiveVariant}";
+            var archived = saveArchives && (isArchived(archiveKey)
+                || (archiveVariant.Length == 0 && legacySinglePageAids.Contains(page.DownloadId) && isArchived(page.DownloadId)));
+            if (!archived && startedDownloads > 0 && delaySeconds > 0)
             {
                 log($"停顿{delaySeconds}秒...");
                 await delayMilliseconds(delaySeconds * 1000, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
             }
             log($"开始解析P{page.index}: {page.DownloadId}... ({position + 1} of {pages.Count})");
-
-            var archiveKey = $"{page.DownloadId}:{page.cid}{archiveVariant}";
-            if (saveArchives && (isArchived(archiveKey)
-                || (archiveVariant.Length == 0 && legacySinglePageAids.Contains(page.DownloadId) && isArchived(page.DownloadId))))
+            if (archived)
             {
                 log($"P{page.index}已下载过, 跳过下载...");
                 continue;
             }
 
+            startedDownloads++;
             DownloadPageOutcome outcome;
             try
             {
@@ -63,7 +63,7 @@ internal sealed class PageDownloadRunner(
                 && !MustStopBatch(error))
             {
                 failures.Add((page.index, error));
-                consecutiveNetworkFailures = IsNetworkFailure(error) ? consecutiveNetworkFailures + 1 : 0;
+                consecutiveNetworkFailures = PageDownloadRetry.IsNetworkFailure(error) ? consecutiveNetworkFailures + 1 : 0;
                 if (consecutiveNetworkFailures >= MaxConsecutiveNetworkFailures && position < pages.Count - 1)
                 {
                     log($"P{page.index} 下载失败：{ErrorText.Describe(error)}；连续 {consecutiveNetworkFailures} 个分P因网络错误失败，停止处理剩余分P。");
@@ -71,6 +71,14 @@ internal sealed class PageDownloadRunner(
                 }
                 log($"P{page.index} 下载失败：{ErrorText.Describe(error)}；继续处理其余分P。");
                 continue;
+            }
+            catch (Exception error) when (failures.Count > 0 && !cancellationToken.IsCancellationRequested
+                && IsSubtitleFailure(error))
+            {
+                failures.Add((page.index, error));
+                var remaining = pages.Count - position - 1;
+                log($"P{page.index} 下载失败：{ErrorText.Describe(error)}" + (remaining > 0 ? "；停止处理剩余分P。" : ""));
+                throw new PageDownloadBatchException(failures, remaining, "字幕获取失败");
             }
 
             consecutiveNetworkFailures = 0;
@@ -91,11 +99,10 @@ internal sealed class PageDownloadRunner(
         return false;
     }
 
-    private static bool IsNetworkFailure(Exception error)
+    private static bool IsSubtitleFailure(Exception error)
     {
-        if (NetworkRetry.IsTransient(error)) return true;
         for (Exception? cause = error; cause is not null; cause = cause.InnerException)
-            if (cause is BilibiliApiException api) return BilibiliApi.IsRateLimited(api.Code);
+            if (cause is SubtitleUnavailableException) return true;
         return false;
     }
 }

@@ -30,8 +30,8 @@ public class FavListFetcherTests
                 Pic = "multi-cover.jpg",
                 PubTime = 120,
                 PagesInfo = [
-                    new Page(1, aid, "201", "", "First", 11, "1920x1080", 120, "", "", "Author", "7"),
-                    new Page(2, aid, "202", "", "Second", 12, "1280x720", 120, "", "", "Author", "7")
+                    new Page(1, aid, "201", "", "First", 11, 120, "", "", "Author", "7"),
+                    new Page(2, aid, "202", "", "Second", 12, 120, "", "", "Author", "7")
                 ]
             });
         });
@@ -44,8 +44,7 @@ public class FavListFetcherTests
         Assert.Equal(100, result.PubTime);
         Assert.False(result.IsBangumi);
         Assert.Equal(new[] { "1", "2", "2", "3" }, result.PagesInfo.Select(page => page.aid));
-        // The old loop increments before deduplication; preserve its index gaps.
-        Assert.Equal(new[] { 1, 3, 4, 5 }, result.PagesInfo.Select(page => page.index));
+        Assert.Equal(new[] { 1, 2, 3, 4 }, result.PagesInfo.Select(page => page.index));
         Assert.Equal(new[] { "Video 1", "Video 2_P1_First", "Video 2_P2_Second", "Video 3" },
             result.PagesInfo.Select(page => page.title));
         var multi = result.PagesInfo[1];
@@ -54,7 +53,6 @@ public class FavListFetcherTests
         Assert.Equal("Media description 2", multi.desc);
         Assert.Equal("Author", multi.ownerName);
         Assert.Equal("7", multi.ownerMid);
-        Assert.Equal("1920x1080", multi.res);
         Assert.Equal(11, multi.dur);
         Assert.Equal(120, multi.pubTime);
         var last = result.PagesInfo[^1];

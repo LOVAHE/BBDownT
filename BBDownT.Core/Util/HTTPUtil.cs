@@ -10,7 +10,6 @@ public static class HTTPUtil
 {
     public static readonly HttpClient AppHttpClient = CreateClient(allowRedirects: true);
     internal static readonly HttpClient IntlApiHttpClient = CreateClient(allowRedirects: false);
-    internal static readonly HttpClient IntlMediaHttpClient = CreateClient(allowRedirects: true);
 
     private static HttpClient CreateClient(bool allowRedirects)
         => new(CreateWebHandler(allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
@@ -31,7 +30,6 @@ public static class HTTPUtil
     }
 
     internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
-    internal static HttpClient GetMediaHttpClient(bool international) => international ? IntlMediaHttpClient : AppHttpClient;
 
     private static readonly object UserAgentLock = new();
     private static readonly string[] AndroidDevices =
@@ -39,7 +37,7 @@ public static class HTTPUtil
          "SM-S9280", "SM-S9380", "M2012K11AC", "2210132C", "23127PN0CC", "24031PN0DC", "V2307A", "V2408A"];
     private static readonly string[] CurlUserAgents =
         ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
-    private static string userAgent = GenerateDefaultUserAgent(Random.Shared);
+    private static string userAgent = GenerateTransportUserAgent(Random.Shared);
     private static string? customUserAgent;
     private static BrowserRequestProfile authenticatedBrowserProfile = BrowserRequestProfile.Create(Random.Shared);
     private static Action<BrowserRequestProfile>? persistAuthenticatedBrowserProfile;
@@ -82,11 +80,6 @@ public static class HTTPUtil
             authenticatedBrowserProfile = profile;
             persistAuthenticatedBrowserProfile = persistProfile;
         }
-    }
-
-    internal static string GenerateDefaultUserAgent(Random random)
-    {
-        return GenerateTransportUserAgent(random);
     }
 
     internal static string GenerateTransportUserAgent(Random random)
@@ -137,14 +130,11 @@ public static class HTTPUtil
         var host = uri.Host;
         if (Config.COOKIE_IS_INTL && !IsIntlCookieDestination(uri))
             return false;
-        return Config.COOKIE_ALLOWED_DOMAINS.Any(domain =>
-            string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
-            || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+        return Config.COOKIE_ALLOWED_DOMAINS.Any(domain => IsDomain(host, domain));
     }
 
     private static bool IsIntlCookieDestination(Uri uri)
     {
-        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0) return false;
         if (IsDomain(uri.Host, "bilibili.tv") || IsDomain(uri.Host, "biliintl.com")) return true;
         // A custom parsing host is an explicit credential-forwarding choice;
         // an allowed media/CDN host alone is not such authorization.
@@ -194,23 +184,21 @@ public static class HTTPUtil
         }
     }
 
-    public static async Task<string> GetWebSourceAsync(string url, string? userAgent = null)
+    public static async Task<string> GetWebSourceAsync(string url)
     {
-        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url, userAgent);
+        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url);
         LogDebug("Response: {0}", htmlCode);
         return htmlCode;
     }
 
-    internal static Task<string> GetWebTextAsync(HttpClient httpClient, string url, string accept,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+    internal static Task<string> GetWebTextAsync(HttpClient httpClient, string url, string accept)
         => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
-            (response, token) => response.Content.ReadAsStringAsync(token), default, delay, null,
+            (response, token) => response.Content.ReadAsStringAsync(token), default, null, null,
             configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
 
-    internal static Task<byte[]> GetWebBytesAsync(HttpClient httpClient, string url, string accept,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+    internal static Task<byte[]> GetWebBytesAsync(HttpClient httpClient, string url, string accept)
         => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
-            (response, token) => response.Content.ReadAsByteArrayAsync(token), default, delay, null,
+            (response, token) => response.Content.ReadAsByteArrayAsync(token), default, null, null,
             configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
 
     internal static void RotateRequestIdentity(string url)
@@ -230,7 +218,7 @@ public static class HTTPUtil
         CancellationToken cancellationToken = default,
         Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
-        // App credentials never share the domestic cookie jar or redirect policy.
+        // App requests never follow redirects; device cookies only go to bilibili.com hosts.
         var json = await ExecuteWebRequestAsync(httpClient ?? IntlApiHttpClient, HttpMethod.Get, url,
             "Bilibili Freedoooooom/MarkII", Config.COOKIE_IS_INTL, false,
             (response, token) => response.Content.ReadAsStringAsync(token), cancellationToken, delay, null,
@@ -345,14 +333,8 @@ public static class HTTPUtil
         string url,
         bool sendCookie = true,
         bool forceAuthenticatedProfile = false)
-    {
-        var identity = ResolveRequestIdentity(url, null, sendCookie, forceAuthenticatedProfile);
-        ApplyRequestIdentity(request, identity, url);
-        if (sendCookie) TryAddCookieHeader(request, url);
-        if (request.Method == HttpMethod.Get && url.Contains("api.bilibili.com", StringComparison.OrdinalIgnoreCase))
-            request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
-        AddIntlReferer(request, url);
-    }
+        => ApplyStandardHeaders(request, url,
+            ResolveRequestIdentity(url, null, sendCookie, forceAuthenticatedProfile), sendCookie);
 
     private static HttpRequestMessage CreateWebRequest(
         HttpMethod method,
@@ -361,14 +343,22 @@ public static class HTTPUtil
         bool sendCookie)
     {
         var request = new HttpRequestMessage(method, url);
+        ApplyStandardHeaders(request, url, identity, sendCookie);
+        request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
+        return request;
+    }
+
+    private static void ApplyStandardHeaders(
+        HttpRequestMessage request,
+        string url,
+        RequestIdentity identity,
+        bool sendCookie)
+    {
         ApplyRequestIdentity(request, identity, url);
         if (sendCookie) TryAddCookieHeader(request, url);
-        if (method == HttpMethod.Get && url.Contains("api.bilibili.com"))
+        if (request.Method == HttpMethod.Get && url.Contains("api.bilibili.com", StringComparison.OrdinalIgnoreCase))
             request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
         AddIntlReferer(request, url);
-        request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
-        request.Headers.Connection.Clear();
-        return request;
     }
 
     private static RequestIdentity ResolveRequestIdentity(
@@ -408,19 +398,14 @@ public static class HTTPUtil
     private static void AddIntlReferer(HttpRequestMessage request, string url)
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && (uri.Host.Equals("bilibili.tv", StringComparison.OrdinalIgnoreCase)
-                || uri.Host.EndsWith(".bilibili.tv", StringComparison.OrdinalIgnoreCase)
-                || uri.Host.Equals("biliintl.com", StringComparison.OrdinalIgnoreCase)
-                || uri.Host.EndsWith(".biliintl.com", StringComparison.OrdinalIgnoreCase)))
+            && (IsDomain(uri.Host, "bilibili.tv") || IsDomain(uri.Host, "biliintl.com")))
             request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.tv/");
     }
 
     private static bool IsBilibiliSameSite(string url)
     {
         var domain = Config.COOKIE_IS_INTL ? "bilibili.tv" : "bilibili.com";
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && (uri.Host.Equals(domain, StringComparison.OrdinalIgnoreCase)
-                || uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && IsDomain(uri.Host, domain);
     }
 
     private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity)
@@ -475,16 +460,12 @@ public static class HTTPUtil
     // 重写重定向处理, 自动跟随多次重定向
     public static async Task<string> GetWebLocationAsync(string url)
     {
-        bool international = Config.COOKIE_IS_INTL;
-        // Resolve international redirects without either an explicit Cookie or a cookie jar.
-        bool sendCookie = !international && ShouldSendCookie(url);
-        string location = await GetWebLocationAsync(GetWebLocationHttpClient(international), url, sendCookie);
+        // International redirects never carry the account Cookie header.
+        bool sendCookie = !Config.COOKIE_IS_INTL && ShouldSendCookie(url);
+        string location = await GetWebLocationAsync(AppHttpClient, url, sendCookie);
         LogDebug("Location: {0}", location);
         return location;
     }
-
-    internal static HttpClient GetWebLocationHttpClient(bool international)
-        => international ? IntlMediaHttpClient : AppHttpClient;
 
     internal static async Task<string> GetWebLocationAsync(
         HttpClient httpClient,
@@ -509,7 +490,7 @@ public static class HTTPUtil
         }
     }
 
-    public static async Task<byte[]> GetPostResponseAsync(string Url, byte[] postData, Dictionary<string, string>? headers = null)
+    public static async Task<byte[]> GetPostResponseAsync(string Url, byte[] postData, Dictionary<string, string> headers)
     {
         LogDebug("Post to: {0}, data: {1}", Url, Convert.ToBase64String(postData));
 
@@ -524,16 +505,8 @@ public static class HTTPUtil
             //Version = HttpVersion.Version20
         };
 
-        if (headers != null)
-        {
-            foreach (KeyValuePair<string, string> header in headers)
-                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
-        }
-        else
-        {
-            request.Headers.TryAddWithoutValidation("User-Agent", "Dalvik/2.1.0 (Linux; U; Android 6.0.1; oneplus a5010 Build/V417IR) 6.10.0 os/android model/oneplus a5010 mobi_app/android build/6100500 channel/bili innerVer/6100500 osVer/6.0.1 network/2");
-            request.Headers.TryAddWithoutValidation("grpc-encoding", "gzip");
-        }
+        foreach (KeyValuePair<string, string> header in headers)
+            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
 
         using HttpResponseMessage response = await AppHttpClient.SendAsync(request);
         NetworkRetry.EnsureSuccessStatusCode(response);

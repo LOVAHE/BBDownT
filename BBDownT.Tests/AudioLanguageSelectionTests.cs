@@ -162,6 +162,14 @@ public class AudioLanguageSelectionTests
     }
 
     [Theory]
+    [InlineData(null, "video.video.mp4")]
+    [InlineData("en-US", "video.audio-en-us.video.mp4")]
+    public void OutputPath_GivesVideoOnlyItsOwnName(string? language, string expected)
+    {
+        Assert.Equal(expected, AudioLanguageSelection.OutputPath("video.mp4", language, false, videoOnly: true));
+    }
+
+    [Theory]
     [InlineData("en,zh")]
     [InlineData("../en")]
     [InlineData("en&qn=0")]

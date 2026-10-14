@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Text;
 using System.Collections.Generic;
 using static BBDownT.Core.Entity.Entity;
@@ -6,7 +7,7 @@ namespace BBDownT.Tests;
 
 public class OutputOwnershipTests
 {
-    private static Page CreatePage(string aid, string cid, int index = 1) => new(index, aid, cid, "", "P" + index, 0, "", 1);
+    private static Page CreatePage(string aid, string cid, int index = 1) => new(index, aid, cid, "", "P" + index, 0, 1);
 
     [Fact]
     public void AnotherVideoWithTheSameName_GetsANameWithItsBvid()
@@ -89,6 +90,26 @@ public class OutputOwnershipTests
     }
 
     [Fact]
+    public void ShortenedNames_KeepTheVideoOnlyMarker()
+    {
+        using var files = new MediaTestDirectory();
+        var ownership = new OutputOwnership(files.FilePath("outputs"));
+        var title = new string('测', 72);
+        var videoOnly = files.Write(title + ".audio-ja.video.mp4", "another video");
+        var full = files.Write(title + ".audio-ja.mp4", "another video");
+        ownership.Record(videoOnly, CreatePage("170001", "1"));
+        ownership.Record(full, CreatePage("170001", "1"));
+        var page = CreatePage("170002", "2");
+
+        var resolvedVideoOnly = ownership.Resolve(videoOnly, page, multiPage: false);
+        var resolvedFull = ownership.Resolve(full, page, multiPage: false);
+
+        Assert.EndsWith($" [{page.bvid}].audio-ja.video.mp4", resolvedVideoOnly);
+        Assert.EndsWith($" [{page.bvid}].audio-ja.mp4", resolvedFull);
+        Assert.True(Encoding.UTF8.GetByteCount(Path.GetFileName(resolvedVideoOnly)) <= OutputNameLimit.MaxFileNameBytes);
+    }
+
+    [Fact]
     public void ShortenedNames_KeepTheDubLanguageSuffix()
     {
         using var files = new MediaTestDirectory();
@@ -120,6 +141,31 @@ public class OutputOwnershipTests
         ownership.Record(path, CreatePage("170001", "1"));
 
         Assert.Equal(path, ownership.Resolve(path, CreatePage("170002", "2"), multiPage: false));
+    }
+
+    [UnixNonRootFact]
+    [UnsupportedOSPlatform("windows")]
+    public void AnIndexThatCouldNotBeRead_IsReadAgainLater()
+    {
+        using var files = new MediaTestDirectory();
+        var index = files.FilePath("outputs");
+        var path = files.Write("title.mp4", "first video");
+        var ownership = new OutputOwnership(index);
+        var second = CreatePage("170002", "2");
+        Assert.Equal(path, ownership.Resolve(path, second, multiPage: false));
+        new OutputOwnership(index).Record(path, CreatePage("170001", "1"));
+        var mode = File.GetUnixFileMode(index);
+        try
+        {
+            File.SetUnixFileMode(index, UnixFileMode.None);
+            Assert.Equal(path, ownership.Resolve(path, second, multiPage: false));
+        }
+        finally
+        {
+            File.SetUnixFileMode(index, mode);
+        }
+
+        Assert.Equal(files.FilePath($"title [{second.bvid}].mp4"), ownership.Resolve(path, second, multiPage: false));
     }
 
     [Fact]

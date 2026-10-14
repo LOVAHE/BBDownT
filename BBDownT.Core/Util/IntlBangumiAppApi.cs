@@ -19,7 +19,7 @@ internal static class IntlBangumiAppApi
 
         var parameters = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
-            ["appkey"] = "7d089525d3611b1c",
+            ["appkey"] = AppKeys.BstarAndroid.Key,
             ["build"] = "3830100",
             ["ep_id"] = episodeId,
             ["fnval"] = "16",
@@ -37,7 +37,7 @@ internal static class IntlBangumiAppApi
         var query = string.Join("&", parameters.Select(pair =>
             Uri.EscapeDataString(pair.Key) + "=" + Uri.EscapeDataString(pair.Value)));
         return BuildOrigin() + "/intl/gateway/v2/app/playurl/player?" + query
-            + "&sign=" + Parser.GetSign(query, true);
+            + "&sign=" + AppKeys.BstarAndroid.Sign(query);
     }
 
     internal static Task<string> GetPlayJsonAsync(
@@ -57,7 +57,7 @@ internal static class IntlBangumiAppApi
 
     private static string BuildOrigin()
     {
-        var host = Config.HOST == "api.bilibili.com" ? "app.biliintl.com" : Config.HOST;
+        var host = IntlGateway.Host("app.biliintl.com");
         if (!Uri.TryCreate(host.Contains("://", StringComparison.Ordinal) ? host : "https://" + host,
             UriKind.Absolute, out var origin) || origin.Scheme != Uri.UriSchemeHttps
             || origin.UserInfo.Length != 0 || origin.AbsolutePath != "/"

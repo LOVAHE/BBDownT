@@ -36,12 +36,20 @@ internal static class IntlCookieStore
         var path = Path.Combine(directory, international ? FileName : "BBDownT.data");
         if (!(exists ?? File.Exists)(path)) return ("", null);
         var cookie = (read ?? File.ReadAllText)(path);
-        return (international ? Normalize(cookie) : cookie, path);
+        if (!international) return (cookie, path);
+        try
+        {
+            return (Normalize(cookie), path);
+        }
+        catch (ArgumentException)
+        {
+            throw new ArgumentException($"{FileName}内容无效，请重新执行loginintl");
+        }
     }
 
     internal static Task SaveAsync(string directory, string input, Func<string, string, Task>? write = null)
     {
         var cookie = Normalize(input);
-        return BBDownTLoginUtil.SaveLoginDataAsync(directory, FileName, cookie, write);
+        return BBDownTLoginUtil.SaveLoginDataAsync(Path.Combine(directory, FileName), cookie, write);
     }
 }

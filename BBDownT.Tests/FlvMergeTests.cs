@@ -76,4 +76,37 @@ public class FlvMergeTests
         Assert.Equal("new media", File.ReadAllText(destination));
         Assert.False(File.Exists(input));
     }
+
+    [Fact]
+    public void EmptySingleSegmentKeepsTheExistingMergedFile()
+    {
+        using var files = new MediaTestDirectory();
+        var input = files.Write("segment.mp4", "");
+        var resume = files.Write("segment.mp4.resume", "state");
+        var destination = files.Write("merged.mp4", "old media");
+
+        Assert.Throws<IOException>(() => BBDownTMuxer.MergeFLV([input], destination));
+
+        Assert.Equal("old media", File.ReadAllText(destination));
+        Assert.True(File.Exists(input));
+        Assert.True(File.Exists(resume));
+    }
+
+    [Fact]
+    public void SingleSegmentRemovesItsResumeState()
+    {
+        using var files = new MediaTestDirectory();
+        var input = files.Write("segment.mp4", "new media");
+        var resume = files.Write("segment.mp4.resume", "state");
+        var destination = files.FilePath("merged.mp4");
+        var written = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(input, written);
+
+        BBDownTMuxer.MergeFLV([input], destination);
+
+        Assert.Equal("new media", File.ReadAllText(destination));
+        Assert.Equal(written, File.GetLastWriteTimeUtc(destination));
+        Assert.False(File.Exists(resume));
+        Assert.Equal(new[] { destination }, Directory.GetFiles(files.Root));
+    }
 }

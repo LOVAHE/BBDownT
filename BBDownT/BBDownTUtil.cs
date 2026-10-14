@@ -4,7 +4,6 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -23,12 +22,14 @@ static partial class BBDownTUtil
     {
         try
         {
-            var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
-            string nowVer = $"{ver.Major}.{ver.Minor}.{ver.Build}";
-            string redirectUrl = await GetWebLocationAsync("https://github.com/LOVAHE/BBDownT/releases/latest");
+            var current = BBDownTSelfUpdater.CurrentVersion();
+            if (current is null) return;
+            string redirectUrl = await GetWebLocationAsync(AppHttpClient,
+                "https://github.com/LOVAHE/BBDownT/releases/latest",
+                sendCookie: false, log: message => LogDebug("{0}", message));
             string latestVer = redirectUrl.Replace("https://github.com/LOVAHE/BBDownT/releases/tag/", "");
             latestVer = latestVer.TrimStart('v', 'V');
-            if (IsNewerVersion(nowVer, latestVer))
+            if (IsNewerVersion(current, latestVer))
             {
                 Console.Title = $"发现新版本：{latestVer}";
                 LogColor($"发现新版本：{latestVer}");
@@ -40,12 +41,8 @@ static partial class BBDownTUtil
         }
     }
 
-    internal static bool IsNewerVersion(string currentVersion, string candidateVersion)
-    {
-        return Version.TryParse(currentVersion.TrimStart('v', 'V'), out var current)
-            && Version.TryParse(candidateVersion.TrimStart('v', 'V'), out var candidate)
-            && candidate.CompareTo(current) > 0;
-    }
+    internal static bool IsNewerVersion(BBDownTSelfUpdater.ReleaseVersion current, string candidateVersion)
+        => BBDownTSelfUpdater.ReleaseVersion.TryParse(candidateVersion, out var candidate) && candidate > current;
 
     public static Task<string> GetAvIdAsync(string input)
         => GetAvIdAsync(input, GetWebLocationAsync);
@@ -56,12 +53,7 @@ static partial class BBDownTUtil
         var avid = input;
         if (input.StartsWith("http", StringComparison.OrdinalIgnoreCase))
         {
-            if (IsShortLinkUri(input))
-            {
-                string tmp = await fetchLocation(input);
-                if (tmp == input) throw new Exception("无限重定向");
-                input = tmp;
-            }
+            input = await ResolveShortLinkAsync(input, fetchLocation);
             if (IntlBangumiUrl.TryParse(input, out internationalId))
             {
                 avid = internationalId;
@@ -219,6 +211,17 @@ static partial class BBDownTUtil
         return await FixAvidAsync(avid, fetchLocation);
     }
 
+    internal static Task<string> ResolveShortLinkAsync(string input)
+        => ResolveShortLinkAsync(input, GetWebLocationAsync);
+
+    internal static async Task<string> ResolveShortLinkAsync(string input, Func<string, Task<string>> fetchLocation)
+    {
+        if (!IsShortLinkUri(input)) return input;
+        string location = await fetchLocation(input);
+        if (location == input) throw new Exception("无限重定向");
+        return location;
+    }
+
     internal static bool IsShortLinkUri(string input)
         => Uri.TryCreate(input, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
@@ -338,18 +341,13 @@ static partial class BBDownTUtil
     private static readonly char[] InvalidChars = "34,60,62,124,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,58,42,63,92,47"
         .Split(',').Select(s => (char)byte.Parse(s)).ToArray();
 
-    public static string GetValidFileName(string input, string re = "_", bool filterSlash = false)
+    public static string GetValidFileName(string input)
     {
         string title = input;
 
         foreach (char invalidChar in InvalidChars)
         {
-            title = title.Replace(invalidChar.ToString(), re);
-        }
-        if (filterSlash)
-        {
-            title = title.Replace("/", re);
-            title = title.Replace("\\", re);
+            title = title.Replace(invalidChar.ToString(), "_");
         }
         return title;
     }
@@ -373,18 +371,6 @@ static partial class BBDownTUtil
             }
         }
         return "";
-    }
-
-    public static string GetSign(string parms)
-    {
-        string toEncode = parms + "59b43e04ad6965f34319062b478f83dd";
-        return string.Concat(MD5.HashData(Encoding.UTF8.GetBytes(toEncode)).Select(i => i.ToString("x2")));
-    }
-
-    public static string GetTimeStamp(bool bflag)
-    {
-        DateTimeOffset ts = DateTimeOffset.Now;
-        return (bflag ? ts.ToUnixTimeSeconds() : ts.ToUnixTimeMilliseconds()).ToString();
     }
 
     //https://stackoverflow.com/questions/1344221/how-can-i-generate-random-alphanumeric-strings
@@ -421,7 +407,7 @@ static partial class BBDownTUtil
         string deviceId = GetRandomString(20);
         string buvid = GetRandomString(37);
         string fingerprint = $"{now:yyyyMMddHHmmssfff}{GetRandomString(45)}";
-        sb.Add("appkey", "4409e2ce8ffd12b8");
+        sb.Add("appkey", AppKeys.TvAndroid.Key);
         sb.Add("auth_code", "");
         sb.Add("bili_local_id", deviceId);
         sb.Add("build", "102801");
@@ -439,8 +425,8 @@ static partial class BBDownTUtil
         sb.Add("networkstate", "wifi");
         sb.Add("platform", "android");
         sb.Add("sys_ver", "29");
-        sb.Add($"ts", GetTimeStamp(true));
-        sb.Add($"sign", GetSign(ToQueryString(sb)));
+        sb.Add($"ts", AppKeys.UnixSeconds());
+        sb.Add($"sign", AppKeys.TvAndroid.Sign(ToQueryString(sb)));
 
         return sb;
     }
@@ -564,43 +550,13 @@ static partial class BBDownTUtil
         return searchPath.Concat(envPath).Select(p => Path.Combine(p, name + fileExt)).FirstOrDefault(File.Exists);
     }
 
-    public static string RSubString(string sub)
-    {
-        sub = sub[(sub.LastIndexOf('/') + 1)..];
-        return sub[..sub.LastIndexOf('.')];
-    }
-
-    private static string GetMixinKey(string orig)
-    {
-        byte[] mixinKeyEncTab = 
-        [
-            46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
-            27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13
-        ];
-
-        var tmp = new StringBuilder(32);
-        foreach (var index in mixinKeyEncTab)
-        {
-            tmp.Append(orig[index]);
-        }
-        return tmp.ToString();
-    }
-
-    public static async Task<bool> CheckLogin(string cookie)
+    public static async Task<bool> CheckLogin()
     {
         try
         {
-            var api = "https://api.bilibili.com/x/web-interface/nav";
-            var source = await GetWebSourceAsync(api);
-            var json = JsonDocument.Parse(source).RootElement;
-            var is_login = json.GetProperty("data").GetProperty("isLogin").GetBoolean();
-            var wbi_img = json.GetProperty("data").GetProperty("wbi_img");
-            var imgUrl = wbi_img.GetProperty("img_url").GetString();
-            var subUrl = wbi_img.GetProperty("sub_url").GetString();
-            if (imgUrl is null || subUrl is null) return false;
-            Core.Config.WBI = GetMixinKey(RSubString(imgUrl) + RSubString(subUrl));
-            LogDebug("wbi: {0}", Core.Config.WBI);
-            return is_login;
+            using var nav = JsonDocument.Parse(await GetWebSourceAsync(WbiKey.NavApi));
+            WbiKey.TryUpdate(nav.RootElement);
+            return nav.RootElement.GetProperty("data").GetProperty("isLogin").GetBoolean();
         }
         catch (Exception)
         {

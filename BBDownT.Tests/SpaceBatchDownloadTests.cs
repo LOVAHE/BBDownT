@@ -67,6 +67,7 @@ public class SpaceBatchDownloadTests
     [InlineData("https://space.bilibili.com/42/favlist", false)]
     [InlineData("https://space.bilibili.com/42/channel/seriesdetail?sid=1", false)]
     [InlineData("https://www.bilibili.com/video/av1", false)]
+    [InlineData("https://b23.tv/abc", true)]
     public void DownloadAll_OnlyAcceptsSpaceSubmissions(string url, bool valid)
     {
         Assert.Equal(valid, SpaceBatchDownload.ValidateOptions(new MyOption { Url = url, DownloadAll = true }) is null);
@@ -74,6 +75,7 @@ public class SpaceBatchDownloadTests
 
     [Theory]
     [InlineData(false, false)]
+    [InlineData(false, true)]
     [InlineData(true, true)]
     public async Task ExportOnlyAndInfoOnly_DoNotDownloadOrDelay(bool downloadAll, bool infoOnly)
     {
@@ -213,6 +215,28 @@ public class SpaceBatchDownloadTests
             await Assert.ThrowsAsync<OperationCanceledException>(() => SpaceBatchDownload.HandleExportAsync(path, Options(0),
                 _ => { calls++; throw new OperationCanceledException(); }));
             Assert.Equal(1, calls);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task TimedOutVideo_CountsAsOneFailureAndTheBatchContinues()
+    {
+        var path = Path.GetTempFileName();
+        var calls = new List<string>();
+        try
+        {
+            await File.WriteAllLinesAsync(path, [Url(1), Url(2)]);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => SpaceBatchDownload.HandleExportAsync(
+                path, Options(0), option =>
+                {
+                    calls.Add(option.Url);
+                    return option.Url == Url(1)
+                        ? throw new OperationCanceledException("HTTP request timed out.", new TimeoutException())
+                        : Task.CompletedTask;
+                }));
+            Assert.Equal(new[] { Url(1), Url(2) }, calls);
+            Assert.Contains("1/2", error.Message);
         }
         finally { File.Delete(path); }
     }

@@ -34,12 +34,11 @@ public class IntlBangumiTests
         Assert.Equal(expected, video.codecs);
     }
 
-    [Theory]
-    [InlineData(10004005)]
-    public async Task SubtitlePermissions_PropagateThroughFetchWrapperWithoutAppFallback(int code)
+    [Fact]
+    public async Task SubtitlePermissions_PropagateThroughFetchWrapperWithoutAppFallback()
     {
         var calls = 0;
-        var response = new JsonObject { ["code"] = code }.ToJsonString();
+        var response = new JsonObject { ["code"] = 10004005 }.ToJsonString();
         await Assert.ThrowsAsync<IntlApiException>(() => SubUtil.GetIntlSubtitlesAsync(
             "intl_13287667", "", "13287667", _ =>
             {
@@ -73,11 +72,10 @@ public class IntlBangumiTests
         Assert.Equal("1", info.Index);
         Assert.Equal("intl_13287667", info.PagesInfo[0].DownloadId);
         Assert.Equal("2110869", info.IntlSeasonId);
-        var playbackId = Program.GetIntlPlaybackId(info, "ep:13287667");
-        Assert.Equal("intl:2110869", playbackId);
         Uri? appRequest = null;
-        await Parser.GetPlayJsonAsync("", playbackId, "", "", "13287667", false, true, true,
-            fetchWeb: url => { appRequest = new Uri(url); return Task.FromResult("{\"code\":0}"); });
+        await Parser.GetPlayJsonAsync("", "ep:13287667", "", "", "13287667", false, true, true,
+            fetchWeb: url => { appRequest = new Uri(url); return Task.FromResult("{\"code\":0}"); },
+            intlSeasonId: info.IntlSeasonId);
         Assert.Equal("2110869", HttpUtility.ParseQueryString(appRequest!.Query)["sid"]);
         Assert.Equal("13287667", HttpUtility.ParseQueryString(appRequest.Query)["ep_id"]);
     }
@@ -126,13 +124,19 @@ public class IntlBangumiTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void InternationalDanmaku_IsRejectedBeforeDomesticCidRequests(bool only)
+    public async Task InternationalDanmaku_IsRejectedBeforeDomesticCidRequests(bool only)
     {
-        var error = Assert.Throws<ArgumentException>(() => Program.SetUpWork(new MyOption
+        const string url = "https://www.bilibili.tv/play/2110869";
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => Program.ExecuteWorkAsync(new MyOption
         {
-            UseIntlApi = true, DownloadDanmaku = !only, DanmakuOnly = only
-        }));
+            Url = url, UseIntlApi = true, DownloadDanmaku = !only, DanmakuOnly = only
+        }, prepare: _ => throw new InvalidOperationException("Invalid options must not be prepared")));
         Assert.Contains("国际站弹幕", error.Message);
+
+        Assert.Equal(error.Message, new BBDownTApiServer().ValidateAndNormalizeServerRequest(new ServeRequestOptions
+        {
+            Url = url, UseIntlApi = true, DownloadDanmaku = !only, DanmakuOnly = only
+        }));
     }
 
     [Theory]
@@ -364,7 +368,7 @@ public class IntlBangumiTests
         Assert.Equal(response, result.WebJsonString);
         var video = Assert.Single(result.VideoTracks);
         Assert.Equal("64", video.id);
-        Assert.Equal("720P HD", video.dfn);
+        Assert.Equal("720P 高清", video.dfn);
         Assert.Equal("AVC", video.codecs);
         Assert.Equal("1280x720", video.res);
         Assert.Equal("30", video.fps);
@@ -377,6 +381,29 @@ public class IntlBangumiTests
         Assert.Equal(192L, audio.bandwith);
         Assert.Equal(9, audio.dur);
         Assert.Empty(result.Clips);
+    }
+
+    [Fact]
+    public async Task WebPlayResponse_UnknownQualityKeepsApiLabel()
+    {
+        var response = PlayResponse();
+        response["data"]!["playurl"]!["video"]![0]!["video_resource"]!["quality"] = 777;
+        response["data"]!["playurl"]!["video"]![0]!["stream_info"]!["desc_words"] = " Future quality ";
+
+        var video = Assert.Single((await Extract(response.ToJsonString())).VideoTracks);
+
+        Assert.Equal("777", video.id);
+        Assert.Equal("Future quality", video.dfn);
+    }
+
+    [Theory]
+    [InlineData("{\"code\":0,\"data\":{\"playurl\":null}}")]
+    [InlineData("{\"code\":0,\"data\":{}}")]
+    public async Task WebPlayResponse_WithoutPlayurlFailsClearly(string response)
+    {
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => Extract(response));
+
+        Assert.Contains("未返回可用音视频流", error.Message);
     }
 
     [Fact]
@@ -419,19 +446,18 @@ public class IntlBangumiTests
         Assert.Contains("未返回可用音视频流", error.Message);
     }
 
-    [Theory]
-    [InlineData(10004001, "地区限制")]
-    public async Task PlayApiPermissionErrors_ArePropagatedBeforeMapping(int code, string expected)
+    [Fact]
+    public async Task PlayApiPermissionErrors_ArePropagatedBeforeMapping()
     {
         var response = new JsonObject
         {
-            ["code"] = code,
+            ["code"] = 10004001,
             ["data"] = new JsonObject { ["playurl"] = new JsonObject() }
         }.ToJsonString();
         var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(
             () => Extract(response));
 
-        Assert.Contains(expected, error.Message);
+        Assert.Contains("地区限制", error.Message);
     }
 
     [Theory]
@@ -521,7 +547,7 @@ public class IntlBangumiTests
     }
 
     private static Task<ParsedResult> Extract(string response, Action? onPrimaryFetch = null)
-        => Parser.ExtractTracksWithFetcherAsync("intl:2110869:13287667", "", "", "13287667", false, true, false, "0",
+        => Parser.ExtractTracksWithFetcherAsync("intl:2110869:13287667", "", "", false, true, false, "0",
             _ => { onPrimaryFetch?.Invoke(); return Task.FromResult(response); },
             (_, _) => throw new InvalidOperationException("The WEB response must not request an APP codec variant"));
 

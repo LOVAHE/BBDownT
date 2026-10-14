@@ -17,12 +17,11 @@ public class OutputPathPolicyTests
         Assert.Contains("链接", error.Message);
     }
 
-    [Theory]
-    [InlineData("intl_13287667/video.tmp")]
-    public void RestrictedCacheArtifacts_RejectLinksBeforeTemporaryOrSubtitleWrites(string relative)
+    [Fact]
+    public void RestrictedCacheArtifacts_RejectLinksBeforeTemporaryOrSubtitleWrites()
     {
         var root = Path.Combine(Environment.CurrentDirectory, "synthetic-root");
-        var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.Combine(root, "intl_13287667", "video.tmp");
         Assert.Throws<ArgumentException>(() => OutputPathPolicy.ResolveArtifact(path, root, candidate => candidate == path));
         var linkedDirectory = Path.Combine(root, "intl_13287667");
         Assert.Throws<ArgumentException>(() => OutputPathPolicy.ResolveArtifact(path, root, candidate => candidate == linkedDirectory));
@@ -110,7 +109,7 @@ public class OutputPathPolicyTests
         Assert.Equal(expected, Program.GetApiType(option));
     }
 
-    private static Page InternationalPage(string episode = "13287667") => new(1, "", "", episode, "E1", 0, "", 1);
+    private static Page InternationalPage(string episode = "13287667") => new(1, "", "", episode, "E1", 0, 1);
 
     [Theory]
     [InlineData("<aid>_<cid>", "intl_13287667_13287667.mp4")]
@@ -158,11 +157,10 @@ public class OutputPathPolicyTests
         Assert.Equal(Path.Combine("intl_13287667", "target.png"), Path.GetRelativePath(request.RestrictedOutputRoot!, cover));
     }
 
-    [Theory]
-    [InlineData("<ownerMid>/target")]
-    [InlineData("<publishDate:..>/target")]
-    public void DefaultServer_RejectsExpansionThatEscapesRootEvenWhenRawTemplatePasses(string template)
+    [Fact]
+    public void DefaultServer_RejectsExpansionThatEscapesRootEvenWhenRawTemplatePasses()
     {
+        const string template = "<publishDate:..>/target";
         var request = new ServeRequestOptions
         {
             Url = "https://www.bilibili.tv/play/2110869", UseIntlApi = true,
@@ -200,9 +198,36 @@ public class OutputPathPolicyTests
     [Fact]
     public void DomesticTemplates_RetainRealIdsAndExistingRelativePaths()
     {
-        var page = new Page(1, "12", "34", "", "part", 1, "", 0);
+        var page = new Page(1, "12", "34", "", "part", 1, 0);
         Assert.Equal("12/34.mp4", Program.FormatSavePath("<aid>/<cid>", "Title", null, null, page, 1, "WEB", 0));
         Assert.Equal("12/34.mp4", Program.FormatSavePath("<aid>/<cid>", "Title", null, null, page, 1, "INTL", 0));
+    }
+
+    [Theory]
+    [InlineData("<ownerName>/<videoTitle>", "Title.mp4")]
+    [InlineData("<ownerMid>/target", "target.mp4")]
+    [InlineData("a/<dfn>/b", "a/b.mp4")]
+    [InlineData("<videoTitle>/<pageTitle>", "Title/.mp4")]
+    public void EmptyValues_CannotTurnARelativeTemplateIntoAnAbsolutePath(string template, string expected)
+    {
+        var page = new Page(1, "12", "34", "", "", 1, 0);
+        Assert.Equal(expected, Program.FormatSavePath(template, "Title", null, null, page, 1, "WEB", 0));
+
+        var root = Path.Combine(Environment.CurrentDirectory, "download-root");
+        Assert.Equal(Path.GetFullPath(expected, root), Program.FormatSavePath(template, "Title", null, null, page, 1, "WEB", 0, root));
+    }
+
+    [Theory]
+    [InlineData("NUL", "NUL_.mp4")]
+    [InlineData("con", "con_.mp4")]
+    [InlineData("Com1.x", "Com1_.x.mp4")]
+    [InlineData("lpt9 .x", "lpt9_ .x.mp4")]
+    [InlineData("CONSOLE", "CONSOLE.mp4")]
+    [InlineData("a/b\\c:d", "a_b_c_d.mp4")]
+    public void TitlesAreSafeFileNamesOnEveryPlatform(string title, string expected)
+    {
+        var page = new Page(1, "12", "34", "", "part", 1, 0);
+        Assert.Equal(expected, Program.FormatSavePath("<videoTitle>", title, null, null, page, 1, "WEB", 0));
     }
 
     [Fact]

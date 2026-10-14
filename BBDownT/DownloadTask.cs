@@ -7,6 +7,7 @@ namespace BBDownT;
 public sealed class DownloadTask
 {
     private readonly object stateLock = new();
+    private long? taskStartTime;
 
     public DownloadTask(string aid, string url, long taskCreateTime)
         : this(Guid.NewGuid().ToString("N"), aid, url, taskCreateTime)
@@ -67,12 +68,20 @@ public sealed class DownloadTask
         }
     }
 
-    internal void ReportDownloadedBytes(double bytesPerSecond)
+    internal void ReportDownloadedBytes(long bytes, double bytesPerSecond)
     {
         lock (stateLock)
         {
+            TotalDownloadedBytes += bytes;
             DownloadSpeed = bytesPerSecond;
-            TotalDownloadedBytes += bytesPerSecond;
+        }
+    }
+
+    internal void MarkStarted(long startedAt)
+    {
+        lock (stateLock)
+        {
+            taskStartTime = startedAt;
         }
     }
 
@@ -101,7 +110,7 @@ public sealed class DownloadTask
             if (succeeded)
             {
                 Progress = 1f;
-                DownloadSpeed = CalculateDownloadSpeed(TotalDownloadedBytes, TaskCreateTime, finishedAt);
+                DownloadSpeed = CalculateDownloadSpeed(TotalDownloadedBytes, taskStartTime ?? TaskCreateTime, finishedAt);
             }
         }
     }
@@ -112,6 +121,7 @@ public sealed class DownloadTask
         {
             return new DownloadTask(TaskId, Aid, Url, TaskCreateTime)
             {
+                taskStartTime = taskStartTime,
                 Title = Title,
                 Pic = Pic,
                 VideoPubTime = VideoPubTime,

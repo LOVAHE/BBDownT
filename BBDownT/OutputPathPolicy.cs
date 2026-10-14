@@ -5,6 +5,13 @@ namespace BBDownT;
 
 internal static class OutputPathPolicy
 {
+    internal static readonly StringComparison PathComparison = ComparisonFor(OperatingSystem.IsWindows(), OperatingSystem.IsMacOS());
+
+    internal static readonly StringComparer PathComparer = StringComparer.FromComparison(PathComparison);
+
+    internal static StringComparison ComparisonFor(bool windows, bool macOS)
+        => windows || macOS ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     internal static string Resolve(string path, string? restrictedRoot, Func<string, bool>? isLink = null)
     {
         // CLI and explicitly unrestricted servers retain absolute-path support.

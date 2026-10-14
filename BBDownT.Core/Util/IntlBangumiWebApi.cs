@@ -37,7 +37,7 @@ internal static class IntlBangumiWebApi
 
                 // WEB episodes have no domestic AID/CID. Keep those absent;
                 // Page.DownloadId supplies a separate, namespaced cache key.
-                pages.Add(new Page(pages.Count + 1, "", "", epId, title, 0, "", pubTime,
+                pages.Add(new Page(pages.Count + 1, "", "", epId, title, 0, pubTime,
                     ReadText(episode, "cover")));
             }
         }
@@ -72,11 +72,8 @@ internal static class IntlBangumiWebApi
         => fetch(BuildUrl("playurl", $"ep_id={Uri.EscapeDataString(episodeId)}&qn={(quality == "0" ? "64" : Uri.EscapeDataString(quality))}&type=0&device=wap&tf=0"));
 
     private static string BuildUrl(string route, string query)
-    {
-        var host = Config.HOST == "api.bilibili.com" ? "api.bilibili.tv" : Config.HOST;
-        return $"https://{host}/intl/gateway/web/{route}?{query}&s_locale=en_US&platform=web"
+        => $"https://{IntlGateway.Host("api.bilibili.tv")}/intl/gateway/web/{route}?{query}&s_locale=en_US&platform=web"
             + (Config.TOKEN.Length == 0 ? "" : $"&access_key={Uri.EscapeDataString(Config.TOKEN)}");
-    }
 
     private static JsonElement ReadData(string json)
     {
@@ -96,8 +93,7 @@ internal static class IntlBangumiWebApi
             throw new InvalidDataException("国际站接口返回了无效状态码");
         if (code == 0) return;
 
-        var knownMessage = ErrorDescription(code);
-        if (knownMessage is not null) throw IntlApiException.FromCode(code);
+        if (ErrorDescription(code) is { } knownMessage) throw IntlApiException.FromCode(code, knownMessage);
         var error = "国际站请求失败" + (ReadText(root, "message") is { Length: > 0 } detail && detail != code.ToString()
             ? $"：{detail}" : "") + $"（错误码 {code}）";
         throw new BilibiliApiException(error, code);
@@ -134,20 +130,10 @@ internal static class IntlBangumiWebApi
 
 internal sealed class IntlApiException : InvalidOperationException
 {
-    internal string? UserDescription { get; }
-    internal int? ApiCode { get; }
-
-    internal IntlApiException(string message) : base(message) { }
-
     private IntlApiException(string description, int? code)
-        : base(description + (code is null ? "" : $"（错误码 {code}）"))
-    {
-        UserDescription = Message;
-        ApiCode = code;
-    }
+        : base(description + (code is null ? "" : $"（错误码 {code}）")) { }
 
-    internal static IntlApiException FromCode(int code)
-        => new(IntlBangumiWebApi.ErrorDescription(code) ?? "国际站请求失败", code);
+    internal static IntlApiException FromCode(int code, string description) => new(description, code);
 
     internal static IntlApiException RegionRestricted()
         => new("国际站版权地区限制，当前网络出口无法播放该内容", null);

@@ -266,6 +266,55 @@ public class SelfUpdaterTests
     }
 
     [Fact]
+    public async Task UpdateAsync_StaleLockFromAKilledUpdateDoesNotBlockTheNextOne()
+    {
+        using var fixture = new UpdateFixture();
+        File.WriteAllBytes(fixture.LockPath, []);
+        File.SetLastWriteTimeUtc(fixture.LockPath, DateTime.UtcNow - BBDownTSelfUpdater.UpdateTimeout - TimeSpan.FromMinutes(1));
+        using var handler = new RouteHandler(request => request.RequestUri!.AbsoluteUri switch
+        {
+            BBDownTSelfUpdater.ReleasesUrl => JsonResponse(CreateReleaseJson()),
+            var url when url == ExpectedAssetUrl => BinaryResponse(UpdatedBytes),
+            var url => throw new InvalidOperationException($"Unexpected URL: {url}")
+        });
+        using var client = new HttpClient(handler);
+
+        var result = await BBDownTSelfUpdater.UpdateAsync(
+            client,
+            fixture.TargetPath,
+            CurrentVersion,
+            AssetName,
+            windows: false,
+            (_, _, _) => Task.CompletedTask);
+
+        var completed = Assert.IsType<(BBDownTSelfUpdater.ReleaseVersion Version, string BackupPath)>(result);
+        fixture.SuccessBackupPath = completed.BackupPath;
+        Assert.Equal(UpdatedBytes, await File.ReadAllBytesAsync(fixture.TargetPath));
+        Assert.False(File.Exists(fixture.LockPath));
+    }
+
+    [Fact]
+    public void AcquireUpdateLock_RecentLockFileBlocksEvenWithoutAHolder()
+    {
+        using var fixture = new UpdateFixture();
+        File.WriteAllBytes(fixture.LockPath, []);
+
+        Assert.ThrowsAny<IOException>(() => BBDownTSelfUpdater.AcquireUpdateLock(fixture.LockPath));
+        Assert.True(File.Exists(fixture.LockPath));
+    }
+
+    [Fact]
+    public void AcquireUpdateLock_StaleLockFileStillHeldByAnotherUpdateBlocks()
+    {
+        using var fixture = new UpdateFixture();
+        using var holder = BBDownTSelfUpdater.AcquireUpdateLock(fixture.LockPath);
+        File.SetLastWriteTimeUtc(fixture.LockPath, DateTime.UtcNow - BBDownTSelfUpdater.UpdateTimeout - TimeSpan.FromMinutes(1));
+
+        Assert.ThrowsAny<IOException>(() => BBDownTSelfUpdater.AcquireUpdateLock(fixture.LockPath));
+        Assert.True(File.Exists(fixture.LockPath));
+    }
+
+    [Fact]
     public async Task Install_WindowsSuccessMovesTheOldTargetToBackupAndInstallsTheStagedFile()
     {
         using var fixture = new UpdateFixture();

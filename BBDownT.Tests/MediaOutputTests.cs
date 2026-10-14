@@ -135,4 +135,53 @@ public class MediaOutputTests
         Assert.Equal("completed media", File.ReadAllText(destination));
         Assert.False(File.Exists(input));
     }
+
+    [Fact]
+    public void CleanupComparesCaseLikeThePlatformPathRule()
+    {
+        using var files = new MediaTestDirectory();
+        var deleted = new List<string>();
+
+        MediaOutput.DeleteInput(files.FilePath("Result.mp4"), files.FilePath("result.mp4"), deleted.Add);
+
+        var caseInsensitive = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+        Assert.Equal(caseInsensitive, deleted.Count == 0);
+    }
+
+    [Theory]
+    [InlineData(false, false, StringComparison.Ordinal)]
+    [InlineData(true, false, StringComparison.OrdinalIgnoreCase)]
+    [InlineData(false, true, StringComparison.OrdinalIgnoreCase)]
+    public void PathsAreCaseInsensitiveOnWindowsAndMacOS(bool windows, bool macOS, StringComparison expected)
+    {
+        Assert.Equal(expected, OutputPathPolicy.ComparisonFor(windows, macOS));
+    }
+
+    [Fact]
+    public void AConcurrentWriterOfTheSameDestinationCannotReplaceTheStagedFile()
+    {
+        using var files = new MediaTestDirectory();
+        var destination = files.FilePath("result.mp4");
+        var lockPath = MediaOutput.StagedPath(destination) + ".lock";
+
+        Assert.True(MediaOutput.Write(destination, staged =>
+        {
+            File.WriteAllText(staged, "first writer");
+            var error = Assert.Throws<IOException>(() => MediaOutput.Write(destination, _ => 0));
+            Assert.Contains("另一个BBDownT进程正在写入", error.Message);
+            Assert.True(File.Exists(lockPath));
+            Assert.Throws<IOException>(() => MediaOutput.Write(destination, _ => 0));
+            Assert.Equal("first writer", File.ReadAllText(staged));
+            return 0;
+        }));
+
+        Assert.Equal("first writer", File.ReadAllText(destination));
+        Assert.False(File.Exists(lockPath));
+        Assert.True(MediaOutput.Write(destination, staged =>
+        {
+            File.WriteAllText(staged, "next run");
+            return 0;
+        }));
+        Assert.Equal(new[] { destination }, Directory.GetFiles(files.Root));
+    }
 }

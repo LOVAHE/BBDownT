@@ -1,4 +1,5 @@
 using BBDownT.Core;
+using BBDownT.Core.Util;
 
 namespace BBDownT.Tests;
 
@@ -42,7 +43,54 @@ public class SensitiveLoggingTests
 
         var sanitized = CommandLineLogSanitizer.SanitizeText(diagnostic);
 
-        Assert.DoesNotContain("secret-value", sanitized);
-        Assert.Contains("<redacted>", sanitized);
+        Assert.Equal("option --cookie <redacted> --api-token:<redacted> is invalid", sanitized);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailureBanner_PrintsTheHeaderDetailAndUpgradeHint(bool debug)
+    {
+        var error = new NullReferenceException("{\"Cookie\":\"cookie-secret\"}");
+        var originalOutput = Console.Out;
+        var originalDebug = Config.DEBUG_LOG;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            Config.DEBUG_LOG = debug;
+
+            var description = Program.PrintFailure(error, "BV1下载失败");
+
+            var detail = debug ? Logger.RedactSensitiveText(error.ToString()) : ErrorText.Describe(error);
+            var newLine = Environment.NewLine;
+            Assert.Equal(ErrorText.Describe(error), description);
+            Assert.Equal($"BV1下载失败{newLine}{detail}{newLine}请尝试升级到最新版本后重试!{newLine}", output.ToString());
+            Assert.DoesNotContain("cookie-secret", output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            Config.DEBUG_LOG = originalDebug;
+        }
+    }
+
+    [Fact]
+    public void EveryCredentialOptionAlias_IsRedactedByBothSanitizers()
+    {
+        var aliases = CommandLineInvoker.GetRootCommand(_ => Task.CompletedTask).Options
+            .Where(option => option.Name is "cookie" or "access-token")
+            .SelectMany(option => option.Aliases)
+            .Append("--api-token")
+            .ToArray();
+
+        Assert.Equal(5, aliases.Length);
+        foreach (var alias in aliases)
+        {
+            Assert.Equal($"{alias} <redacted>", CommandLineLogSanitizer.Format([alias, "secret-value"]));
+            Assert.Equal($"{alias}=<redacted>", CommandLineLogSanitizer.Format([$"{alias}=secret-value"]));
+            Assert.Equal($"{alias} <redacted>", CommandLineLogSanitizer.SanitizeText($"{alias} secret-value"));
+            Assert.Equal($"{alias}:<redacted>", CommandLineLogSanitizer.SanitizeText($"{alias}:\"secret value\""));
+        }
     }
 }

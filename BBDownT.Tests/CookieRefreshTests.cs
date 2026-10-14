@@ -140,11 +140,15 @@ public sealed class CookieRefreshTests
     {
         var original = Config.COOKIE;
         const string manualCookie = "SESSDATA=test-session; unrelated=keep-this";
+        var endpoints = new RefreshEndpoints();
+        using var client = new HttpClient(endpoints);
         try
         {
             Config.COOKIE = manualCookie;
-            await BBDownTCookieRefreshUtil.TryRefreshCookieAsync(null);
+            await BBDownTCookieRefreshUtil.TryRefreshCookieAsync(null, client,
+                (_, _) => throw new InvalidOperationException("must not save"));
             Assert.Equal(manualCookie, Config.COOKIE);
+            Assert.Empty(endpoints.Requests);
         }
         finally
         {

@@ -11,7 +11,6 @@ public class BilibiliAppProtocolTests
         var framed = AppHelper.GetPayload(
             1,
             2,
-            64,
             PlayViewReq.Types.CodeType.Code265);
 
         var request = PlayViewReq.Parser.ParseFrom(AppHelper.ReadMessage(framed));
@@ -23,7 +22,7 @@ public class BilibiliAppProtocolTests
     [Fact]
     public void Headers_UseCompatibilityProfileAuthority()
     {
-        var headers = AppHelper.GetHeader("");
+        var headers = AppHelper.GetHeader();
 
         Assert.Equal("grpc.biliapi.net", BilibiliAppProtocol.GrpcAuthority);
         Assert.Equal("grpc.biliapi.net", headers["Host"]);

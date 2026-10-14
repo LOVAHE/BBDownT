@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Threading.Tasks;
 using static BBDownT.Core.Entity.Entity;
 using static BBDownT.BBDownTUtil;
@@ -9,6 +10,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using BBDownT.Core;
 using BBDownT.Core.Entity;
+using BBDownT.Core.Util;
 using static BBDownT.BBDownTDownloadUtil;
 
 namespace BBDownT;
@@ -75,7 +77,7 @@ internal partial class Program
     /// </summary>
     /// <param name="myOption"></param>
     /// <returns></returns>
-    private static Dictionary<string, byte> ParseEncodingPriority(MyOption myOption, out string firstEncoding)
+    internal static Dictionary<string, byte> ParseEncodingPriority(MyOption myOption, out string firstEncoding)
     {
         var encodingPriority = new Dictionary<string, byte>();
         firstEncoding = "";
@@ -88,7 +90,7 @@ internal partial class Program
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(s => !string.IsNullOrEmpty(s)).ToList();
             byte index = 0;
-            firstEncoding = encodingPriorityTemp.First();
+            firstEncoding = encodingPriorityTemp.FirstOrDefault() ?? "";
             foreach (string encoding in encodingPriorityTemp)
             {
                 if (encodingPriority.ContainsKey(encoding))
@@ -101,25 +103,27 @@ internal partial class Program
     }
 
     private static BBDownTDanmakuFormat[] ParseDownloadDanmakuFormats(MyOption myOption)
-    {
-        if (string.IsNullOrEmpty(myOption.DownloadDanmakuFormats)) return BBDownTDanmakuFormatInfo.DefaultFormats;
+        => string.IsNullOrEmpty(myOption.DownloadDanmakuFormats)
+            ? BBDownTDanmakuFormatInfo.DefaultFormats
+            : SplitDanmakuFormats(myOption.DownloadDanmakuFormats).Select(BBDownTDanmakuFormatInfo.FromFormatName).ToArray();
 
-        var formats = myOption.DownloadDanmakuFormats.Replace("，", ",").ToLower().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (formats.Any(format => !BBDownTDanmakuFormatInfo.AllFormatNames.Contains(format)))
-        {
-            LogError($"包含不支持的下载弹幕格式：{myOption.DownloadDanmakuFormats}");
-            return BBDownTDanmakuFormatInfo.DefaultFormats;
-        }
-        
-        return formats.Select(BBDownTDanmakuFormatInfo.FromFormatName).ToArray();
+    internal static string? ValidateDanmakuFormats(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        var formats = SplitDanmakuFormats(value);
+        return formats.Length > 0 && formats.All(BBDownTDanmakuFormatInfo.AllFormatNames.Contains)
+            ? null : $"弹幕格式无效，可选 {string.Join('/', BBDownTDanmakuFormatInfo.AllFormatNames)}，多个用逗号分隔。";
     }
+
+    private static string[] SplitDanmakuFormats(string value)
+        => value.Replace("，", ",").ToLower().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>
     /// 解析用户输入的清晰度规格优先级
     /// </summary>
     /// <param name="myOption"></param>
     /// <returns></returns>
-    private static Dictionary<string, int> ParseDfnPriority(MyOption myOption)
+    internal static Dictionary<string, int> ParseDfnPriority(MyOption myOption)
     {
         var dfnPriority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (myOption.DfnPriority != null)
@@ -141,58 +145,56 @@ internal partial class Program
     /// </summary>
     /// <param name="myOption"></param>
     /// <exception cref="Exception"></exception>
-    private static void FindBinaries(MyOption myOption)
+    internal static void FindBinaries(MyOption myOption)
     {
         if (SpaceBatchDownload.IsExportOnly(myOption)) return;
-        if (!string.IsNullOrEmpty(myOption.FFmpegPath) && File.Exists(myOption.FFmpegPath))
+        if (ExistingFile(myOption.FFmpegPath) is { } ffmpegPath)
         {
-            BBDownTMuxer.FFMPEG = myOption.FFmpegPath;
+            BBDownTMuxer.FFMPEG = ffmpegPath;
         }
 
-        if (!string.IsNullOrEmpty(myOption.Mp4boxPath) && File.Exists(myOption.Mp4boxPath))
+        if (ExistingFile(myOption.Mp4boxPath) is { } mp4boxPath)
         {
-            BBDownTMuxer.MP4BOX = myOption.Mp4boxPath;
+            BBDownTMuxer.MP4BOX = mp4boxPath;
         }
 
-        if (!string.IsNullOrEmpty(myOption.Aria2cPath) && File.Exists(myOption.Aria2cPath))
+        if (ExistingFile(myOption.Aria2cPath) is { } aria2cPath)
         {
-            BBDownTAria2c.ARIA2C = myOption.Aria2cPath;
+            BBDownTAria2c.ARIA2C = aria2cPath;
         }
         //寻找ffmpeg或mp4box
         if (NeedsMuxer(myOption))
         {
             if (myOption.UseMP4box)
             {
-                if (string.IsNullOrEmpty(BBDownTMuxer.MP4BOX) || !File.Exists(BBDownTMuxer.MP4BOX))
-                {
-                    var binPath = FindExecutable("mp4box") ?? FindExecutable("MP4box");
-                    if (string.IsNullOrEmpty(binPath))
-                        throw new Exception("找不到可执行的mp4box文件");
-                    BBDownTMuxer.MP4BOX = binPath;
-                }
+                if (ResolveMp4box() is null)
+                    throw new Exception("找不到可执行的mp4box文件");
             }
-            else if (string.IsNullOrEmpty(BBDownTMuxer.FFMPEG) || !File.Exists(BBDownTMuxer.FFMPEG))
+            else
             {
-                var binPath = FindExecutable("ffmpeg");
-                if (string.IsNullOrEmpty(binPath))
-                    throw new Exception("找不到可执行的ffmpeg文件");
-                BBDownTMuxer.FFMPEG = binPath;
+                BBDownTMuxer.FFMPEG = ExistingFile(BBDownTMuxer.FFMPEG) ?? FindExecutable("ffmpeg")
+                    ?? throw new Exception("找不到可执行的ffmpeg文件");
             }
         }
 
         //寻找aria2c
         if (myOption.UseAria2c)
         {
-            if (string.IsNullOrEmpty(BBDownTAria2c.ARIA2C) || !File.Exists(BBDownTAria2c.ARIA2C))
-            {
-                var binPath = FindExecutable("aria2c");
-                if (string.IsNullOrEmpty(binPath))
-                    throw new Exception("找不到可执行的aria2c文件");
-                BBDownTAria2c.ARIA2C = binPath;
-            }
-
+            BBDownTAria2c.ARIA2C = ExistingFile(BBDownTAria2c.ARIA2C) ?? FindExecutable("aria2c")
+                ?? throw new Exception("找不到可执行的aria2c文件");
         }
     }
+
+    internal static string? ResolveMp4box()
+    {
+        var binPath = ExistingFile(BBDownTMuxer.MP4BOX)
+            ?? FindExecutable("MP4Box") ?? FindExecutable("mp4box") ?? FindExecutable("MP4box");
+        if (binPath is not null) BBDownTMuxer.MP4BOX = binPath;
+        return binPath;
+    }
+
+    private static string? ExistingFile(string? path)
+        => !string.IsNullOrEmpty(path) && File.Exists(path) ? Path.GetFullPath(path) : null;
 
     internal static bool NeedsMuxer(MyOption myOption)
     {
@@ -204,15 +206,40 @@ internal partial class Program
             || myOption.DanmakuOnly);
     }
 
-    internal static string? ValidateCoverOptions(MyOption option) => option.CoverOnly && option.SkipCover
-        ? "--cover-only 与 --skip-cover 不能同时使用" : null;
+    internal static string? ValidateWorkOptions(MyOption option)
+        => SpaceBatchDownload.ValidateOptions(option)
+            ?? SubtitleSelection.ValidateOptions(option)
+            ?? ValidateExclusiveOptions(option)
+            ?? AudioLanguageSelection.ValidateOptions(option)
+            ?? (option.UseIntlApi && (option.DownloadDanmaku || option.DanmakuOnly)
+                ? "国际站弹幕暂不支持，请去掉 --download-danmaku 或 --danmaku-only" : null)
+            ?? ValidateDanmakuFormats(option.DownloadDanmakuFormats);
 
-    internal static async Task<bool> DownloadCoverAsync(MyOption option, string url, string path,
-        DownloadConfig config, Func<string, string, DownloadConfig, Task>? download = null)
+    internal static string? ValidateExclusiveOptions(MyOption option)
     {
-        if (option.SkipCover || option.OnlyShowInfo) return false;
-        await (download ?? ((source, destination, settings) => DownloadFileAsync(source, destination, settings)))(url, path, config);
-        return true;
+        if (option.CoverOnly && option.SkipCover) return "--cover-only 与 --skip-cover 不能同时使用";
+        if (option.SubOnly && option.SkipSubtitle) return "--sub-only 与 --skip-subtitle 不能同时使用";
+        if (new[] { option.SubOnly, option.DanmakuOnly, option.CoverOnly }.Count(selected => selected) > 1)
+            return "--sub-only、--danmaku-only、--cover-only 只能指定其中一个";
+        return null;
+    }
+
+    internal static DownloadConfig ArtifactDownloadConfig(MyOption option, DownloadTask? relatedTask = null)
+        => new() { RestrictedOutputRoot = option.RestrictedOutputRoot, RelatedTask = relatedTask };
+
+    internal static async Task DownloadCoverForMuxAsync(MyOption option, string url, string path,
+        Func<string, string, DownloadConfig, Task>? download = null)
+    {
+        try
+        {
+            await (download ?? ((source, destination, settings) => DownloadFileAsync(source, destination, settings)))(
+                url, path, ArtifactDownloadConfig(option));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException
+            || NetworkRetry.IsTransient(ex))
+        {
+            LogWarn($"封面下载失败, 将不嵌入封面: {ErrorText.Describe(ex)}");
+        }
     }
 
     internal static string GetCoverForMux(MyOption option, string path, Func<string, bool>? exists = null)
@@ -224,7 +251,6 @@ internal partial class Program
     /// <param name="myOption"></param>
     internal static void HandleConflictingOptions(MyOption myOption)
     {
-        if (ValidateCoverOptions(myOption) is { } coverError) throw new ArgumentException(coverError);
         //手动选择时不能隐藏流
         if (myOption.Interactive)
         {
@@ -234,10 +260,6 @@ internal partial class Program
         if (myOption.AudioOnly && myOption.VideoOnly)
         {
             myOption.SkipMux = true;
-        }
-        if (myOption.SkipSubtitle)
-        {
-            myOption.SubOnly = false;
         }
     }
 
@@ -277,22 +299,8 @@ internal partial class Program
             LogDebug("文件路径：{0}", webCookieFilePath);
             Config.COOKIE = loaded.Cookie;
         }
-        if (!myOption.UseIntlApi && myOption.UseTvApi && string.IsNullOrEmpty(Config.TOKEN)
-            && File.Exists(Path.Combine(APP_DIR, "BBDownTTV.data")))
-        {
-            Log("加载本地token...");
-            LogDebug("文件路径：{0}", Path.Combine(APP_DIR, "BBDownTTV.data"));
-            Config.TOKEN = File.ReadAllText(Path.Combine(APP_DIR, "BBDownTTV.data"));
-            Config.TOKEN = Config.TOKEN.Replace("access_token=", "");
-        }
-        if (!myOption.UseIntlApi && myOption.UseAppApi && string.IsNullOrEmpty(Config.TOKEN)
-            && File.Exists(Path.Combine(APP_DIR, "BBDownTApp.data")))
-        {
-            Log("加载本地token...");
-            LogDebug("文件路径：{0}", Path.Combine(APP_DIR, "BBDownTApp.data"));
-            Config.TOKEN = File.ReadAllText(Path.Combine(APP_DIR, "BBDownTApp.data"));
-            Config.TOKEN = Config.TOKEN.Replace("access_token=", "");
-        }
+        if (!myOption.UseIntlApi && myOption.UseTvApi) LoadTokenFile(APP_DIR, "BBDownTTV.data");
+        if (!myOption.UseIntlApi && myOption.UseAppApi) LoadTokenFile(APP_DIR, "BBDownTApp.data");
 
         if (!string.IsNullOrEmpty(Config.COOKIE))
         {
@@ -300,6 +308,15 @@ internal partial class Program
         }
 
         return webCookieFilePath;
+    }
+
+    internal static void LoadTokenFile(string directory, string fileName)
+    {
+        var path = Path.Combine(directory, fileName);
+        if (!string.IsNullOrEmpty(Config.TOKEN) || !File.Exists(path)) return;
+        Log("加载本地token...");
+        LogDebug("文件路径：{0}", path);
+        Config.TOKEN = File.ReadAllText(path).Replace("access_token=", "").Trim();
     }
 
     private static object fileLock = new object();
@@ -330,9 +347,8 @@ internal partial class Program
     /// </summary>
     /// <param name="myOption"></param>
     /// <param name="vInfo"></param>
-    /// <param name="input"></param>
     /// <returns></returns>
-    private static List<string>? GetSelectedPages(MyOption myOption, VInfo vInfo, string input)
+    internal static List<string>? GetSelectedPages(MyOption myOption, VInfo vInfo)
     {
         List<string>? selectedPages = null;
         List<Page> pagesInfo = vInfo.PagesInfo;
@@ -346,9 +362,9 @@ internal partial class Program
                 selectedPages = [vInfo.Index];
                 Log("程序已自动选择你输入的集数, 如果要下载其他集数请自行指定分P(如可使用-p ALL代表全部)");
             }
-            else if (!string.IsNullOrEmpty(GetQueryString("p", input)))
+            else if (GetQueryString("p", myOption.Url.Split('#')[0]) is { Length: > 0 } urlPage)
             {
-                selectedPages = [GetQueryString("p", input)];
+                selectedPages = PageSelectionParser.Parse(urlPage, pagesInfo.Count);
                 Log("程序已自动选择你输入的集数, 如果要下载其他集数请自行指定分P(如可使用-p ALL代表全部)");
             }
         }
@@ -371,7 +387,7 @@ internal partial class Program
         // International WEB URLs can be signed for the returned CDN host.
         // Only an explicitly supplied host may override that choice.
         if (myOption.UseIntlApi && string.IsNullOrEmpty(myOption.UposHost)) return;
-        if (myOption.ForceReplaceHost && string.IsNullOrEmpty(myOption.UposHost))
+        if (myOption.ForceReplaceHost && !myOption.AllowPcdn && string.IsNullOrEmpty(myOption.UposHost))
             myOption.UposHost = BACKUP_HOST;
 
         if (myOption.UposHost == "")
@@ -544,15 +560,10 @@ internal partial class Program
             System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 
-    internal static string GetIntlPlaybackId(VInfo info, string originalId)
-        => !string.IsNullOrEmpty(info.IntlSeasonId) && info.PagesInfo.All(page => string.IsNullOrEmpty(page.aid))
-            && originalId.StartsWith("ep:", StringComparison.Ordinal)
-            ? "intl:" + info.IntlSeasonId : originalId;
-
     private static async Task DownloadTrackAsync(string url, string destPath, DownloadConfig downloadConfig,
         bool video, string resourceIdentity)
     {
-        downloadConfig = downloadConfig with { ResourceIdentity = resourceIdentity, IsBilibiliMedia = true };
+        downloadConfig = downloadConfig with { ResourceIdentity = resourceIdentity };
         if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
         {
             var downloadedClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);

@@ -81,7 +81,7 @@ public class PageDownloadRunnerTests
     }
 
     [Fact]
-    public async Task WaitsBeforeArchiveCheckAndPreservesLogOrder()
+    public async Task WaitsOnlyBetweenPagesThatStartDownloading()
     {
         var events = new List<string>();
         var runner = new PageDownloadRunner(
@@ -90,7 +90,7 @@ public class PageDownloadRunnerTests
             (ms, _) => { events.Add("delay:" + ms); return Task.CompletedTask; },
             message => events.Add("log:" + message));
 
-        await runner.RunAsync(Pages(2), true, 2, page =>
+        await runner.RunAsync(Pages(3), true, 2, page =>
         {
             events.Add("download:" + page.cid);
             return Task.FromResult(DownloadPageOutcome.Completed);
@@ -98,10 +98,10 @@ public class PageDownloadRunnerTests
 
         Assert.Equal(new[]
         {
-            "log:停顿2秒...", "delay:2000", "log:开始解析P1: 10... (1 of 2)",
-            "check:10:1", "log:P1已下载过, 跳过下载...",
-            "log:停顿2秒...", "delay:2000", "log:开始解析P2: 10... (2 of 2)",
-            "check:10:2", "download:2", "archive:10:2", "log:任务完成"
+            "check:10:1", "log:开始解析P1: 10... (1 of 3)", "log:P1已下载过, 跳过下载...",
+            "check:10:2", "log:开始解析P2: 10... (2 of 3)", "download:2", "archive:10:2",
+            "check:10:3", "log:停顿2秒...", "delay:2000", "log:开始解析P3: 10... (3 of 3)",
+            "download:3", "archive:10:3", "log:任务完成"
         }, events);
     }
 
@@ -218,13 +218,11 @@ public class PageDownloadRunnerTests
         Assert.Empty(archived);
     }
 
-    [Theory]
-    [InlineData(true)]
-    public async Task ExhaustedHttpTimeoutDoesNotPreventNextPage(bool wrappedByDownloader)
+    [Fact]
+    public async Task ExhaustedHttpTimeoutDoesNotPreventNextPage()
     {
         var timeout = new TaskCanceledException("HTTP timeout", new TimeoutException());
-        Exception failure = wrappedByDownloader
-            ? new IOException("clip failed", new DownloadInterruptedException("media request timed out", timeout)) : timeout;
+        var failure = new IOException("clip failed", new DownloadInterruptedException("media request timed out", timeout));
         var attempted = new List<int>();
         var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, _ => { });
 
@@ -259,7 +257,7 @@ public class PageDownloadRunnerTests
     }
 
     [Fact]
-    public async Task CancellationInterruptsTheWaitBeforeTheFirstPage()
+    public async Task CancellationInterruptsTheWaitBetweenPages()
     {
         using var source = new CancellationTokenSource();
         var attempts = 0;
@@ -280,7 +278,7 @@ public class PageDownloadRunnerTests
         }, cancellationToken: source.Token));
 
         Assert.Equal(1, delays);
-        Assert.Equal(0, attempts);
+        Assert.Equal(1, attempts);
     }
 
     [Fact]
@@ -334,8 +332,7 @@ public class PageDownloadRunnerTests
 
         Assert.Equal(new[] { 1, 2, 3 }, attempted);
         Assert.Equal(new[] { 1, 2, 3 }, error.FailedPages);
-        Assert.Equal(2, error.SkippedPages);
-        Assert.Contains("剩余 2 个分P未处理", error.Message);
+        Assert.Contains("因连续网络错误，剩余 2 个分P未处理", error.Message);
     }
 
     [Fact]
@@ -351,7 +348,7 @@ public class PageDownloadRunnerTests
         }));
 
         Assert.Equal(new[] { 1, 2, 3 }, attempted);
-        Assert.Equal(1, error.SkippedPages);
+        Assert.Contains("剩余 1 个分P未处理", error.Message);
     }
 
     [Fact]
@@ -373,7 +370,61 @@ public class PageDownloadRunnerTests
 
         Assert.Equal(Enumerable.Range(1, 7), attempted);
         Assert.Equal(new[] { 1, 2, 4, 5, 6, 7 }, error.FailedPages);
-        Assert.Equal(0, error.SkippedPages);
+        Assert.DoesNotContain("未处理", error.Message);
+    }
+
+    [Theory]
+    [InlineData(4, 2)]
+    [InlineData(2, 0)]
+    public async Task SubtitleFailureAfterEarlierFailures_ReportsTheWholeBatch(int pageCount, int skipped)
+    {
+        var earlier = new InvalidDataException("bad page");
+        var subtitles = new SubtitleUnavailableException("获取字幕失败", new IOException("offline"));
+        var attempted = new List<int>();
+        var logs = new List<string>();
+        var runner = new PageDownloadRunner(_ => false, _ => { }, (_, _) => Task.CompletedTask, logs.Add);
+
+        var error = await Assert.ThrowsAsync<PageDownloadBatchException>(() => runner.RunAsync(Pages(pageCount), false, 0, page =>
+        {
+            attempted.Add(page.index);
+            return Task.FromException<DownloadPageOutcome>(page.index == 1 ? earlier : subtitles);
+        }));
+
+        Assert.Equal(new[] { 1, 2 }, attempted);
+        Assert.Equal(new[] { 1, 2 }, error.FailedPages);
+        Assert.Same(subtitles, error.InnerExceptions[1].InnerException);
+        if (skipped > 0) Assert.Contains($"因字幕获取失败，剩余 {skipped} 个分P未处理", error.Message);
+        else Assert.DoesNotContain("未处理", error.Message);
+        Assert.DoesNotContain("任务完成", logs);
+    }
+
+    [Theory]
+    [InlineData(false, false, false, "")]
+    [InlineData(true, false, false, ":audio")]
+    [InlineData(false, true, false, ":video")]
+    [InlineData(false, false, true, ":streams")]
+    [InlineData(true, false, true, ":streams:audio")]
+    [InlineData(false, true, true, ":streams:video")]
+    [InlineData(true, true, false, ":streams")]
+    public void EachStreamSelectionHasItsOwnArchiveKey(bool audioOnly, bool videoOnly, bool skipMux, string expected)
+    {
+        var option = new MyOption { AudioOnly = audioOnly, VideoOnly = videoOnly, SkipMux = skipMux };
+        Program.HandleConflictingOptions(option);
+
+        Assert.Equal(expected, Program.GetArchiveVariant(option));
+    }
+
+    [Theory]
+    [InlineData(false, false, false, false, true)]
+    [InlineData(true, false, false, false, false)]
+    [InlineData(false, true, false, false, false)]
+    [InlineData(false, false, true, false, false)]
+    [InlineData(false, false, false, true, false)]
+    public void InfoAndArtifactOnlyRunsDoNotReadTheMediaArchive(bool info, bool subOnly, bool coverOnly, bool danmakuOnly, bool expected)
+    {
+        var option = new MyOption { OnlyShowInfo = info, SubOnly = subOnly, CoverOnly = coverOnly, DanmakuOnly = danmakuOnly };
+
+        Assert.Equal(expected, Program.ReadsMediaArchive(option));
     }
 
     [Fact]
@@ -408,5 +459,5 @@ public class PageDownloadRunnerTests
     }
 
     private static List<Page> Pages(int count) => Enumerable.Range(1, count)
-        .Select(index => new Page(index, "10", index.ToString(), "", "Page", 1, "", 0)).ToList();
+        .Select(index => new Page(index, "10", index.ToString(), "", "Page", 1, 0)).ToList();
 }

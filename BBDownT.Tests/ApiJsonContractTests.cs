@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BBDownT.Tests;
 
@@ -13,7 +14,7 @@ public class ApiJsonContractTests
     {
         var task = new DownloadTask("task-42", "1", "fixture", 100);
         task.SetMetadata("Title", "cover.jpg", 90);
-        task.ReportDownloadedBytes(100);
+        task.ReportDownloadedBytes(100, 100);
         task.AddSavePath("file.mp4");
         task.Finish(102, true);
         var snapshot = task.CreateSnapshot();
@@ -62,6 +63,40 @@ public class ApiJsonContractTests
         Assert.Equal("https://example.test/callback", binding.Result.CallBackWebHook);
     }
 
+    [Fact]
+    public async Task RequestBinding_TreatsNullLikeAnOmittedOption()
+    {
+        using var body = Body("""
+            {"Url":"BV1xx411c7mD","AccessToken":null,"Cookie":null,"Aria2cProxy":null,"Host":null,
+             "FilePattern":null,"DelayPerPage":null,"AudioLanguage":null,"CallBackWebHook":null}
+            """);
+
+        var binding = await MyOptionBindingResult<ServeRequestOptions>.BindAsync(Context(body));
+
+        Assert.True(binding.IsValid);
+        var request = binding.Result!;
+        Assert.Equal("", request.AccessToken);
+        Assert.Equal("", request.Cookie);
+        Assert.Equal("", request.Aria2cProxy);
+        Assert.Equal("api.bilibili.com", request.Host);
+        Assert.Equal("", request.FilePattern);
+        Assert.Equal("0", request.DelayPerPage);
+        Assert.Null(request.AudioLanguage);
+        Assert.Null(request.CallBackWebHook);
+        Assert.Null(new BBDownTApiServer().ValidateAndNormalizeServerRequest(request));
+    }
+
+    [Fact]
+    public async Task RequestBinding_StillReportsANullUrlAsMissing()
+    {
+        using var body = Body("""{"Url":null}""");
+
+        var binding = await MyOptionBindingResult<ServeRequestOptions>.BindAsync(Context(body));
+
+        Assert.True(binding.IsValid);
+        Assert.Equal("Url不能为空", new BBDownTApiServer().ValidateAndNormalizeServerRequest(binding.Result!));
+    }
+
     [Theory]
     [InlineData("null", typeof(NoNullAllowedException))]
     [InlineData("{", typeof(JsonException))]
@@ -85,6 +120,20 @@ public class ApiJsonContractTests
 
         Assert.False(binding.IsValid);
         Assert.IsType<InvalidOperationException>(binding.Exception);
+    }
+
+    [Fact]
+    public async Task TaskSubmission_ReturnsTheDocumentedTaskIdField()
+    {
+        using var body = new MemoryStream();
+        var context = new DefaultHttpContext();
+        context.Response.Body = body;
+        context.RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider();
+
+        await BBDownTApiServer.SubmissionAccepted("task-42").ExecuteAsync(context);
+
+        Assert.Equal(StatusCodes.Status202Accepted, context.Response.StatusCode);
+        Assert.Equal("{\"TaskId\":\"task-42\"}", Encoding.UTF8.GetString(body.ToArray()));
     }
 
     private static MemoryStream Body(string json) => new(Encoding.UTF8.GetBytes(json));

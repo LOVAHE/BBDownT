@@ -78,10 +78,10 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var progress = new ProgressBar(output);
-            progress.Report(0.08);
+            progress.ReportDownload(0.08, 0);
             progress.RefreshDisplay();
             Logger.LogWarn("校验已有分片");
-            progress.Report(0.09);
+            progress.ReportDownload(0.09, 0);
             progress.RefreshDisplay();
 
             var terminal = Render(output);
@@ -195,7 +195,7 @@ public class ProgressLogRenderingTests
             ];
             foreach (var entry in entries)
             {
-                progress.Report(0.08);
+                progress.ReportDownload(0.08, 0);
                 progress.RefreshDisplay();
                 entry();
             }
@@ -223,12 +223,12 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var progress = new ProgressBar(output);
-            progress.Report(0.08);
+            progress.ReportDownload(0.08, 0);
             progress.RefreshDisplay();
             Logger.Log("partial", enter: false);
             var partialOutput = output.ToString();
 
-            progress.Report(0.09);
+            progress.ReportDownload(0.09, 0);
             progress.RefreshDisplay();
             Assert.Equal(partialOutput, output.ToString());
             Assert.Empty(Render(output).Lines);
@@ -251,7 +251,7 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var progress = new ProgressBar(output);
-            progress.Report(0.08);
+            progress.ReportDownload(0.08, 0);
             progress.RefreshDisplay();
             var before = output.ToString();
 
@@ -268,7 +268,7 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var progress = new ProgressBar(output);
-            progress.Report(0.08);
+            progress.ReportDownload(0.08, 0);
             progress.RefreshDisplay();
             progress.Dispose();
             Assert.Equal("", Render(output).CurrentLine);
@@ -278,7 +278,7 @@ public class ProgressLogRenderingTests
             var afterLog = output.ToString();
             Assert.Equal(new string(' ', 28) + "after disposal" + Environment.NewLine,
                 afterLog[beforeLog..]);
-            progress.Report(0.09);
+            progress.ReportDownload(0.09, 0);
             progress.RefreshDisplay();
             progress.Dispose();
             Assert.Equal(afterLog, output.ToString());
@@ -293,10 +293,10 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var first = new ProgressBar(output);
-            first.Report(0.08);
+            first.ReportDownload(0.08, 0);
             first.RefreshDisplay();
             using var second = new ProgressBar(output);
-            second.Report(0.09);
+            second.ReportDownload(0.09, 0);
             second.RefreshDisplay();
             var before = output.ToString();
 
@@ -319,10 +319,10 @@ public class ProgressLogRenderingTests
         CaptureConsole(output =>
         {
             using var progress = new ProgressBar(output, outputRedirected: true);
-            progress.Report(0.08);
+            progress.ReportDownload(0.08, 0);
             progress.RefreshDisplay();
             Logger.LogWarn("redirected", time: false);
-            progress.Report(0.09);
+            progress.ReportDownload(0.09, 0);
             progress.RefreshDisplay();
             progress.Dispose();
 
@@ -347,11 +347,11 @@ public class ProgressLogRenderingTests
                 {
                     for (int index = 0; index < entryCount; index++)
                     {
-                        progress.Report(index % 2 == 0 ? 0.08 : 0.09);
+                        progress.ReportDownload(index % 2 == 0 ? 0.08 : 0.09, 0);
                         progress.RefreshDisplay();
                     }
                 });
-            progress.Report(0.09);
+            progress.ReportDownload(0.09, 0);
             progress.RefreshDisplay();
 
             var terminal = Render(output);

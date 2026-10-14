@@ -58,7 +58,7 @@ public class PageDownloadRetryTests
             new ArgumentException("invalid path"),
             new NotSupportedException("no range support"),
             new AudioLanguageUnavailableException("unavailable language"),
-            new IntlApiException("not available in this region"),
+            IntlApiException.RegionRestricted(),
             new OperationCanceledException(),
             new Exception("wrapped cancel", new OperationCanceledException()),
             new OutOfMemoryException()

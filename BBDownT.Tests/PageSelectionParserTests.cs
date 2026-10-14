@@ -66,6 +66,33 @@ public class PageSelectionParserTests
         Assert.Contains("分P参数无效", exception.Message);
     }
 
+    [Theory]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD?p=2#reply123456", "2")]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD?vd_source=abc&p=03", "3")]
+    public void UrlPage_IsReadFromTheQueryOnly(string url, string expected)
+    {
+        Assert.Equal(new[] { expected }, Program.GetSelectedPages(new MyOption { Url = url }, Info(3)));
+    }
+
+    [Theory]
+    [InlineData("?p=9")]
+    [InlineData("?p=0")]
+    [InlineData("?p=abc")]
+    public void InvalidUrlPage_FailsLikeAnExplicitSelection(string query)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => Program.GetSelectedPages(
+            new MyOption { Url = "https://www.bilibili.com/video/BV1xx411c7mD" + query }, Info(3)));
+
+        Assert.Contains("分P参数无效", exception.Message);
+    }
+
+    [Fact]
+    public void UrlWithoutPage_KeepsAllPages()
+    {
+        Assert.Null(Program.GetSelectedPages(
+            new MyOption { Url = "https://www.bilibili.com/video/BV1xx411c7mD#reply123456" }, Info(3)));
+    }
+
     [Fact]
     public void ProgressiveStream_RejectsCombinedAudioAndVideoOnlyMode()
     {
@@ -77,4 +104,11 @@ public class PageSelectionParserTests
             new MyOption { VideoOnly = true }));
         Assert.True(Program.CanUseProgressiveStream(new MyOption()));
     }
+
+    private static BBDownT.Core.Entity.VInfo Info(int count) => new()
+    {
+        Title = "Video", Desc = "", Pic = "", PubTime = 0,
+        PagesInfo = Enumerable.Range(1, count)
+            .Select(index => new BBDownT.Core.Entity.Entity.Page(index, "10", index.ToString(), "", "Page", 1, 0)).ToList()
+    };
 }

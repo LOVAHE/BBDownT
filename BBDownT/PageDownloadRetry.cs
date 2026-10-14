@@ -23,7 +23,7 @@ internal sealed class PageDownloadRetry
         delay = default;
         for (Exception? cause = error; cause is not null; cause = cause.InnerException)
             if (cause is SubtitleUnavailableException) return false;
-        if (NetworkRetry.IsTransient(error) || IsRateLimited(error))
+        if (IsNetworkFailure(error))
         {
             if (networkRetries >= NetworkDelays.Length) return false;
             delay = NetworkDelays[networkRetries++];
@@ -55,8 +55,9 @@ internal sealed class PageDownloadRetry
         return true;
     }
 
-    private static bool IsRateLimited(Exception error)
+    internal static bool IsNetworkFailure(Exception error)
     {
+        if (NetworkRetry.IsTransient(error)) return true;
         for (Exception? cause = error; cause is not null; cause = cause.InnerException)
             if (cause is BilibiliApiException api) return BilibiliApi.IsRateLimited(api.Code);
         return false;
