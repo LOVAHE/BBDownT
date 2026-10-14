@@ -18,15 +18,24 @@ internal sealed class OutputOwnership(string indexPath)
         : StringComparer.Ordinal;
 
     private readonly object gate = new();
+    private Func<string, bool>? artifactExistsOverride;
+    private Func<string, string?>? ownerLookupOverride;
     private Dictionary<string, string>? owners;
     private long loadedLength = -1;
+
+    internal OutputOwnership(string indexPath, Func<string, bool> artifactExists,
+        Func<string, string?> ownerLookup) : this(indexPath)
+    {
+        artifactExistsOverride = artifactExists;
+        ownerLookupOverride = ownerLookup;
+    }
 
     internal string Resolve(string savePath, Page page, bool multiPage)
     {
         lock (gate)
         {
-            if (!Program.IsUsableArtifact(savePath)) return savePath;
-            var owner = Owners().GetValueOrDefault(Path.GetFullPath(savePath));
+            if (!IsUsableArtifact(savePath)) return savePath;
+            var owner = OwnerOf(savePath);
             if (owner is null || owner == Identity(page)) return savePath;
 
             var label = string.IsNullOrEmpty(page.bvid) ? page.DownloadId : page.bvid;
@@ -35,13 +44,34 @@ internal sealed class OutputOwnership(string indexPath)
             var stem = Path.GetFileNameWithoutExtension(fileName);
             var language = Path.GetExtension(stem);
             if (!language.StartsWith(AudioLanguageSelection.LanguageSuffixPrefix, StringComparison.Ordinal)) language = "";
-            var ending = suffix + language + Path.GetExtension(fileName);
-            var title = OutputNameLimit.Shorten(stem[..^language.Length],
-                OutputNameLimit.MaxFileNameBytes - Encoding.UTF8.GetByteCount(ending));
-            var alternative = savePath[..^fileName.Length] + title + ending;
-            Log($"{savePath}属于其他视频, 本视频将保存为: {alternative}");
-            return alternative;
+            var titleStem = stem[..^language.Length];
+            var extension = Path.GetExtension(fileName);
+            var directory = savePath[..^fileName.Length];
+            for (var sequence = 1; ; sequence++)
+            {
+                var disambiguator = sequence == 1 ? suffix : $"{suffix} ({sequence})";
+                var ending = disambiguator + language + extension;
+                var title = OutputNameLimit.Shorten(titleStem,
+                    OutputNameLimit.MaxFileNameBytes - Encoding.UTF8.GetByteCount(ending));
+                var alternative = directory + title + ending;
+                var alternativeOwner = IsUsableArtifact(alternative) ? OwnerOf(alternative) : null;
+                if (alternativeOwner is null || alternativeOwner == Identity(page))
+                {
+                    Log($"{savePath}属于其他视频, 本视频将保存为: {alternative}");
+                    return alternative;
+                }
+            }
         }
+    }
+
+    private bool IsUsableArtifact(string path) => artifactExistsOverride?.Invoke(path) ?? Program.IsUsableArtifact(path);
+
+    private string? OwnerOf(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return ownerLookupOverride is not null
+            ? ownerLookupOverride(fullPath)
+            : Owners().GetValueOrDefault(fullPath);
     }
 
     internal void Record(string savePath, Page page)

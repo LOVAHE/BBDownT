@@ -32,6 +32,26 @@ public class ApiServerValidationTests
         Assert.Equal(Path.GetFullPath(Environment.CurrentDirectory), request.WorkDir);
     }
 
+    [Theory]
+    [InlineData("  https://www.bilibili.com/video/BV1xx411c7mD  ", "https://www.bilibili.com/video/BV1xx411c7mD")]
+    [InlineData("\tBV1xx411c7mD\r\n", "BV1xx411c7mD")]
+    public async Task ValidateAndNormalizeServerRequest_PassesTheTrimmedUrlToPlayback(string input, string expected)
+    {
+        var request = new ServeRequestOptions { Url = input };
+
+        Assert.Null(new BBDownTApiServer().ValidateAndNormalizeServerRequest(request));
+        Assert.Equal(expected, request.Url);
+        var locations = new List<string>();
+        var aid = await BBDownTUtil.GetAvIdAsync(request.Url, url =>
+        {
+            locations.Add(url);
+            return Task.FromResult(url);
+        });
+
+        Assert.Equal("2", aid);
+        Assert.Equal("https://www.bilibili.com/video/av2/", Assert.Single(locations));
+    }
+
     [Fact]
     public void ValidateAndNormalizeServerRequest_RejectsPrivateCallbackByDefault()
     {

@@ -20,6 +20,7 @@ using System.Text.Json.Serialization;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using BBDownT.Core.Entity;
+using System.Globalization;
 using AudioMaterial = BBDownT.Core.Entity.Entity.AudioMaterial;
 
 namespace BBDownT;
@@ -28,7 +29,7 @@ partial class Program
 {
     private static readonly string BACKUP_HOST = "upos-sz-mirrorcoso1.bilivideo.com";
     public static string SinglePageDefaultSavePath { get; set; } = "<videoTitle>";
-    public static string MultiPageDefaultSavePath { get; set; } = "<videoTitle>/[P<pageNumberWithZero>]<pageTitle>";
+    public static string MultiPageDefaultSavePath { get; set; } = "<videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>";
 
     public static readonly string APP_DIR = Path.GetDirectoryName(Environment.ProcessPath)!;
 
@@ -988,7 +989,7 @@ partial class Program
                 if (await DownloadExclusiveArtifactsAsync(p, myOption, pic, savePath, downloadDanmaku,
                         downloadDanmakuFormats, downloadConfig, relatedTask) is { } exclusiveOutcome)
                     return exclusiveOutcome;
-                if (File.Exists(savePath) && new FileInfo(savePath).Length != 0)
+                if (ShouldUseMuxedOutputCache(myOption, savePath))
                 {
                     OutputOwnership.Default.Record(savePath, p);
                     Log($"{savePath}已存在, 跳过下载...");
@@ -1014,6 +1015,7 @@ partial class Program
                 BBDownTMuxer.MergeFLV(files.ToArray(), videoPath);
                 if (myOption.SkipMux)
                 {
+                    if (!IsUsableArtifact(videoPath)) return DownloadPageOutcome.Failed;
                     RecordDownloadedStreams(relatedTask, videoPath);
                     return DownloadPageOutcome.Partial;
                 }
@@ -1155,11 +1157,12 @@ partial class Program
         }
     }
 
-    internal static bool ShouldUseMuxedOutputCache(MyOption myOption, string savePath)
+    internal static bool ShouldUseMuxedOutputCache(MyOption myOption, string savePath,
+        Func<string, bool>? isUsableArtifact = null)
     {
         return !myOption.OnlyShowInfo
             && !myOption.SkipMux
-            && IsUsableArtifact(savePath);
+            && (isUsableArtifact ?? IsUsableArtifact)(savePath);
     }
 
     internal static bool CanUseProgressiveStream(MyOption myOption)
@@ -1240,6 +1243,17 @@ partial class Program
         {
             var key = m.Groups[1].Value;
 
+            int? pageNumberWidth = null;
+            const string paddingPrefix = "pageNumberWithZero:";
+            if (key.StartsWith(paddingPrefix, StringComparison.Ordinal))
+            {
+                if (!int.TryParse(key[paddingPrefix.Length..], NumberStyles.None,
+                        CultureInfo.InvariantCulture, out var width) || width < 1 || width > 10)
+                    throw new ArgumentException("分P序号补零宽度必须是 1 到 10 的整数");
+                pageNumberWidth = width;
+                key = "pageNumberWithZero";
+            }
+
             //解析自定义日期格式
             var defaultDateFormat = "yyyy-MM-dd_HH-mm-ss";
             string[] prefixes = ["publishDate:", "videoDate:"];
@@ -1257,7 +1271,7 @@ partial class Program
             {
                 "videoTitle" => videoTitle,
                 "pageNumber" => p.index.ToString(),
-                "pageNumberWithZero" => p.index.ToString().PadLeft(pagesCount.ToString().Length, '0'),
+                "pageNumberWithZero" => p.index.ToString().PadLeft(pageNumberWidth ?? pagesCount.ToString().Length, '0'),
                 "pageTitle" => pageTitle,
                 "bvid" => nativeInternational ? p.DownloadId : p.bvid,
                 "aid" => nativeInternational ? p.DownloadId : p.aid,
@@ -1283,6 +1297,6 @@ partial class Program
         return result;
     }
 
-    [GeneratedRegex("<([\\w:\\-.]+?)>")]
+    [GeneratedRegex("<(pageNumberWithZero:[^>]*|[\\w:\\-.]+?)>")]
     private static partial Regex InfoRegex();
 }

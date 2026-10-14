@@ -79,11 +79,10 @@ static class AppHelper
     /// <summary>
     /// 将protobuf转换成网页那种json 这样就不用修改之前的解析逻辑了
     /// </summary>
-    /// <param name="data"></param>
+    /// <param name="resp"></param>
     /// <returns></returns>
-    private static string ConvertToDashJson(object data)
+    internal static string ConvertToDashJson(PlayViewReply resp)
     {
-        var resp = (PlayViewReply)data;
         var videos = new List<object>();
         var audios = new List<object>();
         var clips = new List<object>();
@@ -195,7 +194,8 @@ static class AppHelper
                     videos,
                     audios
                 ),
-                clips
+                clips,
+                resp.Business?.IsPreview == true
             ),
             new DubbingInfo(
                 backgroundAudios,
@@ -551,12 +551,15 @@ internal class DashData
     public DashInfo Dash { get; }
     [JsonPropertyName("clip_info_list")]
     public List<object> ClipList { get; }
+    [JsonPropertyName("is_preview")]
+    public bool IsPreview { get; }
 
-    public DashData(ulong timelength, DashInfo dash, List<object> clipList)
+    public DashData(ulong timelength, DashInfo dash, List<object> clipList, bool isPreview)
     {
         TimeLength = timelength;
         Dash = dash;
         ClipList = clipList;
+        IsPreview = isPreview;
     }
 }
 

@@ -84,6 +84,10 @@ jobs:
           if [[ "$state" == draft ]]; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$repo"
           else
-            gh release create "$tag" "${assets[@]}" --draft --verify-tag \
+            release_flags=(--draft --verify-tag)
+            if [[ "$tag" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$tag" "${assets[@]}" "${release_flags[@]}" \
               --title "BBDownT ${tag#v}" --notes-from-tag
           fi

@@ -66,22 +66,121 @@ public class OptionBehaviorTests
         Assert.Equal(expectedAudioCount, result.AudioTracks.Count);
     }
 
+    [Theory]
+    [InlineData(1, "01")]
+    [InlineData(7, "07")]
+    [InlineData(10, "10")]
+    [InlineData(100, "100")]
+    [InlineData(1000, "1000")]
+    public void FixedPageNumberPadding_UsesAtLeastTwoDigitsWithoutTruncation(int index, string expected)
+    {
+        var page = new Page(index, "2", "3", "", "part", 1, "", 0);
+
+        var path = Program.FormatSavePath(
+            "[P<pageNumberWithZero:2>]",
+            "title",
+            null,
+            null,
+            page,
+            pagesCount: Math.Max(index, 120),
+            "WEB",
+            0);
+
+        Assert.Equal($"[P{expected}].mp4", path);
+    }
+
     [Fact]
     public void PageNumberPadding_UsesOriginalTotalPageCount()
     {
         var page = new Page(7, "2", "3", "", "part", 1, "", 0);
 
-        var path = Program.FormatSavePath(
-            "[P<pageNumberWithZero>]",
-            "title",
-            null,
-            null,
-            page,
-            pagesCount: 120,
-            "WEB",
-            0);
+        var path = Program.FormatSavePath("[P<pageNumberWithZero>]", "title", null, null,
+            page, 120, "WEB", 0);
 
         Assert.Equal("[P007].mp4", path);
+    }
+
+    [Theory]
+    [InlineData(1, "7")]
+    [InlineData(2, "07")]
+    [InlineData(3, "007")]
+    [InlineData(10, "0000000007")]
+    public void FixedPageNumberPadding_UsesTheRequestedMinimumWidth(int width, string expected)
+    {
+        var page = new Page(7, "2", "3", "", "part", 1, "", 0);
+
+        var path = Program.FormatSavePath($"[P<pageNumberWithZero:{width}>]", "title", null, null,
+            page, 8, "WEB", 0);
+
+        Assert.Equal($"[P{expected}].mp4", path);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("11")]
+    [InlineData("999999999999999999999")]
+    [InlineData("abc")]
+    [InlineData("")]
+    [InlineData("+2")]
+    [InlineData(" 2")]
+    [InlineData("2 ")]
+    [InlineData("1 0")]
+    [InlineData("2\n")]
+    [InlineData("<pageNumber>")]
+    public void FixedPageNumberPadding_RejectsInvalidWidths(string width)
+    {
+        var page = new Page(7, "2", "3", "", "part", 1, "", 0);
+
+        Assert.Throws<ArgumentException>(() => Program.FormatSavePath(
+            $"[P<pageNumberWithZero:{width}>]", "title", null, null, page, 8, "WEB", 0));
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(12)]
+    [InlineData(120)]
+    [InlineData(1200)]
+    public void DefaultPageName_RemainsStableAsTheTotalPageCountGrows(int totalPages)
+    {
+        var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+
+        var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
+            page, totalPages, "WEB", 0);
+
+        Assert.Equal("title/[P08]part.mp4", path);
+    }
+
+    [Fact]
+    public void UnpaddedPageNumber_RemainsAvailableInCustomTemplates()
+    {
+        var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+
+        var path = Program.FormatSavePath("[P<pageNumber>]", "title", null, null,
+            page, 120, "WEB", 0);
+
+        Assert.Equal("[P8].mp4", path);
+    }
+
+    [Fact]
+    public void NoPaddingOption_RemovesTheFixedWidthFromTheDefaultTemplate()
+    {
+        var original = Program.MultiPageDefaultSavePath;
+        try
+        {
+            Program.MultiPageDefaultSavePath = "<videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>";
+            Program.HandleDeprecatedOptions(new MyOption { NoPaddingPageNum = true });
+            var page = new Page(8, "2", "3", "", "part", 1, "", 0);
+
+            var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
+                page, 120, "WEB", 0);
+
+            Assert.Equal("title/[P8]part.mp4", path);
+        }
+        finally
+        {
+            Program.MultiPageDefaultSavePath = original;
+        }
     }
 
     [Theory]

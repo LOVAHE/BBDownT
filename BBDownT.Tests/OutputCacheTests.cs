@@ -2,6 +2,26 @@ namespace BBDownT.Tests;
 
 public class OutputCacheTests
 {
+    [Theory]
+    [InlineData(false, false, true, true)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, true, true, false)]
+    public void MuxedCache_RequiresCompleteMediaModeAndAnArtifact(
+        bool skipMux, bool infoOnly, bool usable, bool expected)
+    {
+        var option = new MyOption { SkipMux = skipMux, OnlyShowInfo = infoOnly };
+
+        Assert.Equal(expected, Program.ShouldUseMuxedOutputCache(option, "output.mp4", _ => usable));
+    }
+
+    [Fact]
+    public void RawMode_DoesNotInspectTheMuxedArtifact()
+    {
+        Assert.False(Program.ShouldUseMuxedOutputCache(new MyOption { SkipMux = true }, "output.mp4",
+            _ => throw new InvalidOperationException("Raw mode cannot use a muxed-file cache.")));
+    }
+
     [Fact]
     public void RequiresAnExistingNonemptyArtifact()
     {

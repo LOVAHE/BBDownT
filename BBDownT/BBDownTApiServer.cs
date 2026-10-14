@@ -217,7 +217,8 @@ public class BBDownTApiServer
             return "Url不能为空";
         }
 
-        var url = req.Url.Trim();
+        req.Url = req.Url.Trim();
+        var url = req.Url;
         if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !BBDownTUtil.IsBilibiliUrl(url))
         {
             return "Url只能是B站链接或av/BV/ep/ss等编号";

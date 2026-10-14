@@ -92,7 +92,8 @@ Options:
   
                                                  <videoTitle>: 视频主标题
                                                  <pageNumber>: 视频分P序号
-                                                 <pageNumberWithZero>: 视频分P序号(前缀补零)
+                                                 <pageNumberWithZero>: 视频分P序号(按总分P数位数补零)
+                                                 <pageNumberWithZero:N>: 视频分P序号(固定至少N位, 1～10)
                                                  <pageTitle>: 视频分P标题
                                                  <bvid>: 视频BV号
                                                  <aid>: 视频aid
@@ -113,7 +114,7 @@ Options:
                                                  默认为: <videoTitle>
   -M, --multi-file-pattern <multi-file-pattern>  使用内置变量自定义多P存储文件名:
   
-                                                 默认为: <videoTitle>/[P<pageNumberWithZero>]<pageTitle>
+                                                 默认为: <videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>
   -p, --select-page <select-page>                选择指定分p或分p范围: (-p 8 或 -p 1,2 或 -p 3-5 或 -p ALL 或 -p LAST 或 -p 3,5,LATEST)
   --language <language>                          设置混流的音频语言(代码), 如chi, jpn等
   --audio-language <code>                        选择 -info 列出的配音语言代码；WEB/DASH，输出文件附加语言后缀
@@ -246,6 +247,7 @@ BBDownT --migrate
 `<videoTitle>`|视频主标题
 `<pageNumber>`|视频分P序号
 `<pageNumberWithZero>`|视频分P序号(前缀补零)
+`<pageNumberWithZero:N>`|视频分P序号(固定至少N位, 1～10)
 `<pageTitle>`|视频分P标题
 `<bvid>`|视频BV号
 `<aid>`|视频aid

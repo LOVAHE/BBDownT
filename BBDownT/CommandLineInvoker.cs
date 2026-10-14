@@ -69,7 +69,8 @@ internal static class CommandLineInvoker
         $"使用内置变量自定义单P存储文件名:\r\n\r\n" + 
         $"<videoTitle>: 视频主标题\r\n" + 
         $"<pageNumber>: 视频分P序号\r\n" + 
-        $"<pageNumberWithZero>: 视频分P序号(前缀补零)\r\n" + 
+        $"<pageNumberWithZero>: 视频分P序号(按总分P数位数补零)\r\n" +
+        $"<pageNumberWithZero:N>: 视频分P序号(固定至少N位, 1～10)\r\n" +
         $"<pageTitle>: 视频分P标题\r\n" + 
         $"<bvid>: 视频BV号\r\n" + 
         $"<aid>: 视频aid\r\n" + 

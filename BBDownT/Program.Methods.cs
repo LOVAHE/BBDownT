@@ -19,7 +19,7 @@ internal partial class Program
     /// 兼容旧版本命令行参数并给出警告
     /// </summary>
     /// <param name="myOption"></param>
-    private static void HandleDeprecatedOptions(MyOption myOption)
+    internal static void HandleDeprecatedOptions(MyOption myOption)
     {
         if (myOption.AddDfnSubfix)
         {
@@ -56,7 +56,9 @@ internal partial class Program
             LogWarn("--no-padding-page-num 已被弃用, 建议使用 --file-pattern/-F 或 --multi-file-pattern/-M 来自定义输出文件名格式");
             if (string.IsNullOrEmpty(myOption.FilePattern) && string.IsNullOrEmpty(myOption.MultiFilePattern))
             {
-                MultiPageDefaultSavePath = MultiPageDefaultSavePath.Replace("<pageNumberWithZero>", "<pageNumber>");
+                MultiPageDefaultSavePath = MultiPageDefaultSavePath
+                    .Replace("<pageNumberWithZero:2>", "<pageNumber>")
+                    .Replace("<pageNumberWithZero>", "<pageNumber>");
                 LogWarn($"已切换至 -M \"{MultiPageDefaultSavePath}\"");
             }
         }
