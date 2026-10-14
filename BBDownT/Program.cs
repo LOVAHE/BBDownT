@@ -1282,14 +1282,14 @@ partial class Program
             .ToList();
     }
 
-    internal static string FormatSavePath(string savePathFormat, string title, Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? restrictedRoot = null)
+    internal static string FormatSavePath(string savePathFormat, string title, Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? restrictedRoot = null, bool logErrors = true)
     {
         var videoTitle = CleanNamePart(title);
         var pageTitle = CleanNamePart(p.title);
         var ownerName = p.ownerName == null ? "" : CleanNamePart(p.ownerName);
         var result = OutputNameLimit.Fit(cap => ExpandSavePath(savePathFormat,
                 OutputNameLimit.Shorten(videoTitle, cap), OutputNameLimit.Shorten(pageTitle, cap),
-                OutputNameLimit.Shorten(ownerName, cap), videoTrack, audioTrack, p, pagesCount, apiType, pubTime),
+                OutputNameLimit.Shorten(ownerName, cap), videoTrack, audioTrack, p, pagesCount, apiType, pubTime, logErrors),
             videoTitle, pageTitle, ownerName);
         return OutputPathPolicy.Resolve(result, restrictedRoot);
     }
@@ -1298,25 +1298,37 @@ partial class Program
         Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? audioLanguage)
     {
         if (myOption.VideoOnly && !myOption.AudioOnly) return null;
-        try
+        IEnumerable<string> formats = savePathFormat == MultiPageDefaultSavePath
+            ? Enumerable.Range(1, Math.Max(3, pagesCount.ToString().Length)).Select(width =>
+                savePathFormat.Replace("<pageNumberWithZero:2>", $"<pageNumberWithZero:{width}>", StringComparison.Ordinal))
+            : [savePathFormat];
+        var candidates = formats.Distinct().SelectMany(format => new Func<string>[]
         {
-            var format = savePathFormat == MultiPageDefaultSavePath
-                ? savePathFormat.Replace("<pageNumberWithZero:2>", "<pageNumberWithZero>", StringComparison.Ordinal)
-                : savePathFormat;
-            var legacy = ExpandSavePath(format, LegacyNamePart(title), LegacyNamePart(p.title),
+            () => OutputPathPolicy.Resolve(ExpandSavePath(format, LegacyNamePart(title), LegacyNamePart(p.title),
                 p.ownerName == null ? "" : LegacyNamePart(p.ownerName), videoTrack, audioTrack, p, pagesCount, apiType, pubTime,
-                logErrors: false);
-            legacy = OutputPathPolicy.Resolve(legacy, myOption.RestrictedOutputRoot);
-            legacy = AudioLanguageSelection.OutputPath(legacy, audioLanguage, myOption.AudioOnly);
-            legacy = OutputPathPolicy.ResolveArtifact(legacy, myOption.RestrictedOutputRoot);
-            return !string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(savePath), OutputPathPolicy.PathComparison)
-                && ShouldUseMuxedOutputCache(myOption, legacy)
-                && !OutputOwnership.Default.IsOwnedByAnother(legacy, p) ? legacy : null;
-        }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+                logErrors: false), myOption.RestrictedOutputRoot),
+            () => FormatSavePath(format, title, videoTrack, audioTrack, p, pagesCount, apiType, pubTime, myOption.RestrictedOutputRoot,
+                logErrors: false)
+        });
+        var tried = new HashSet<string>(OutputPathPolicy.PathComparer);
+        foreach (var candidate in candidates)
         {
-            return null;
+            try
+            {
+                var legacy = candidate();
+                if (!tried.Add(legacy)) continue;
+                legacy = AudioLanguageSelection.OutputPath(legacy, audioLanguage, myOption.AudioOnly);
+                legacy = OutputPathPolicy.ResolveArtifact(legacy, myOption.RestrictedOutputRoot);
+                if (!string.Equals(Path.GetFullPath(legacy), Path.GetFullPath(savePath), OutputPathPolicy.PathComparison)
+                    && ShouldUseMuxedOutputCache(myOption, legacy)
+                    && !OutputOwnership.Default.IsOwnedByAnother(legacy, p))
+                    return legacy;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+            {
+            }
         }
+        return null;
     }
 
     private static string LegacyNamePart(string value) => GetValidFileName(value).Trim().TrimEnd('.').Trim();

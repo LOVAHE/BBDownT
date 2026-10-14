@@ -39,6 +39,9 @@ public class OutputCacheTests
     [Theory]
     [InlineData(5, "Title/[P1]Part.mp4")]
     [InlineData(120, "Title/[P001]Part.mp4")]
+    [InlineData(12, "Title/[P1]Part.mp4")]
+    [InlineData(12, "Title/[P001]Part.mp4")]
+    [InlineData(1200, "Title/[P0001]Part.mp4")]
     public void PageNumbersPaddedByVersion217AreFound(int pagesCount, string legacyName)
     {
         using var files = new MediaTestDirectory();
@@ -106,22 +109,56 @@ public class OutputCacheTests
     }
 
     [Fact]
-    public void VideoOnlyAndUnchangedNamesHaveNoLegacyFallback()
+    public void AnotherPagesFileIsNotMistakenForThisPage()
+    {
+        using var files = new MediaTestDirectory();
+        files.CreateDirectory("Title");
+        files.Write("Title/[P10]Part.mp4", "another page");
+        files.Write("Title/[P010]Part.mp4", "another page");
+        var page = new Page(1, "10", "1", "", "Part", 1, 0);
+
+        Assert.Null(InDirectory(files.Root, () => Program.FindLegacyOutput(new MyOption(), "Title/[P01]Part.mp4",
+            Program.MultiPageDefaultSavePath, "Title", null, null, page, 120, "WEB", 0, null)));
+    }
+
+    [Fact]
+    public void CappedNamesFromEarlierBetasAreFound()
+    {
+        using var files = new MediaTestDirectory();
+        var page = new Page(1, "10", "1", "", new string('测', 80), 1, 0);
+        var betaName = Program.FormatSavePath(
+            Program.MultiPageDefaultSavePath.Replace("<pageNumberWithZero:2>", "<pageNumberWithZero>"), "Title", null, null, page, 5, "WEB", 0);
+        files.CreateDirectory("Title");
+        files.Write(betaName, "completed media");
+        var savePath = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "Title", null, null, page, 5, "WEB", 0);
+
+        Assert.DoesNotContain(page.title, betaName);
+        Assert.Equal(betaName, InDirectory(files.Root, () => Program.FindLegacyOutput(new MyOption(), savePath,
+            Program.MultiPageDefaultSavePath, "Title", null, null, page, 5, "WEB", 0, null)));
+    }
+
+    [Fact]
+    public void VideoOnlyHasNoLegacyFallback()
     {
         using var files = new MediaTestDirectory();
         files.CreateDirectory("Title");
         files.Write("Title/[P1]Part.mp4", "completed media");
+        var page = new Page(1, "10", "1", "", "Part", 1, 0);
+
+        Assert.Null(InDirectory(files.Root, () => Program.FindLegacyOutput(new MyOption { VideoOnly = true },
+            "Title/[P01]Part.video.mp4", Program.MultiPageDefaultSavePath, "Title", null, null, page, 5, "WEB", 0, null)));
+    }
+
+    [Fact]
+    public void TheCurrentNameIsNotReportedAsALegacyName()
+    {
+        using var files = new MediaTestDirectory();
+        files.CreateDirectory("Title");
         files.Write("Title/[P01]Part.mp4", "completed media");
         var page = new Page(1, "10", "1", "", "Part", 1, 0);
 
-        InDirectory(files.Root, () =>
-        {
-            Assert.Null(Program.FindLegacyOutput(new MyOption { VideoOnly = true }, "Title/[P01]Part.video.mp4",
-                Program.MultiPageDefaultSavePath, "Title", null, null, page, 5, "WEB", 0, null));
-            Assert.Null(Program.FindLegacyOutput(new MyOption(), "Title/[P01]Part.mp4",
-                Program.MultiPageDefaultSavePath, "Title", null, null, page, 12, "WEB", 0, null));
-            return 0;
-        });
+        Assert.Null(InDirectory(files.Root, () => Program.FindLegacyOutput(new MyOption(), "Title/[P01]Part.mp4",
+            Program.MultiPageDefaultSavePath, "Title", null, null, page, 12, "WEB", 0, null)));
     }
 
     private static T InDirectory<T>(string directory, Func<T> action)
