@@ -114,17 +114,20 @@ public class BrowserRequestProfileTests
     }
 
     [Fact]
-    public void RiskControlRetry_KeepsLoggedInBrowserProfileStable()
+    public void RiskControlRetry_PreservesTheLoggedInProfileWhenChangingTransportIdentity()
     {
+        using var state = new WorkStateScope();
         var originalCookie = Config.COOKIE;
         var originalProfile = HTTPUtil.AuthenticatedBrowserProfile;
         try
         {
+            HTTPUtil.UserAgent = "";
             var profile = BrowserRequestProfile.Create(new Random(9));
             HTTPUtil.ConfigureAuthenticatedBrowserProfile(profile);
             Config.COOKIE = "SESSDATA=test;bili_jct=test";
+            Config.COOKIE_IS_INTL = false;
 
-            Assert.False(HTTPUtil.PrepareRiskControlRetry());
+            Assert.True(HTTPUtil.PrepareRiskControlRetry());
             Assert.Equal(profile, HTTPUtil.AuthenticatedBrowserProfile);
         }
         finally

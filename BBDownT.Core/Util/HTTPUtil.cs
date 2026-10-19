@@ -39,6 +39,7 @@ public static class HTTPUtil
         ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
     private static string userAgent = GenerateTransportUserAgent(Random.Shared);
     private static string? customUserAgent;
+    private static bool useTransportIdentity;
     private static BrowserRequestProfile authenticatedBrowserProfile = BrowserRequestProfile.Create(Random.Shared);
     private static Action<BrowserRequestProfile>? persistAuthenticatedBrowserProfile;
 
@@ -50,7 +51,11 @@ public static class HTTPUtil
         }
         set
         {
-            lock (UserAgentLock) customUserAgent = string.IsNullOrEmpty(value) ? null : value;
+            lock (UserAgentLock)
+            {
+                customUserAgent = string.IsNullOrEmpty(value) ? null : value;
+                useTransportIdentity = false;
+            }
         }
     }
 
@@ -103,7 +108,8 @@ public static class HTTPUtil
     {
         lock (UserAgentLock)
         {
-            if (customUserAgent is not null || !string.IsNullOrEmpty(Config.COOKIE)) return false;
+            if (customUserAgent is not null || (Config.COOKIE_IS_INTL && !string.IsNullOrEmpty(Config.COOKIE))) return false;
+            if (!string.IsNullOrEmpty(Config.COOKIE)) useTransportIdentity = true;
             userAgent = GenerateDifferentTransportUserAgent(userAgent);
             return true;
         }
@@ -263,7 +269,8 @@ public static class HTTPUtil
         // Capture once per logical request; ordinary network retries keep all identity headers.
         var identity = ResolveRequestIdentity(url, requestedUserAgent, sendCookie, forceAuthenticatedProfile);
         var riskControlRetried = false;
-        rotateIdentity ??= RotateAutomaticIdentity;
+        rotateIdentity ??= failed => RotateAutomaticIdentity(failed,
+            !forceAuthenticatedProfile && !Config.COOKIE_IS_INTL && sendCookie && ShouldSendCookie(url));
         return NetworkRetry.ExecuteAsync(async token =>
         {
             // ResponseHeadersRead leaves body reads outside HttpClient.Timeout. Apply the same
@@ -286,7 +293,7 @@ public static class HTTPUtil
                         var replacement = rotateIdentity(identity);
                         if (replacement is not null)
                         {
-                            LogDebug(identity.BrowserProfile is null
+                            LogDebug(replacement.Value.BrowserProfile is null
                                 ? "服务端返回HTTP 412，自动更换User-Agent后重试"
                                 : "服务端返回HTTP 412，自动更换完整浏览器请求配置后重试");
                             identity = replacement.Value;
@@ -373,7 +380,8 @@ public static class HTTPUtil
                 return new RequestIdentity(requestedUserAgent, null);
 
             bool useBrowserProfile = customUserAgent is null
-                && (forceAuthenticatedProfile || (sendCookie && ShouldSendCookie(url)));
+                && (forceAuthenticatedProfile || (sendCookie && ShouldSendCookie(url)
+                    && (!useTransportIdentity || Config.COOKIE_IS_INTL)));
             return useBrowserProfile
                 ? new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile)
                 : new RequestIdentity(customUserAgent ?? userAgent, null);
@@ -408,7 +416,7 @@ public static class HTTPUtil
         return Uri.TryCreate(url, UriKind.Absolute, out var uri) && IsDomain(uri.Host, domain);
     }
 
-    private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity)
+    private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity, bool useTransportFallback = false)
     {
         BrowserRequestProfile? changedProfile = null;
         Action<BrowserRequestProfile>? persistProfile = null;
@@ -419,6 +427,11 @@ public static class HTTPUtil
             if (customUserAgent is not null) return null;
             if (failedIdentity.BrowserProfile is not null)
             {
+                if (useTransportFallback)
+                {
+                    useTransportIdentity = true;
+                    return new RequestIdentity(userAgent, null);
+                }
                 if (authenticatedBrowserProfile != failedIdentity.BrowserProfile)
                     return new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile);
 

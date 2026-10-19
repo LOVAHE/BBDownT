@@ -245,7 +245,8 @@ public static partial class SubUtil
     {
         using var document = JsonDocument.Parse(json);
         IntlBangumiWebApi.EnsureSuccess(document.RootElement);
-        var data = document.RootElement.GetProperty("data");
+        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("国际站字幕接口未返回有效数据");
         List<Subtitle> subtitles = [];
         foreach (var collection in new[] { "subtitles", "video_subtitle" })
         {
@@ -470,6 +471,8 @@ public static partial class SubUtil
 
     internal static async Task<List<Subtitle>> GetIntlSubtitlesAsync(string aid, string cid, string epId, Func<string, Task<string>> fetch)
     {
+        if (string.IsNullOrWhiteSpace(epId)) return [];
+
         var (first, firstError) = await TryGetIntlSubtitlesAsync(() => GetIntlSubtitlesFromApi1Async(epId, fetch), 1);
         if (HasUsableSubtitle(first)) return MergeSubtitleSources([first], aid, cid);
         var (second, secondError) = await TryGetIntlSubtitlesAsync(() => GetIntlSubtitlesFromApi2Async(epId, fetch), 2);

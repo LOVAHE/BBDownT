@@ -510,6 +510,79 @@ public class IntlSubtitleSelectionTests
         Assert.All(subtitles, subtitle => Assert.EndsWith(".srt", subtitle.path));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    public async Task MissingEpisodeId_DoesNotRequestInternationalSubtitleEndpoints(string episodeId)
+    {
+        var subtitles = await SubUtil.GetIntlSubtitlesAsync("117403434486720", "42651419955", episodeId,
+            _ => throw new Xunit.Sdk.XunitException("An episode-only endpoint must not receive an empty ID"));
+
+        Assert.Empty(subtitles);
+    }
+
+    [Theory]
+    [InlineData("{\"code\":0}")]
+    [InlineData("{\"code\":0,\"data\":null}")]
+    [InlineData("{\"code\":0,\"data\":[]}")]
+    [InlineData("{\"code\":0,\"data\":\"invalid\"}")]
+    public void InvalidPrimaryPayload_ReportsInvalidData(string response)
+    {
+        var error = Assert.Throws<InvalidDataException>(() => SubUtil.ParseIntlSubtitleResponse(response));
+
+        Assert.Equal("国际站字幕接口未返回有效数据", error.Message);
+    }
+
+    [Fact]
+    public async Task NullPrimaryPayload_UsesTheFallbackSubtitlesForTheRequestedEpisode()
+    {
+        var requests = new List<Uri>();
+        var responses = new Queue<string>(["{\"code\":0,\"data\":null}", AppSeason("vi")]);
+
+        var subtitles = await SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", url =>
+        {
+            requests.Add(new Uri(url));
+            return Task.FromResult(responses.Dequeue());
+        });
+
+        Assert.Equal(2, requests.Count);
+        Assert.Contains("episode_id=30", requests[0].Query);
+        Assert.Contains("ep_id=30", requests[1].Query);
+        Assert.Equal("vi", Assert.Single(subtitles).lan);
+        Assert.EndsWith(".srt", subtitles[0].path);
+    }
+
+    [Fact]
+    public async Task NullPrimaryPayload_WithoutAFallbackAnswerPreservesTheFailure()
+    {
+        var responses = new Queue<string>([
+            "{\"code\":0,\"data\":null}",
+            "{\"code\":0,\"result\":{\"modules\":[]}}"
+        ]);
+
+        var error = await Assert.ThrowsAsync<SubtitleUnavailableException>(() =>
+            SubUtil.GetIntlSubtitlesAsync("intl_30", "", "30", _ => Task.FromResult(responses.Dequeue())));
+
+        Assert.IsType<InvalidDataException>(error.InnerException);
+        Assert.Contains("国际站字幕接口未返回有效数据", error.Message);
+        Assert.Empty(responses);
+    }
+
+    [Fact]
+    public async Task LegacyAidWithAnEpisodeId_StillUsesThePrimarySubtitleEndpoint()
+    {
+        var requests = new List<Uri>();
+        var subtitles = await SubUtil.GetIntlSubtitlesAsync("123", "456", "30", url =>
+        {
+            requests.Add(new Uri(url));
+            return Task.FromResult("{\"code\":0,\"data\":{\"subtitles\":[{\"lang_key\":\"en\",\"url\":\"https://sub.test/30.json\"}]}}");
+        });
+
+        Assert.Contains("episode_id=30", Assert.Single(requests).Query);
+        Assert.Equal("en", Assert.Single(subtitles).lan);
+    }
+
     private sealed class NoInputReader : TextReader
     {
         public override string? ReadLine() => throw new Xunit.Sdk.XunitException("A reused or noninteractive subtitle choice read input.");
