@@ -55,6 +55,37 @@ public class OutputCacheTests
         Assert.Equal(legacyName, found);
     }
 
+    [Theory]
+    [InlineData("Title/[P1]Part.mp4")]
+    [InlineData("Title/[P001]Part.mp4")]
+    public void AnExplicitLegacyDefaultTemplateFindsOtherPaddingWidths(string legacyName)
+    {
+        const string legacyTemplate = "<videoTitle>/[P<pageNumberWithZero>]<pageTitle>";
+        using var files = new MediaTestDirectory();
+        files.CreateDirectory("Title");
+        files.Write(legacyName, "completed media");
+        var page = new Page(1, "10", "1", "", "Part", 1, 0);
+
+        var found = InDirectory(files.Root, () => Program.FindLegacyOutput(new MyOption(), "Title/[P01]Part.mp4",
+            legacyTemplate, "Title", null, null, page, 12, "WEB", 0, null));
+
+        Assert.Equal(legacyName, found);
+    }
+
+    [Theory]
+    [InlineData("<pageNumberWithZero:0>", "")]
+    [InlineData("", "<videoTitle>/[P<pageNumberWithZero:11>]")]
+    [InlineData("<pageNumberWithZero:x>", "")]
+    public void InvalidPagePaddingIsRejectedBeforeAnyWork(string filePattern, string multiFilePattern)
+        => Assert.Equal("分P序号补零宽度必须是 1 到 10 的整数", Program.ValidateWorkOptions(
+            new MyOption { Url = "BV1xx411c7mD", FilePattern = filePattern, MultiFilePattern = multiFilePattern }));
+
+    [Theory]
+    [InlineData("<videoTitle>/[P<pageNumberWithZero:3>]<pageTitle>")]
+    [InlineData("<videoTitle>/[P<pageNumberWithZero>]<pageTitle>")]
+    public void ValidPagePaddingPassesValidation(string multiFilePattern)
+        => Assert.Null(Program.ValidateWorkOptions(new MyOption { Url = "BV1xx411c7mD", MultiFilePattern = multiFilePattern }));
+
     [Fact]
     public void UncappedNamesFromVersion217AreFound()
     {

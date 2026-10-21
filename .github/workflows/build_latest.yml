@@ -62,6 +62,13 @@ jobs:
           Copy-Item artifact/BBDownT.exe release-assets/BBDownT_win-x64.exe
           Copy-Item artifact-arm64/BBDownT.exe release-assets/BBDownT_win-arm64.exe
 
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content BBDownT/BBDownT.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $output = "$(& release-assets/BBDownT_win-x64.exe --version)".Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $output.StartsWith("$version+")) { Write-Error "Unexpected version output: $output"; exit 1 }
+
       - name: Upload artifacts [win]
         uses: actions/upload-artifact@v7
         with:
@@ -130,6 +137,12 @@ jobs:
           cp artifact-arm64/BBDownT release-assets/BBDownT_linux-arm64
           chmod +x release-assets/BBDownT_linux-x64 release-assets/BBDownT_linux-arm64
 
+      - name: Smoke test
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          output=$(release-assets/BBDownT_linux-x64 --version)
+          case "$output" in "$version+"*) ;; *) echo "::error::Unexpected version output: $output"; exit 1 ;; esac
+
       - name: Upload artifacts [linux]
         uses: actions/upload-artifact@v7
         with:
@@ -159,6 +172,12 @@ jobs:
           cp artifact/BBDownT release-assets/BBDownT_osx-x64
           cp artifact-arm64/BBDownT release-assets/BBDownT_osx-arm64
           chmod +x release-assets/BBDownT_osx-x64 release-assets/BBDownT_osx-arm64
+
+      - name: Smoke test
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          output=$(release-assets/BBDownT_osx-arm64 --version)
+          case "$output" in "$version+"*) ;; *) echo "::error::Unexpected version output: $output"; exit 1 ;; esac
 
       - name: Upload artifacts [osx]
         uses: actions/upload-artifact@v7

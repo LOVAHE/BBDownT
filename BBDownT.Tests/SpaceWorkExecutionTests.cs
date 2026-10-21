@@ -142,7 +142,7 @@ public class SpaceWorkExecutionTests : IDisposable
     }
 
     [Fact]
-    public async Task ShortLinkToOnePart_SelectsThatPart()
+    public async Task ShortLinkToOnePart_SelectsAllPartsLikeVersion217()
     {
         List<string>? selected = null;
 
@@ -155,7 +155,7 @@ public class SpaceWorkExecutionTests : IDisposable
             return Task.FromResult(new PreparedVideoDownload("1", info, _ => Task.CompletedTask));
         }, resolveShortLink: _ => Task.FromResult("https://www.bilibili.com/video/BV1xx411c7mD?p=37&share_source=copy"));
 
-        Assert.Equal(new[] { "37" }, selected);
+        Assert.Null(selected);
     }
 
     private static SpaceVideoInfo SpaceInfo(string path) => new()

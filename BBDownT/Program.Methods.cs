@@ -213,7 +213,8 @@ internal partial class Program
             ?? AudioLanguageSelection.ValidateOptions(option)
             ?? (option.UseIntlApi && (option.DownloadDanmaku || option.DanmakuOnly)
                 ? "国际站弹幕暂不支持，请去掉 --download-danmaku 或 --danmaku-only" : null)
-            ?? ValidateDanmakuFormats(option.DownloadDanmakuFormats);
+            ?? ValidateDanmakuFormats(option.DownloadDanmakuFormats)
+            ?? ValidateSavePathTemplates(option);
 
     internal static string? ValidateExclusiveOptions(MyOption option)
     {

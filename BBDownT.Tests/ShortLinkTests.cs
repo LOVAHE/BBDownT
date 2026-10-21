@@ -107,6 +107,34 @@ public class ShortLinkTests
             _ => throw new InvalidOperationException("A long link must not be fetched")));
     }
 
+    [Theory]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD?p=1&share_source=COPY#reply",
+        "https://www.bilibili.com/video/BV1xx411c7mD?share_source=COPY#reply")]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD?p=3", "https://www.bilibili.com/video/BV1xx411c7mD")]
+    [InlineData("https://www.bilibili.tv/en/play/1034193?episode_id=13287667&from=COPY",
+        "https://www.bilibili.tv/en/play/1034193?episode_id=13287667&from=COPY")]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD?p=1&share_source=COPY",
+        "https://www.bilibili.com/video/BV1xx411c7mD?share_source=COPY&p=3", "https://b23.tv/BV1xx411c7mD?p=3")]
+    [InlineData("https://www.bilibili.com/video/BV1xx411c7mD#reply",
+        "https://www.bilibili.com/video/BV1xx411c7mD?p=2#reply", "https://b23.tv/BV1xx411c7mD?p=2")]
+    public async Task ShortLinkWork_DoesNotSelectThePageOfTheSharedTarget(string location, string expected,
+        string shortLink = "https://b23.tv/share")
+    {
+        using var state = new WorkStateScope();
+        string? prepared = null;
+        var option = new MyOption { Url = shortLink };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Program.ExecuteWorkAsync(option,
+            prepare: input =>
+            {
+                prepared = input.Url;
+                throw new OperationCanceledException();
+            },
+            resolveShortLink: _ => Task.FromResult(location)));
+
+        Assert.Equal(expected, prepared);
+    }
+
     [Fact]
     public async Task FailedShortLinkRequest_PropagatesOriginalError()
     {

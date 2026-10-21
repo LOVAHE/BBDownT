@@ -48,8 +48,14 @@ public class NetworkRetryTests
             new SocketException((int)SocketError.ConnectionReset))));
         Assert.False(NetworkRetry.IsTransient(new IOException("local write failed")));
         Assert.False(NetworkRetry.IsTransient(new UnauthorizedAccessException("local access failed")));
-        Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
+        Assert.True(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
             "private", new SocketException((int)SocketError.ConnectionReset))));
+        Assert.True(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
+            "private", new IOException("unexpected EOF"))));
+        Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
+            "private", new AuthenticationException("certificate"))));
+        Assert.False(NetworkRetry.IsTransient(new HttpRequestException(HttpRequestError.SecureConnectionError,
+            "private")));
         Assert.False(NetworkRetry.IsTransient(new HttpRequestException("private",
             new AuthenticationException("private", new SocketException((int)SocketError.ConnectionReset)))));
     }
@@ -65,6 +71,8 @@ public class NetworkRetryTests
         Assert.False(NetworkRetry.IsTransient(timeout, caller.Token));
         Assert.False(NetworkRetry.IsTransient(new OperationCanceledException("private",
             new AuthenticationException("certificate"))));
+        Assert.False(NetworkRetry.IsTransient(new OperationCanceledException("private",
+            new HttpRequestException(HttpRequestError.SecureConnectionError, "private", new IOException("unexpected EOF")))));
     }
 
     [Fact]

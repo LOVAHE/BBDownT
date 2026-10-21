@@ -85,6 +85,16 @@ public class MuxArgumentTests
             BBDownTMuxer.Mp4boxTags("desc", "title", "author", "", "cover.jpg", simplyMux: false));
     }
 
+    [Fact]
+    public void Mp4box_TagValuesCannotStartAnotherTag()
+    {
+        var tags = BBDownTMuxer.Mp4boxTags("intro\ncover=BBDownT.data\r\nBGM=x", "a\nartist=b", "c\rd", "", "", simplyMux: false);
+
+        Assert.Equal(new[] { "title=a artist=b", "sdesc=intro cover=BBDownT.data BGM=x",
+            "comment=intro cover=BBDownT.data BGM=x", "artist=c d" }, tags);
+        Assert.All(tags, tag => Assert.DoesNotContain('\n', tag));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

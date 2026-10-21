@@ -18,13 +18,14 @@ internal static class NetworkRetry
         if (cancellationToken.IsCancellationRequested) return false;
         var causes = Causes(error).ToArray();
         if (causes.Any(cause => cause is AuthenticationException
-            || cause is HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError
-                or HttpRequestError.UserAuthenticationError }
-            || cause is HttpIOException { HttpRequestError: HttpRequestError.SecureConnectionError
-                or HttpRequestError.UserAuthenticationError })) return false;
+            || cause is HttpRequestException { HttpRequestError: HttpRequestError.UserAuthenticationError }
+            || cause is HttpIOException { HttpRequestError: HttpRequestError.UserAuthenticationError })) return false;
         if (causes.Any(cause => cause is OperationCanceledException))
             return causes.Any(cause => cause is TimeoutException)
                 && (error is OperationCanceledException || causes.Any(cause => cause is DownloadInterruptedException));
+        if (causes.Any(cause => cause is HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError }
+            || cause is HttpIOException { HttpRequestError: HttpRequestError.SecureConnectionError }))
+            return causes.Any(cause => cause is SocketException or IOException and not HttpIOException);
         // A status response is authoritative, even if an unrelated inner error looks transient.
         var statusError = causes.OfType<HttpRequestException>().FirstOrDefault(cause => cause.StatusCode.HasValue);
         if (statusError is not null) return IsTransientStatus(statusError.StatusCode!.Value);

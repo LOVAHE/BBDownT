@@ -17,7 +17,9 @@ partial class Program
         if (BBDownTUtil.IsShortLinkUri(option.Url))
         {
             HTTPUtil.UserAgent = option.UserAgent;
-            option.Url = await (resolveShortLink ?? BBDownTUtil.ResolveShortLinkAsync)(option.Url);
+            var typedPage = BBDownTUtil.GetQueryString("p", option.Url.Split('#')[0]);
+            option.Url = BBDownTUtil.WithPageQuery(
+                await (resolveShortLink ?? BBDownTUtil.ResolveShortLinkAsync)(option.Url), typedPage);
             ThrowIfInvalid(option);
         }
         Action<string>? reportAid = relatedTask is not null && !batchEntry ? relatedTask.SetAid : null;

@@ -135,22 +135,25 @@ static partial class BBDownTMuxer
     {
         List<string> metaTags = [];
         if (!string.IsNullOrEmpty(pic))
-            metaTags.Add($"cover={pic}");
+            metaTags.Add($"cover={OneLine(pic)}");
         if (simplyMux) return metaTags;
         if (!string.IsNullOrEmpty(episodeId))
         {
-            metaTags.Add($"album={title}");
-            metaTags.Add($"title={episodeId}");
+            metaTags.Add($"album={OneLine(title)}");
+            metaTags.Add($"title={OneLine(episodeId)}");
         }
         else
         {
-            metaTags.Add($"title={title}");
+            metaTags.Add($"title={OneLine(title)}");
         }
-        metaTags.Add($"sdesc={desc}");
-        metaTags.Add($"comment={desc}");
-        metaTags.Add($"artist={author}");
+        metaTags.Add($"sdesc={OneLine(desc)}");
+        metaTags.Add($"comment={OneLine(desc)}");
+        metaTags.Add($"artist={OneLine(author)}");
         return metaTags;
     }
+
+    private static string OneLine(string value)
+        => value.ReplaceLineEndings(" ");
 
     public static int MuxAV(bool useMp4box, string videoPath, string audioPath, List<AudioMaterial> audioMaterial, string outPath, string desc = "", string title = "", string author = "", string episodeId = "", string pic = "", string lang = "", List<Subtitle>? subs = null, bool audioOnly = false, bool videoOnly = false, List<ViewPoint>? points = null, long pubTime = 0, bool simplyMux = false, bool isHevc = false, string? restrictedOutputRoot = null)
     {

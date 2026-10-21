@@ -222,6 +222,20 @@ static partial class BBDownTUtil
         return location;
     }
 
+    internal static string WithPageQuery(string url, string page)
+    {
+        int fragmentStart = url.IndexOf('#');
+        string fragment = fragmentStart < 0 ? "" : url[fragmentStart..];
+        string target = fragmentStart < 0 ? url : url[..fragmentStart];
+        int queryStart = target.IndexOf('?');
+        string path = queryStart < 0 ? target : target[..queryStart];
+        var kept = (queryStart < 0 ? [] : target[(queryStart + 1)..].Split('&'))
+            .Where(part => part.Split('=', 2)[0] != "p")
+            .Concat(page.Length == 0 ? [] : ["p=" + page])
+            .ToArray();
+        return path + (kept.Length == 0 ? "" : "?" + string.Join('&', kept)) + fragment;
+    }
+
     internal static bool IsShortLinkUri(string input)
         => Uri.TryCreate(input, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)

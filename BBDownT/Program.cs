@@ -1298,9 +1298,11 @@ partial class Program
         Video? videoTrack, Audio? audioTrack, Page p, int pagesCount, string apiType, long pubTime, string? audioLanguage)
     {
         if (myOption.VideoOnly && !myOption.AudioOnly) return null;
-        IEnumerable<string> formats = savePathFormat == MultiPageDefaultSavePath
+        var paddedPage = savePathFormat == MultiPageDefaultSavePath ? "<pageNumberWithZero:2>"
+            : savePathFormat.Contains("<pageNumberWithZero>", StringComparison.Ordinal) ? "<pageNumberWithZero>" : null;
+        IEnumerable<string> formats = paddedPage is not null
             ? Enumerable.Range(1, Math.Max(3, pagesCount.ToString().Length)).Select(width =>
-                savePathFormat.Replace("<pageNumberWithZero:2>", $"<pageNumberWithZero:{width}>", StringComparison.Ordinal))
+                savePathFormat.Replace(paddedPage, $"<pageNumberWithZero:{width}>", StringComparison.Ordinal))
             : [savePathFormat];
         var candidates = formats.Distinct().SelectMany(format => new Func<string>[]
         {
@@ -1356,13 +1358,9 @@ partial class Program
             var key = m.Groups[1].Value;
 
             int? pageNumberWidth = null;
-            const string paddingPrefix = "pageNumberWithZero:";
-            if (key.StartsWith(paddingPrefix, StringComparison.Ordinal))
+            if (key.StartsWith(PagePaddingPrefix, StringComparison.Ordinal))
             {
-                if (!int.TryParse(key[paddingPrefix.Length..], NumberStyles.None,
-                        CultureInfo.InvariantCulture, out var width) || width < 1 || width > 10)
-                    throw new ArgumentException("分P序号补零宽度必须是 1 到 10 的整数");
-                pageNumberWidth = width;
+                pageNumberWidth = PageNumberWidth(key) ?? throw new ArgumentException(InvalidPagePadding);
                 key = "pageNumberWithZero";
             }
 
@@ -1413,6 +1411,19 @@ partial class Program
         if (!result.EndsWith(".mp4")) { result += ".mp4"; }
         return result;
     }
+
+    private const string PagePaddingPrefix = "pageNumberWithZero:";
+    private const string InvalidPagePadding = "分P序号补零宽度必须是 1 到 10 的整数";
+
+    private static int? PageNumberWidth(string key)
+        => int.TryParse(key[PagePaddingPrefix.Length..], NumberStyles.None, CultureInfo.InvariantCulture, out var width)
+            && width is >= 1 and <= 10 ? width : null;
+
+    internal static string? ValidateSavePathTemplates(MyOption option)
+        => new[] { option.FilePattern ?? "", option.MultiFilePattern ?? "" }
+            .SelectMany(pattern => InfoRegex().Matches(pattern.Replace('\\', '/')).Select(m => m.Groups[1].Value))
+            .Any(key => key.StartsWith(PagePaddingPrefix, StringComparison.Ordinal) && PageNumberWidth(key) is null)
+            ? InvalidPagePadding : null;
 
     [GeneratedRegex("<(pageNumberWithZero:[^>]*|[\\w:\\-.]+?)>")]
     private static partial Regex InfoRegex();
