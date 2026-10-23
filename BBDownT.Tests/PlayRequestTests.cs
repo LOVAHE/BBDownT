@@ -35,7 +35,7 @@ public class PlayRequestTests : IDisposable
 
     [Theory]
     [InlineData("BV", "/x/player/wbi/playurl")]
-    [InlineData("cheese:1", "/pugv/player/web/v2/playurl")]
+    [InlineData("cheese:1", "/pugv/player/web/playurl")]
     public async Task NonPgcWeb_PreservesBrowserHint(string aidOri, string path)
     {
         var requests = new List<Uri>();

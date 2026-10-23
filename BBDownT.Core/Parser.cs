@@ -104,7 +104,7 @@ public static partial class Parser
         }
 
         //课程接口
-        if (cheese) api = api.Replace("/pgc/", "/pugv/");
+        if (cheese) api = api.Replace("/pgc/player/web/v2/", "/pugv/player/web/").Replace("/pgc/", "/pugv/");
 
         //Console.WriteLine(api);
         string webJson = await fetch(api);

@@ -65,7 +65,7 @@ public class AudioLanguageProtocolTests : IDisposable
     [Theory]
     [InlineData("BV", "/x/player/wbi/playurl", true)]
     [InlineData("ep:1", "/pgc/player/web/v2/playurl", false)]
-    [InlineData("cheese:1", "/pugv/player/web/v2/playurl", false)]
+    [InlineData("cheese:1", "/pugv/player/web/playurl", false)]
     public async Task WebRequest_SendsEncodedLanguageBeforeSigning(string input, string path, bool signed)
     {
         var requests = new List<string>();
