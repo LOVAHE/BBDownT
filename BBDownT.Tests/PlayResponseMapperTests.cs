@@ -294,6 +294,73 @@ public class PlayResponseMapperTests
             point => AssertPoint(point, "片尾", 30, 40));
     }
 
+    [Fact]
+    public void BangumiClipFixture_OpeningOnlyCoversRemainingMainSegment()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "timelength": 1440210,
+              "clip_info_list": [
+                { "toastText": "即将跳过片头", "start": 54, "end": 151 }
+              ]
+            }
+            """);
+        var result = new ParsedResult();
+
+        PlayResponseMapper.MapClipInfo(document.RootElement, result);
+
+        Assert.Collection(
+            result.ExtraPoints,
+            point => AssertPoint(point, "正片", 0, 54),
+            point => AssertPoint(point, "片头", 54, 151),
+            point => AssertPoint(point, "正片", 151, 1440));
+    }
+
+    [Fact]
+    public void BangumiClipFixture_CoversContentAfterEnding()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "dash": { "duration": 1440 },
+              "clip_info_list": [
+                { "toastText": "即将跳过片头", "start": 0, "end": 90 },
+                { "toastText": "即将跳过片尾", "start": 1320, "end": 1410 }
+              ]
+            }
+            """);
+        var result = new ParsedResult();
+
+        PlayResponseMapper.MapClipInfo(document.RootElement, result);
+
+        Assert.Collection(
+            result.ExtraPoints,
+            point => AssertPoint(point, "片头", 0, 90),
+            point => AssertPoint(point, "正片", 90, 1320),
+            point => AssertPoint(point, "片尾", 1320, 1410),
+            point => AssertPoint(point, "正片", 1410, 1440));
+    }
+
+    [Fact]
+    public void BangumiClipFixture_EndingAtDurationAddsNoTrailingSegment()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "timelength": 1440900,
+              "clip_info_list": [
+                { "toastText": "即将跳过片尾", "start": 1350, "end": 1440 }
+              ]
+            }
+            """);
+        var result = new ParsedResult();
+
+        PlayResponseMapper.MapClipInfo(document.RootElement, result);
+
+        Assert.Collection(
+            result.ExtraPoints,
+            point => AssertPoint(point, "正片", 0, 1350),
+            point => AssertPoint(point, "片尾", 1350, 1440));
+    }
+
 
     [Fact]
     public void DurlFixture_MapsClipsQualitiesDurationSizeAndCodec()

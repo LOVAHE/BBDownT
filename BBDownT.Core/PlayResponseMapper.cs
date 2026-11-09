@@ -352,6 +352,16 @@ internal static class PlayResponseMapper
             pointsWithMainSegments.Add(point);
             lastEnd = point.end;
         }
+        var duration = GetDurationSeconds(root);
+        if (duration - lastEnd > 1)
+        {
+            pointsWithMainSegments.Add(new ViewPoint
+            {
+                title = "正片",
+                start = lastEnd,
+                end = duration
+            });
+        }
         parsedResult.ExtraPoints = pointsWithMainSegments;
     }
 
