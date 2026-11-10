@@ -30,6 +30,22 @@ public class OptionBehaviorTests
     }
 
     [Fact]
+    public void CookieTrust_IncludesOfficialTvHostButNotCustomOnes()
+    {
+        var (cookie, isIntl) = (Config.COOKIE, Config.COOKIE_IS_INTL);
+        try
+        {
+            (Config.COOKIE, Config.COOKIE_IS_INTL) = ("SESSDATA=user", false);
+            Assert.True(BBDownT.Core.Util.HTTPUtil.ShouldSendCookie("https://api.snm0516.aisee.tv/x/tv/playurl?cid=1"));
+            Assert.False(BBDownT.Core.Util.HTTPUtil.ShouldSendCookie("https://tv.example.test/x/tv/playurl?cid=1"));
+        }
+        finally
+        {
+            (Config.COOKIE, Config.COOKIE_IS_INTL) = (cookie, isIntl);
+        }
+    }
+
+    [Fact]
     public void ServeDebug_StaysOnForTasksThatDoNotAskForIt()
     {
         using var state = new WorkStateScope();
